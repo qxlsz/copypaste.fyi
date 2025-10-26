@@ -1,5 +1,5 @@
-# Build stage
-FROM rust:1.75 as builder
+# Use the official Rust image with Rust 1.82
+FROM rust:1.82-slim as builder
 
 # Install build dependencies
 RUN apt-get update && \
@@ -11,9 +11,8 @@ RUN apt-get update && \
 # Set working directory
 WORKDIR /usr/src/copypaste
 
-# Copy only the files needed for building dependencies
-COPY Cargo.toml ./
-COPY src/ src/
+# Copy the source code
+COPY . .
 
 # Build the application
 RUN cargo build --release
@@ -32,27 +31,24 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Create data directory and set permissions
-RUN mkdir -p /app/data && chown -R 1000:1000 /app/data
+RUN mkdir -p /app/data /app/static && chown -R 1000:1000 /app
 
 # Copy the binary from the builder stage
-COPY --from=builder /usr/src/copypaste/target/release/copypaste /usr/local/bin/copypaste
+COPY --from=builder /usr/src/copypaste/target/release/copypaste /app/
 
-# Copy static files and migrations
+# Copy static files
 COPY static /app/static
-COPY migrations /app/migrations
 
 # Run as non-root user
 USER 1000:1000
 
 # Set environment variables
-ENV RUST_LOG=info
-ENV DATABASE_URL=sqlite:/app/data/pastes.db
+ENV ROCKET_ADDRESS=0.0.0.0
+ENV ROCKET_PORT=8000
+ENV ROCKET_DATABLES={}
 
 # Expose the port the app runs on
 EXPOSE 8000
 
 # Command to run the application
-CMD ["copypaste"]
-
-# Command to run the application
-CMD ["/usr/local/bin/copypaste"]
+CMD ["/app/copypaste"]
