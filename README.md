@@ -24,6 +24,12 @@ Key traits:
 
 ```mermaid
 graph TD
+    classDef client fill:#2563eb,stroke:#1e3a8a,color:#fff;
+    classDef app fill:#10b981,stroke:#047857,color:#fff;
+    classDef trait fill:#f59e0b,stroke:#b45309,color:#fff;
+    classDef storage fill:#f87171,stroke:#b91c1c,color:#fff;
+    classDef link stroke-width:2px;
+
     A[Web Client\nStatic HTML + Fetch]
     B[Rocket Web App\nRoutes: /, /<id>, /static]
     C[PasteStore Trait]
@@ -32,6 +38,12 @@ graph TD
     A -->|POST /, GET /| B
     B -->|Async tasks| C
     C -->|Implementation| D
+
+    class A client;
+    class B app;
+    class C trait;
+    class D storage;
+    class A,B,C,D link;
 ```
 
 The flow is intentionally straightforward: the browser posts raw text to `/`, Rocket forwards the request to the `PasteStore` interface, and the in-memory backend issues a short identifier used for lookups.
