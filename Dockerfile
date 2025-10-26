@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.73 as builder
+FROM rust:1.75 as builder
 
 # Install build dependencies
 RUN apt-get update && \
@@ -8,17 +8,12 @@ RUN apt-get update && \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install SQLx CLI
-RUN cargo install sqlx-cli
-
-# Create a new empty shell project
+# Set working directory
 WORKDIR /usr/src/copypaste
 
-# Copy the source code
-COPY . .
-
-# Prepare for offline builds
-RUN cargo sqlx prepare -- --lib
+# Copy only the files needed for building dependencies
+COPY Cargo.toml ./
+COPY src/ src/
 
 # Build the application
 RUN cargo build --release
@@ -36,13 +31,13 @@ RUN apt-get update && \
 # Set the working directory
 WORKDIR /app
 
-# Copy the binary from the builder stage
-COPY --from=builder /usr/src/copypaste/target/release/copypaste /usr/local/bin/copypaste
-
 # Create data directory and set permissions
 RUN mkdir -p /app/data && chown -R 1000:1000 /app/data
 
-# Copy static files
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/copypaste/target/release/copypaste /usr/local/bin/copypaste
+
+# Copy static files and migrations
 COPY static /app/static
 COPY migrations /app/migrations
 

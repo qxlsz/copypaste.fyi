@@ -110,10 +110,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(db_url)
         .await?;
     
-    // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await?;
+    // Initialize database
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS pastes (
+            id TEXT PRIMARY KEY,
+            content TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )"#
+    )
+    .execute(&pool)
+    .await?;
     
     let state = Arc::new(AppState { db: pool });
     
