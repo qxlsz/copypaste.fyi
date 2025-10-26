@@ -87,17 +87,20 @@ Compose mounts the `static/` directory for live UI updates. Data is stored in-me
 
 ### CLI Usage (`cpaste`)
 
-The CLI submits content to a running copypaste.fyi instance and prints the resulting link.
+Build the standalone CLI and point it at any copypaste.fyi instance.
 
 ```bash
-# From repository root
-cargo run --bin cpaste -- "Hello from CLI"
+# Build the binary
+cargo build --bin cpaste --release
 
-# Or via stdin
-echo "log output" | cargo run --bin cpaste --
+# Send text directly (defaults to http://127.0.0.1:8000)
+./target/release/cpaste -- "Hello from CLI"
 
-# Target remote host
-COPYPASTE_BASE_URL=https://copypaste.fyi cargo run --bin cpaste -- "notes"
+# Switch hosts as needed
+./target/release/cpaste --host https://copypaste.fyi -- "notes"
+
+# Stream from stdin
+echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000 --
 ```
 
 ## Project Structure
