@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
+use aes_gcm::{Aes256Gcm, Nonce as AesNonce};
 use base64::{engine::general_purpose, Engine};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaNonce, XChaCha20Poly1305, XNonce};
 use chrono::DateTime;
 use copypaste::{
     create_paste_store, EncryptionAlgorithm, PasteError, PasteFormat, SharedPasteStore,
@@ -50,6 +51,226 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use copypaste::MemoryPasteStore;
+    use rocket::http::{ContentType, Status};
+    use rocket::local::asynchronous::Client;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    async fn rocket_client() -> Client {
+        Client::tracked(super::build_rocket(create_paste_store()))
+            .await
+            .expect("valid rocket instance")
+    }
+
+    async fn rocket_client_with_store(store: SharedPasteStore) -> Client {
+        Client::tracked(super::build_rocket(store))
+            .await
+            .expect("valid rocket instance")
+    }
+
+    #[rocket::async_test]
+    async fn post_plain_text_returns_id() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "plain content",
+            "format": "plain_text",
+            "retention_minutes": 60
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().await.expect("response body");
+        assert!(body.starts_with('/'));
+
+        let get_response = client.get(&body).dispatch().await;
+        assert_eq!(get_response.status(), Status::Ok);
+        let html = get_response.into_string().await.expect("html body");
+        assert!(html.contains("plain content"));
+    }
+
+    #[rocket::async_test]
+    async fn post_encrypted_requires_key() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "secret text",
+            "format": "markdown",
+            "retention_minutes": 0,
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "passphrase"
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let path = response.into_string().await.expect("body");
+
+        let without_key = client.get(&path).dispatch().await;
+        let without_body = without_key.into_string().await.expect("html");
+        assert!(without_body.contains("Provide the encryption key"));
+
+        let with_key = client
+            .get(format!("{}?key=passphrase", path))
+            .dispatch()
+            .await;
+        let html = with_key.into_string().await.expect("html");
+        assert!(html.contains("secret text"));
+    }
+
+    #[rocket::async_test]
+    async fn post_encrypted_chacha_roundtrip() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "orbital payload",
+            "format": "kotlin",
+            "retention_minutes": 0,
+            "encryption": {
+                "algorithm": "chacha20_poly1305",
+                "key": "retro-synthwave-9001"
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let path = response.into_string().await.expect("body");
+
+        let with_key = client
+            .get(format!("{}?key=retro-synthwave-9001", path))
+            .dispatch()
+            .await;
+        let html = with_key.into_string().await.expect("html");
+        assert!(html.contains("orbital payload"));
+    }
+
+    #[rocket::async_test]
+    async fn post_encrypted_xchacha_roundtrip() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "vault dweller",
+            "format": "go",
+            "retention_minutes": 0,
+            "encryption": {
+                "algorithm": "xchacha20_poly1305",
+                "key": "matrix-quantum-4040"
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let path = response.into_string().await.expect("body");
+
+        let with_key = client
+            .get(format!("{}?key=matrix-quantum-4040", path))
+            .dispatch()
+            .await;
+        let html = with_key.into_string().await.expect("html");
+        assert!(html.contains("vault dweller"));
+    }
+
+    #[rocket::async_test]
+    async fn expired_paste_shows_expired_message() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::default());
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "short lived".into(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: 0,
+            expires_at: Some(-1),
+        };
+
+        let id = store.create_paste(paste).await;
+        let client = rocket_client_with_store(store).await;
+
+        let expired = client.get(format!("/{}", id)).dispatch().await;
+        let html = expired.into_string().await.expect("html");
+        assert!(html.contains("Paste expired"));
+    }
+
+    #[test]
+    fn encrypt_then_decrypt_roundtrip() {
+        let key = "correct horse battery staple";
+        let stored = encrypt_content("super secret", key, EncryptionAlgorithm::Aes256Gcm)
+            .expect("encryption succeeds");
+        let decrypted =
+            decrypt_content(&stored, Some(key)).expect("decrypting with same key succeeds");
+        assert_eq!(decrypted, "super secret");
+    }
+
+    #[test]
+    fn chacha_roundtrip() {
+        let key = "tachyon-vector-2048";
+        let stored = encrypt_content("ghost signal", key, EncryptionAlgorithm::ChaCha20Poly1305)
+            .expect("encryption succeeds");
+        let decrypted =
+            decrypt_content(&stored, Some(key)).expect("decrypting with same key succeeds");
+        assert_eq!(decrypted, "ghost signal");
+    }
+
+    #[test]
+    fn decrypt_requires_key_for_encrypted_content() {
+        let stored = encrypt_content(
+            "classified",
+            "moonbase",
+            EncryptionAlgorithm::XChaCha20Poly1305,
+        )
+        .expect("encryption succeeds");
+        match decrypt_content(&stored, None) {
+            Err(DecryptError::MissingKey) => {}
+            other => panic!("expected missing key error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn xchacha_roundtrip() {
+        let key = "tachyon-subroutine-7331";
+        let stored = encrypt_content("link shell", key, EncryptionAlgorithm::XChaCha20Poly1305)
+            .expect("encryption succeeds");
+        let decrypted =
+            decrypt_content(&stored, Some(key)).expect("decrypting with same key succeeds");
+        assert_eq!(decrypted, "link shell");
+    }
+
+    #[test]
+    fn format_json_pretty_prints() {
+        let result = format_json(r#"{"foo":1,"bar":[true,false]}"#);
+        assert!(
+            result.contains("\n"),
+            "formatted JSON should contain newlines"
+        );
+        assert!(result.contains("foo"));
+        assert!(result.starts_with("<pre><code>"));
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct CreatePasteRequest {
@@ -77,19 +298,23 @@ async fn create(
     body: Json<CreatePasteRequest>,
 ) -> Result<String, (Status, String)> {
     let now = current_timestamp();
-    let format = body.format.clone().unwrap_or_default();
+    let format = body.format.unwrap_or_default();
     let expires_at = body.retention_minutes.and_then(|mins| match mins {
         0 => None,
         minutes => Some(now + i64::try_from(minutes).unwrap_or(0) * 60),
     });
 
     let content = if let Some(enc) = &body.encryption {
-        match enc.algorithm {
+        let algorithm = enc.algorithm;
+        match algorithm {
             EncryptionAlgorithm::None => StoredContent::Plain {
                 text: body.content.clone(),
             },
-            EncryptionAlgorithm::Aes256Gcm => {
-                encrypt_content(&body.content, &enc.key).map_err(|e| (Status::BadRequest, e))?
+            EncryptionAlgorithm::Aes256Gcm
+            | EncryptionAlgorithm::ChaCha20Poly1305
+            | EncryptionAlgorithm::XChaCha20Poly1305 => {
+                encrypt_content(&body.content, &enc.key, algorithm)
+                    .map_err(|e| (Status::BadRequest, e))?
             }
         }
     } else {
@@ -136,32 +361,75 @@ fn current_timestamp() -> i64 {
         .unwrap_or_default()
 }
 
-fn encrypt_content(text: &str, key: &str) -> Result<StoredContent, String> {
+fn encrypt_content(
+    text: &str,
+    key: &str,
+    algorithm: EncryptionAlgorithm,
+) -> Result<StoredContent, String> {
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
 
-    let mut hasher = Sha256::new();
-    hasher.update(&salt[..]);
-    hasher.update(key.as_bytes());
-    let derived = hasher.finalize();
-    let derived: [u8; 32] = derived.into();
+    let derived = derive_key_material(key, &salt);
 
-    let cipher = Aes256Gcm::new_from_slice(&derived)
-        .map_err(|_| "failed to initialise cipher".to_string())?;
-    let mut nonce_bytes = [0u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from(nonce_bytes);
+    match algorithm {
+        EncryptionAlgorithm::None => Ok(StoredContent::Plain {
+            text: text.to_owned(),
+        }),
+        EncryptionAlgorithm::Aes256Gcm => {
+            let cipher = Aes256Gcm::new_from_slice(&derived)
+                .map_err(|_| "failed to initialise cipher".to_string())?;
+            let mut nonce_bytes = [0u8; 12];
+            OsRng.fill_bytes(&mut nonce_bytes);
+            let nonce = AesNonce::from(nonce_bytes);
 
-    let ciphertext = cipher
-        .encrypt(&nonce, text.as_bytes())
-        .map_err(|_| "failed to encrypt content".to_string())?;
+            let ciphertext = cipher
+                .encrypt(&nonce, text.as_bytes())
+                .map_err(|_| "failed to encrypt content".to_string())?;
 
-    Ok(StoredContent::Encrypted {
-        algorithm: EncryptionAlgorithm::Aes256Gcm,
-        ciphertext: general_purpose::STANDARD.encode(ciphertext),
-        nonce: general_purpose::STANDARD.encode(nonce_bytes),
-        salt: general_purpose::STANDARD.encode(salt),
-    })
+            Ok(StoredContent::Encrypted {
+                algorithm,
+                ciphertext: general_purpose::STANDARD.encode(ciphertext),
+                nonce: general_purpose::STANDARD.encode(nonce_bytes),
+                salt: general_purpose::STANDARD.encode(salt),
+            })
+        }
+        EncryptionAlgorithm::ChaCha20Poly1305 => {
+            let cipher = ChaCha20Poly1305::new_from_slice(&derived)
+                .map_err(|_| "failed to initialise cipher".to_string())?;
+            let mut nonce_bytes = [0u8; 12];
+            OsRng.fill_bytes(&mut nonce_bytes);
+            let nonce = ChaNonce::from(nonce_bytes);
+
+            let ciphertext = cipher
+                .encrypt(&nonce, text.as_bytes())
+                .map_err(|_| "failed to encrypt content".to_string())?;
+
+            Ok(StoredContent::Encrypted {
+                algorithm,
+                ciphertext: general_purpose::STANDARD.encode(ciphertext),
+                nonce: general_purpose::STANDARD.encode(nonce_bytes),
+                salt: general_purpose::STANDARD.encode(salt),
+            })
+        }
+        EncryptionAlgorithm::XChaCha20Poly1305 => {
+            let cipher = XChaCha20Poly1305::new_from_slice(&derived)
+                .map_err(|_| "failed to initialise cipher".to_string())?;
+            let mut nonce_bytes = [0u8; 24];
+            OsRng.fill_bytes(&mut nonce_bytes);
+            let nonce = XNonce::from(nonce_bytes);
+
+            let ciphertext = cipher
+                .encrypt(&nonce, text.as_bytes())
+                .map_err(|_| "failed to encrypt content".to_string())?;
+
+            Ok(StoredContent::Encrypted {
+                algorithm,
+                ciphertext: general_purpose::STANDARD.encode(ciphertext),
+                nonce: general_purpose::STANDARD.encode(nonce_bytes),
+                salt: general_purpose::STANDARD.encode(salt),
+            })
+        }
+    }
 }
 
 fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<String, DecryptError> {
@@ -173,10 +441,6 @@ fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<String,
             nonce,
             salt,
         } => {
-            if *algorithm == EncryptionAlgorithm::None {
-                return Ok(ciphertext.clone());
-            }
-
             let key = key.ok_or(DecryptError::MissingKey)?;
             let salt_bytes = general_purpose::STANDARD
                 .decode(salt)
@@ -188,25 +452,67 @@ fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<String,
                 .decode(ciphertext)
                 .map_err(|_| DecryptError::InvalidKey)?;
 
-            let mut hasher = Sha256::new();
-            hasher.update(&salt_bytes);
-            hasher.update(key.as_bytes());
-            let derived = hasher.finalize();
-            let derived: [u8; 32] = derived.into();
+            let derived = derive_key_material(key, &salt_bytes);
 
-            let cipher =
-                Aes256Gcm::new_from_slice(&derived).map_err(|_| DecryptError::InvalidKey)?;
-            let nonce_array: [u8; 12] = nonce_bytes_vec
-                .try_into()
-                .map_err(|_| DecryptError::InvalidKey)?;
-            let nonce = Nonce::from(nonce_array);
+            match algorithm {
+                EncryptionAlgorithm::None => {
+                    String::from_utf8(cipher_bytes).map_err(|_| DecryptError::InvalidKey)
+                }
+                EncryptionAlgorithm::Aes256Gcm => {
+                    let cipher = Aes256Gcm::new_from_slice(&derived)
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce_array: [u8; 12] = nonce_bytes_vec
+                        .try_into()
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce = AesNonce::from(nonce_array);
 
-            cipher
-                .decrypt(&nonce, cipher_bytes.as_ref())
-                .map_err(|_| DecryptError::InvalidKey)
-                .and_then(|bytes| String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey))
+                    cipher
+                        .decrypt(&nonce, cipher_bytes.as_ref())
+                        .map_err(|_| DecryptError::InvalidKey)
+                        .and_then(|bytes| {
+                            String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey)
+                        })
+                }
+                EncryptionAlgorithm::ChaCha20Poly1305 => {
+                    let cipher = ChaCha20Poly1305::new_from_slice(&derived)
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce_array: [u8; 12] = nonce_bytes_vec
+                        .try_into()
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce = ChaNonce::from(nonce_array);
+
+                    cipher
+                        .decrypt(&nonce, cipher_bytes.as_ref())
+                        .map_err(|_| DecryptError::InvalidKey)
+                        .and_then(|bytes| {
+                            String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey)
+                        })
+                }
+                EncryptionAlgorithm::XChaCha20Poly1305 => {
+                    let cipher = XChaCha20Poly1305::new_from_slice(&derived)
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce_array: [u8; 24] = nonce_bytes_vec
+                        .try_into()
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce = XNonce::from(nonce_array);
+
+                    cipher
+                        .decrypt(&nonce, cipher_bytes.as_ref())
+                        .map_err(|_| DecryptError::InvalidKey)
+                        .and_then(|bytes| {
+                            String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey)
+                        })
+                }
+            }
         }
     }
+}
+
+fn derive_key_material(key: &str, salt: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(salt);
+    hasher.update(key.as_bytes());
+    hasher.finalize().into()
 }
 
 fn render_paste(id: &str, paste: &StoredPaste, key: Option<&str>) -> String {
@@ -221,7 +527,11 @@ fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
     let rendered_body = match paste.format {
         PasteFormat::PlainText => format_plain(text),
         PasteFormat::Markdown => format_markdown(text),
-        PasteFormat::Code => format_code(text),
+        PasteFormat::Code
+        | PasteFormat::Go
+        | PasteFormat::Cpp
+        | PasteFormat::Kotlin
+        | PasteFormat::Java => format_code(text),
         PasteFormat::Json => format_json(text),
     };
 
@@ -238,6 +548,8 @@ fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
         StoredContent::Encrypted { ref algorithm, .. } => match algorithm {
             EncryptionAlgorithm::None => "None".to_string(),
             EncryptionAlgorithm::Aes256Gcm => "AES-256-GCM".to_string(),
+            EncryptionAlgorithm::ChaCha20Poly1305 => "ChaCha20-Poly1305".to_string(),
+            EncryptionAlgorithm::XChaCha20Poly1305 => "XChaCha20-Poly1305".to_string(),
         },
     };
 

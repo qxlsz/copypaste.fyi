@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PasteFormat {
     #[default]
@@ -16,14 +16,24 @@ pub enum PasteFormat {
     Markdown,
     Code,
     Json,
+    #[serde(rename = "go")]
+    Go,
+    #[serde(rename = "cpp")]
+    Cpp,
+    Kotlin,
+    Java,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionAlgorithm {
     #[default]
     None,
     Aes256Gcm,
+    #[serde(rename = "chacha20_poly1305")]
+    ChaCha20Poly1305,
+    #[serde(rename = "xchacha20_poly1305")]
+    XChaCha20Poly1305,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,4 +128,72 @@ pub type SharedPasteStore = Arc<dyn PasteStore>;
 
 pub fn create_paste_store() -> SharedPasteStore {
     Arc::new(MemoryPasteStore::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn creates_and_reads_plain_paste() {
+        let store = MemoryPasteStore::default();
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "hello world".into(),
+            },
+            format: PasteFormat::Markdown,
+            created_at: 1234,
+            expires_at: None,
+        };
+
+        let id = store.create_paste(paste).await;
+        let stored = store.get_paste(&id).await.expect("paste should exist");
+
+        match stored.content {
+            StoredContent::Plain { ref text } => assert_eq!(text, "hello world"),
+            _ => panic!("unexpected content variant"),
+        }
+    }
+
+    #[tokio::test]
+    async fn expired_paste_is_removed() {
+        let store = MemoryPasteStore::default();
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "stale".into(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: 100,
+            expires_at: Some(50),
+        };
+
+        let id = store.create_paste(paste).await;
+        let result = store.get_paste(&id).await;
+
+        assert!(matches!(result, Err(PasteError::Expired(_))));
+        assert!(matches!(
+            store.get_paste(&id).await,
+            Err(PasteError::NotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn stores_encrypted_content() {
+        let store = MemoryPasteStore::default();
+        let paste = StoredPaste {
+            content: StoredContent::Encrypted {
+                algorithm: EncryptionAlgorithm::Aes256Gcm,
+                ciphertext: "abc".into(),
+                nonce: "nonce".into(),
+                salt: "salt".into(),
+            },
+            format: PasteFormat::Code,
+            created_at: 0,
+            expires_at: None,
+        };
+
+        let id = store.create_paste(paste).await;
+        let stored = store.get_paste(&id).await.expect("paste should exist");
+        assert!(matches!(stored.content, StoredContent::Encrypted { .. }));
+    }
 }

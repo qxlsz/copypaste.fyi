@@ -22,4 +22,10 @@ rustup component add rustfmt clippy
 echo "Installing wasm32 for rocket (optional)..."
 rustup target add wasm32-unknown-unknown || true
 
+echo "Installing cargo-nextest (test runner)..."
+cargo install cargo-nextest --locked --force
+
+echo "Installing cargo-llvm-cov (coverage tooling)..."
+cargo install cargo-llvm-cov --locked --force
+
 echo "Dependencies installed successfully."

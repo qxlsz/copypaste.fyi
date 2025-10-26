@@ -16,6 +16,14 @@ enum CliFormat {
     Code,
     #[value(name = "json")]
     Json,
+    #[value(name = "go")]
+    Go,
+    #[value(name = "cpp")]
+    Cpp,
+    #[value(name = "kotlin")]
+    Kotlin,
+    #[value(name = "java")]
+    Java,
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq, Default)]
@@ -25,6 +33,10 @@ enum CliEncryption {
     None,
     #[value(name = "aes256_gcm")]
     Aes256Gcm,
+    #[value(name = "chacha20_poly1305")]
+    ChaCha20Poly1305,
+    #[value(name = "xchacha20_poly1305")]
+    XChaCha20Poly1305,
 }
 
 /// Submit text to a copypaste.fyi instance and print the resulting URL.
@@ -53,10 +65,10 @@ struct Cli {
     retention: u64,
 
     /// Encryption algorithm to use for this paste.
-    #[arg(long = "encryption", value_enum, default_value_t = CliEncryption::None)]
+    #[arg(long, value_enum, default_value_t = CliEncryption::None)]
     encryption_mode: CliEncryption,
 
-    /// Encryption key (required when --encryption aes256_gcm is set).
+    /// Encryption key (required when encryption is not "none").
     #[arg(long = "key")]
     encryption_key: Option<String>,
 }
@@ -97,17 +109,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let encryption = match cli.encryption_mode {
         CliEncryption::None => None,
-        CliEncryption::Aes256Gcm => {
+        CliEncryption::Aes256Gcm
+        | CliEncryption::ChaCha20Poly1305
+        | CliEncryption::XChaCha20Poly1305 => {
             let key = cli
                 .encryption_key
                 .as_deref()
                 .filter(|k| !k.trim().is_empty())
                 .unwrap_or_else(|| {
-                    eprintln!("--key must be supplied when using --encryption aes256_gcm");
+                    eprintln!(
+                        "--key must be supplied when using --encryption {:?}",
+                        cli.encryption_mode
+                    );
                     std::process::exit(1);
                 });
             Some(EncryptionPayload {
-                algorithm: "aes256_gcm",
+                algorithm: match cli.encryption_mode {
+                    CliEncryption::Aes256Gcm => "aes256_gcm",
+                    CliEncryption::ChaCha20Poly1305 => "chacha20_poly1305",
+                    CliEncryption::XChaCha20Poly1305 => "xchacha20_poly1305",
+                    CliEncryption::None => unreachable!(),
+                },
                 key,
             })
         }
@@ -126,6 +148,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             CliFormat::Markdown => "markdown",
             CliFormat::Code => "code",
             CliFormat::Json => "json",
+            CliFormat::Go => "go",
+            CliFormat::Cpp => "cpp",
+            CliFormat::Kotlin => "kotlin",
+            CliFormat::Java => "java",
         },
         retention_minutes: retention,
         encryption,
@@ -148,12 +174,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut full_url = if path.starts_with("http://") || path.starts_with("https://") {
-        path.clone()
+        path
     } else {
         format!("{}{}", base_url, path)
     };
 
-    if cli.encryption_mode == CliEncryption::Aes256Gcm {
+    if cli.encryption_mode != CliEncryption::None {
         if let Some(key) = cli.encryption_key.as_deref() {
             let separator = if full_url.contains('?') { '&' } else { '?' };
             full_url.push(separator);

@@ -61,6 +61,20 @@ The flow is intentionally straightforward: the browser posts raw text to `/`, Ro
 - Rust toolchain (1.82+) installed via [rustup](https://rustup.rs/) – for local builds
 - Docker (24+) and Docker Compose v2 – for containerized setup
 
+### Repository setup
+
+Clone the repository, then install the tooling and git hooks used by CI:
+
+```bash
+# Install rustup toolchain, fmt/clippy, cargo-nextest, cargo-llvm-cov
+./scripts/install_deps.sh
+
+# Install the pre-commit hook (runs fmt, clippy, nextest on every commit)
+./scripts/setup_git_hooks.sh
+```
+
+If the hook rewrites files (via `cargo fmt`) or a check fails, the commit is aborted so you can address the issue and re-stage. You can always run the steps manually with `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace --all-features`.
+
 ### Run Locally
 
 ```bash
@@ -74,6 +88,21 @@ cargo run --bin copypaste
 ```
 
 Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **Create paste** to receive a link.
+
+**Formatting options**
+
+- Plain text / Markdown / generic code block
+- Language-specific code blocks: Go, C++, Kotlin, Java
+- JSON pretty-print (parses and auto-indents or shows raw fallback)
+
+**Encryption options**
+
+- `None` – store plaintext (default)
+- `AES-256-GCM` – deterministic 12-byte nonce per paste, client-supplied passphrase
+- `ChaCha20-Poly1305` – compact 96-bit nonce cipher for performance-oriented clients
+- `XChaCha20-Poly1305` – 24-byte nonce variant suited for longer keys and high-entropy secrets
+
+The web UI includes multiple passphrase helpers (**Geek**, **Emoji combo**, **Diceware blend**) and a live key-strength meter. Keys stay visible (or toggle to hidden) so you can share them out-of-band—the server never stores them. A share panel provides easy copy, email, Slack, X/Twitter, QR, and native share shortcuts.
 
 ### Run with Docker Compose
 
@@ -109,7 +138,10 @@ echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000
 | ------ | ----------- |
 | `--host <URL>` | Base URL of the copypaste server. Defaults to `http://127.0.0.1:8000`. |
 | `--stdin` | Read the paste content from standard input instead of the command line argument. |
-| positional text | When `--stdin` is not provided, the text to paste can be supplied as a positional argument. |
+| `--format <plain_text|markdown|code|json|go|cpp|kotlin|java>` | Rendering mode for the paste. Defaults to `plain_text`. |
+| `--encryption <none|aes256_gcm|chacha20_poly1305|xchacha20_poly1305>` | Client-side encryption algorithm. When not `none`, pass `--key`. |
+| `--key <string>` | Encryption key / passphrase (required for encrypted pastes). |
+| positional text | When `--stdin` is not provided, supply the text to paste as a positional argument. |
 
 `cpaste --help` displays the full command reference.
 
@@ -154,6 +186,15 @@ copypaste.fyi/
 - Pastes are kept in-process; production deployments should consider persistent storage.
 - Use `cargo fmt` and `cargo clippy` before committing.
 - The Docker image is built with Rust 1.82 slim base and serves the compiled binary on Debian bookworm.
+
+## Contributing
+
+Pull requests are welcome! Please:
+
+1. Install the tooling and git hooks described in [Repository setup](#repository-setup).
+2. Ensure formatting, linting, and tests pass locally: `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace --all-features`.
+3. (Optional but encouraged) Verify coverage meets CI expectations: `cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75`.
+4. Keep changes focused and add tests when extending functionality.
 
 ## License
 
