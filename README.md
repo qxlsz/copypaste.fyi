@@ -61,6 +61,20 @@ The flow is intentionally straightforward: the browser posts raw text to `/`, Ro
 - Rust toolchain (1.82+) installed via [rustup](https://rustup.rs/) – for local builds
 - Docker (24+) and Docker Compose v2 – for containerized setup
 
+### Repository setup
+
+Clone the repository, then install the tooling and git hooks used by CI:
+
+```bash
+# Install rustup toolchain, fmt/clippy, cargo-nextest, cargo-llvm-cov
+./scripts/install_deps.sh
+
+# Install the pre-commit hook (runs fmt, clippy, nextest on every commit)
+./scripts/setup_git_hooks.sh
+```
+
+If the hook rewrites files (via `cargo fmt`) or a check fails, the commit is aborted so you can address the issue and re-stage. You can always run the steps manually with `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace --all-features`.
+
 ### Run Locally
 
 ```bash
@@ -154,6 +168,15 @@ copypaste.fyi/
 - Pastes are kept in-process; production deployments should consider persistent storage.
 - Use `cargo fmt` and `cargo clippy` before committing.
 - The Docker image is built with Rust 1.82 slim base and serves the compiled binary on Debian bookworm.
+
+## Contributing
+
+Pull requests are welcome! Please:
+
+1. Install the tooling and git hooks described in [Repository setup](#repository-setup).
+2. Ensure formatting, linting, and tests pass locally: `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace --all-features`.
+3. (Optional but encouraged) Verify coverage meets CI expectations: `cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75`.
+4. Keep changes focused and add tests when extending functionality.
 
 ## License
 

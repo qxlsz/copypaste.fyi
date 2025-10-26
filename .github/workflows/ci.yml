@@ -17,6 +17,17 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Cache cargo registry
         uses: actions/cache@v3
@@ -36,8 +47,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-target-
 
-      - name: Build
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint with clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build release binaries
         run: cargo build --release --all-targets
 
-      - name: Run tests
-        run: cargo test --all-targets
+      - name: Run test suite (nextest)
+        run: cargo nextest run --workspace --all-features
+
+      - name: Coverage (llvm-cov)
+        run: cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75 --lcov --output-path coverage/lcov.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info

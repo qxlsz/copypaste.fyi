@@ -50,6 +50,138 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use copypaste::MemoryPasteStore;
+    use rocket::http::{ContentType, Status};
+    use rocket::local::asynchronous::Client;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    async fn rocket_client() -> Client {
+        Client::tracked(super::build_rocket(create_paste_store()))
+            .await
+            .expect("valid rocket instance")
+    }
+
+    async fn rocket_client_with_store(store: SharedPasteStore) -> Client {
+        Client::tracked(super::build_rocket(store))
+            .await
+            .expect("valid rocket instance")
+    }
+
+    #[rocket::async_test]
+    async fn post_plain_text_returns_id() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "plain content",
+            "format": "plain_text",
+            "retention_minutes": 60
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().await.expect("response body");
+        assert!(body.starts_with('/'));
+
+        let get_response = client.get(&body).dispatch().await;
+        assert_eq!(get_response.status(), Status::Ok);
+        let html = get_response.into_string().await.expect("html body");
+        assert!(html.contains("plain content"));
+    }
+
+    #[rocket::async_test]
+    async fn post_encrypted_requires_key() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "secret text",
+            "format": "markdown",
+            "retention_minutes": 0,
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "passphrase"
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let path = response.into_string().await.expect("body");
+
+        let without_key = client.get(&path).dispatch().await;
+        let without_body = without_key.into_string().await.expect("html");
+        assert!(without_body.contains("Provide the encryption key"));
+
+        let with_key = client
+            .get(format!("{}?key=passphrase", path))
+            .dispatch()
+            .await;
+        let html = with_key.into_string().await.expect("html");
+        assert!(html.contains("secret text"));
+    }
+
+    #[rocket::async_test]
+    async fn expired_paste_shows_expired_message() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::default());
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "short lived".into(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: 0,
+            expires_at: Some(-1),
+        };
+
+        let id = store.create_paste(paste).await;
+        let client = rocket_client_with_store(store).await;
+
+        let expired = client.get(format!("/{}", id)).dispatch().await;
+        let html = expired.into_string().await.expect("html");
+        assert!(html.contains("Paste expired"));
+    }
+
+    #[test]
+    fn encrypt_then_decrypt_roundtrip() {
+        let key = "correct horse battery staple";
+        let stored = encrypt_content("super secret", key).expect("encryption succeeds");
+        let decrypted =
+            decrypt_content(&stored, Some(key)).expect("decrypting with same key succeeds");
+        assert_eq!(decrypted, "super secret");
+    }
+
+    #[test]
+    fn decrypt_requires_key_for_encrypted_content() {
+        let stored = encrypt_content("classified", "moonbase").expect("encryption succeeds");
+        match decrypt_content(&stored, None) {
+            Err(DecryptError::MissingKey) => {}
+            other => panic!("expected missing key error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn format_json_pretty_prints() {
+        let result = format_json(r#"{"foo":1,"bar":[true,false]}"#);
+        assert!(
+            result.contains("\n"),
+            "formatted JSON should contain newlines"
+        );
+        assert!(result.contains("foo"));
+        assert!(result.starts_with("<pre><code>"));
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct CreatePasteRequest {
