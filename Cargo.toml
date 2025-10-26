@@ -1,0 +1,21 @@
+[package]
+name = "copypaste"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+tower-http = { version = "0.5", features = ["fs"] }
+
+[build-dependencies]
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "offline"] }
+
+[[bin]]
+name = "copypaste"
+path = "src/main.rs"
