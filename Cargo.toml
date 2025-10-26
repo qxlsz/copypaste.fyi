@@ -13,9 +13,6 @@ rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 tower-http = { version = "0.5", features = ["fs"] }
 
-[build-dependencies]
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "offline"] }
-
 [[bin]]
 name = "copypaste"
 path = "src/main.rs"

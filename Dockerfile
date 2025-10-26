@@ -8,11 +8,17 @@ RUN apt-get update && \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install SQLx CLI
+RUN cargo install sqlx-cli
+
 # Create a new empty shell project
 WORKDIR /usr/src/copypaste
 
 # Copy the source code
 COPY . .
+
+# Prepare for offline builds
+RUN cargo sqlx prepare -- --lib
 
 # Build the application
 RUN cargo build --release
