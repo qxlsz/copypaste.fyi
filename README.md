@@ -113,6 +113,24 @@ echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000
 
 `cpaste --help` displays the full command reference.
 
+### Packaging CLI for Releases
+
+The repository includes a helper to bundle the CLI binary for GitHub releases.
+
+```
+# Build and package version 0.2.0 under dist/
+./scripts/package_cli.sh 0.2.0
+
+# Artifacts created:
+# - dist/cpaste-0.2.0.tar.gz
+# - dist/cpaste-0.2.0.tar.gz.sha256
+
+# Suggested workflow:
+# 1. git tag -a v0.2.0 -m "Release v0.2.0"
+# 2. git push origin v0.2.0
+# 3. Draft a GitHub release and upload the tarball + checksum
+```
+
 ## Project Structure
 
 ```
