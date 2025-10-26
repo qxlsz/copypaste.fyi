@@ -1,22 +1,13 @@
-# Use the official Rust image
-FROM rust:1.72-slim as builder
+# Use the official Rust image with a newer version
+FROM rust:1.82-slim as builder
 
-# Create a new empty shell project
-RUN USER=root cargo new --bin copypaste
-WORKDIR /copypaste
+# Create working directory
+WORKDIR /app
 
-# Copy the manifests
-COPY ./Cargo.toml ./Cargo.toml
+# Copy source code first
+COPY . .
 
-# This build step will cache your dependencies
-RUN cargo build --release
-RUN rm src/*.rs
-
-# Copy the source code
-COPY ./src ./src
-
-# Build for release
-RUN rm ./target/release/deps/copypaste*
+# Build the application
 RUN cargo build --release
 
 # Final stage
@@ -30,10 +21,11 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder stage
-COPY --from=builder /copypaste/target/release/copypaste /usr/local/bin/copypaste
+COPY --from=builder /app/target/release/copypaste /usr/local/bin/copypaste
 
-# Copy static files
-COPY ./static /static
+# Create static directory and copy static files
+RUN mkdir -p /static
+COPY --from=builder /app/static /static
 
 # Set the working directory
 WORKDIR /

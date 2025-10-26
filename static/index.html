@@ -1,313 +1,262 @@
 <!DOCTYPE html>
-<!-- QXEL QUANTUM INTERFACE -->
-<!-- SECURITY CLEARANCE: METAL_GOLD -->
-<!-- DINOSAUR_PROTOCOL: ACTIVE -->
-
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QXEL - Quantum Xtreme Encoding Layer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <title>copypaste.fyi</title>
     <style>
         :root {
-            --quantum-blue: #00f0ff;
-            --cyber-green: #00ff9f;
-            --dark-matter: #0a0a1a;
-            --metallic-gold: #d4af37;
-            --error-red: #ff3860;
+            --background: #f5f5f5;
+            --surface: #ffffff;
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --border: #d1d5db;
+            --text: #111827;
+            --muted: #6b7280;
+            --error: #dc2626;
         }
-        
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: 'Share Tech Mono', monospace;
-            max-width: 900px;
+            margin: 0;
+            font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--background);
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+        header {
+            padding: 3rem 1.5rem 2rem;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+
+        header p {
+            margin: 0.5rem 0 0;
+            color: var(--muted);
+            font-size: 1.1rem;
+        }
+
+        main {
+            max-width: 800px;
             margin: 0 auto;
+            padding: 0 1.5rem 3rem;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
             padding: 2rem;
-            line-height: 1.6;
-            background-color: var(--dark-matter);
-            color: var(--cyber-green);
-            border: 1px solid var(--quantum-blue);
-            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
-            margin-top: 2rem;
-            position: relative;
-            overflow-x: hidden;
+            box-shadow: 0 15px 30px -20px rgba(15, 23, 42, 0.25);
         }
-        
-        body::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--quantum-blue), transparent);
-            animation: scanline 3s linear infinite;
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
         }
-        
-        @keyframes scanline {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
+
         textarea {
             width: 100%;
-            min-height: 300px;
-            font-family: 'Share Tech Mono', monospace;
-            padding: 1rem;
-            margin: 1rem 0;
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid var(--quantum-blue);
-            border-radius: 0;
-            color: var(--cyber-green);
-            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+            min-height: 240px;
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1rem 1.25rem;
+            font-size: 1rem;
+            font-family: inherit;
             resize: vertical;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        .actions {
+            margin-top: 1.25rem;
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
         button {
-            background: transparent;
-            color: var(--cyber-green);
-            border: 1px solid var(--quantum-blue);
-            padding: 0.8rem 2rem;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 999px;
+            padding: 0.75rem 1.75rem;
+            font-size: 1rem;
+            font-weight: 600;
             cursor: pointer;
-            font-size: 1.1rem;
-            font-family: 'Share Tech Mono', monospace;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            position: relative;
-            overflow: hidden;
-            transition: all 0.3s;
-            box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+            transition: background 0.2s ease, transform 0.1s ease;
         }
-        
+
         button:hover {
-            background: rgba(0, 240, 255, 0.1);
-            box-shadow: 0 0 20px rgba(0, 240, 255, 0.5);
-            text-shadow: 0 0 10px var(--cyber-green);
+            background: var(--primary-hover);
         }
-        
+
         button:active {
             transform: translateY(1px);
         }
-        
-        button::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.2), transparent);
-            transition: 0.5s;
+
+        .status {
+            color: var(--muted);
+            font-size: 0.95rem;
         }
-        
-        button:hover::after {
-            left: 100%;
-        }
-        #result {
-            margin-top: 1.5rem;
-            padding: 1.5rem;
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid var(--quantum-blue);
+
+        .error {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            background: rgba(220, 38, 38, 0.08);
+            color: var(--error);
             display: none;
-            position: relative;
         }
-        
-        #result::before {
-            content: 'QUANTUM LINK GENERATED';
-            position: absolute;
-            top: -10px;
-            left: 10px;
-            background: var(--dark-matter);
-            padding: 0 10px;
-            font-size: 0.8rem;
-            color: var(--metallic-gold);
+
+        .result {
+            margin-top: 1.5rem;
+            padding: 1.25rem 1.5rem;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border);
+            background: #f9fafb;
+            display: none;
         }
-        
-        #result a {
-            color: var(--quantum-blue);
+
+        .result strong {
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .result a {
+            color: var(--primary);
             text-decoration: none;
             word-break: break-all;
         }
-        
-        #result a:hover {
+
+        .result a:hover {
             text-decoration: underline;
-            text-shadow: 0 0 10px var(--quantum-blue);
         }
-        
-        .header {
+
+        footer {
             text-align: center;
-            margin-bottom: 2rem;
-            position: relative;
-        }
-        
-        .header h1 {
-            font-size: 2.5rem;
-            margin: 0;
-            color: var(--quantum-blue);
-            text-transform: uppercase;
-            letter-spacing: 3px;
-            text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-        }
-        
-        .header p {
-            color: var(--metallic-gold);
-            margin-top: 0.5rem;
-        }
-        
-        .status-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 0.5rem;
-            font-size: 0.8rem;
-            display: flex;
-            justify-content: space-between;
-            border-top: 1px solid var(--quantum-blue);
-        }
-        
-        .status-item {
-            margin: 0 1rem;
-        }
-        
-        .status-value {
-            color: var(--cyber-green);
-        }
-        
-        .error {
-            color: var(--error-red);
-            margin-top: 1rem;
-            padding: 0.5rem;
-            border: 1px solid var(--error-red);
-            background: rgba(255, 56, 96, 0.1);
-            display: none;
+            padding: 2rem 1.5rem 3rem;
+            color: var(--muted);
+            font-size: 0.9rem;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>QXEL</h1>
-        <p>QUANTUM XTREME ENCODING LAYER</p>
-        <p>DINOSAUR_PROTOCOL v2.0.1 | METAL_GOLD CLEARANCE</p>
-    </div>
-    
-    <div class="terminal">
-        <div class="terminal-header">
-            <span class="terminal-button red"></span>
-            <span class="terminal-button yellow"></span>
-            <span class="terminal-button green"></span>
-            <span class="terminal-title">QUANTUM_ENCODER.exe</span>
-        </div>
-        <div class="terminal-body">
-            <p>> INITIALIZING QUANTUM ENCODER...</p>
-            <p>> SCANNING FOR DINOSAUR_FORCE... <span class="success">DETECTED</span></p>
-            <p>> QUANTUM TUNNEL ESTABLISHED</p>
-            <p>> READY FOR DATA INPUT</p>
-            <p>> ENTER QUANTUM DATA BELOW:</p>
-        </div>
-    </div>
-    
-    <textarea id="content" placeholder="[ENTER QUANTUM DATA HERE...]"></textarea>
-    
-    <div style="text-align: center;">
-        <button id="create">INITIATE QUANTUM ENCODING</button>
-    </div>
-    
-    <div id="result">
-        <p>QUANTUM TUNNEL ESTABLISHED:</p>
-        <p>ACCESS CODE: <a id="paste-url" href="" target="_blank"></a></p>
-        <p>WARNING: LINK WILL SELF-DESTRUCT AFTER 24 HOURS</p>
-    </div>
-    
-    <div id="error" class="error"></div>
-    
-    <div class="status-bar">
-        <div class="status-item">STATUS: <span class="status-value" id="status">READY</span></div>
-        <div class="status-item">DINOSAUR_FORCE: <span class="status-value">${DINOSAUR_FORCE_LEVEL}</span></div>
-        <div class="status-item">QUANTUM_STABILITY: <span class="status-value">98.7%</span></div>
-        <div class="status-item">METAL_GOLD: <span class="status-value">ACTIVE</span></div>
-    </div>
-    
+    <header>
+        <h1>copypaste.fyi</h1>
+        <p>Create a paste in seconds and share the link anywhere.</p>
+    </header>
+
+    <main>
+        <section class="card">
+            <label for="content">Your text</label>
+            <textarea id="content" placeholder="Type or paste your text here..."></textarea>
+
+            <div class="actions">
+                <button id="create">Create paste</button>
+                <span class="status" id="status">Ready</span>
+            </div>
+
+            <div id="error" class="error"></div>
+            <div id="result" class="result">
+                <strong>Your paste link:</strong>
+                <a id="paste-url" href="#" target="_blank" rel="noopener"></a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span>Links are stored in memory for this session only.</span>
+    </footer>
+
     <script>
-        // Update status bar with current time
-        function updateStatus() {
-            const now = new Date();
-            document.getElementById('time').textContent = now.toLocaleTimeString();
-        }
-        
-        setInterval(updateStatus, 1000);
-        updateStatus();
-        
-        // Quantum encoding sequence
-        document.getElementById('create').addEventListener('click', async () => {
-            const content = document.getElementById('content').value;
-            const status = document.getElementById('status');
-            const errorDiv = document.getElementById('error');
-            
-            if (!content.trim()) {
-                errorDiv.textContent = 'ERROR: QUANTUM VACUUM DETECTED. PLEASE ENTER DATA.';
-                errorDiv.style.display = 'block';
+        const textarea = document.getElementById('content');
+        const createButton = document.getElementById('create');
+        const status = document.getElementById('status');
+        const errorBox = document.getElementById('error');
+        const resultBox = document.getElementById('result');
+        const pasteLink = document.getElementById('paste-url');
+
+        async function createPaste() {
+            const content = textarea.value.trim();
+
+            if (!content) {
+                errorBox.textContent = 'Please enter some text to create a paste.';
+                errorBox.style.display = 'block';
+                resultBox.style.display = 'none';
                 return;
             }
-            
-            errorDiv.style.display = 'none';
-            status.textContent = 'ENCODING...';
-            status.style.color = 'var(--cyber-green)';
-            
+
+            errorBox.style.display = 'none';
+            status.textContent = 'Saving...';
+            createButton.disabled = true;
+
             try {
-                const response = await fetch('/quantum_encrypt', {
+                const response = await fetch('/', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'text/plain',
-                        'X-Quantum-Key': 'DINOSAUR_ALPHA_ACCESS_GRANTED'
                     },
                     body: content,
                 });
-                
-                if (response.ok) {
-                    const path = await response.text();
-                    const url = `${window.location.origin}${path}`;
-                    const displayUrl = url.replace('/quantum_access/', '/q/');
-                    
-                    document.getElementById('paste-url').textContent = displayUrl;
-                    document.getElementById('paste-url').href = url;
-                    document.getElementById('result').style.display = 'block';
-                    
-                    // Copy to clipboard
-                    await navigator.clipboard.writeText(displayUrl);
-                    
-                    status.textContent = 'SUCCESS: QUANTUM DATA ENCODED';
-                    status.style.color = 'var(--cyber-green)';
-                    
-                    // Clear the textarea
-                    document.getElementById('content').value = '';
-                } else {
-                    const error = await response.text();
-                    throw new Error(error || 'QUANTUM ENCODING FAILED');
+
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+
+                const path = (await response.text()).trim();
+                if (!path) {
+                    throw new Error('Server returned an empty response');
+                }
+
+                const fullUrl = new URL(path, window.location.origin).toString();
+                pasteLink.textContent = fullUrl;
+                pasteLink.href = fullUrl;
+                resultBox.style.display = 'block';
+                status.textContent = 'Link ready';
+                textarea.value = '';
+
+                if (navigator.clipboard?.writeText) {
+                    try {
+                        await navigator.clipboard.writeText(fullUrl);
+                        status.textContent = 'Link copied to clipboard';
+                    } catch (_) {
+                        // Ignore clipboard errors silently
+                    }
                 }
             } catch (err) {
-                console.error('Quantum encoding error:', err);
-                errorDiv.textContent = `QUANTUM FAILURE: ${err.message}`;
-                errorDiv.style.display = 'block';
-                status.textContent = 'ERROR';
-                status.style.color = 'var(--error-red)';
-            }
-        });
-        
-        // Add terminal-like typing effect to textarea
-        const textarea = document.getElementById('content');
-        const placeholderText = '[ENTER QUANTUM DATA HERE...]';
-        let charIndex = 0;
-        
-        function typeWriter() {
-            if (charIndex < placeholderText.length) {
-                textarea.placeholder = placeholderText.substring(0, charIndex + 1);
-                charIndex++;
-                setTimeout(typeWriter, Math.random() * 100 + 50);
+                console.error(err);
+                errorBox.textContent = err.message || 'Something went wrong. Please try again.';
+                errorBox.style.display = 'block';
+                status.textContent = 'Something went wrong';
+                resultBox.style.display = 'none';
+            } finally {
+                createButton.disabled = false;
             }
         }
-        
-        // Start the typing effect
-        setTimeout(typeWriter, 1000);
+
+        createButton.addEventListener('click', createPaste);
+        textarea.addEventListener('keydown', (event) => {
+            if (event.metaKey && event.key === 'Enter') {
+                createPaste();
+            }
+        });
     </script>
 </body>
 </html>
