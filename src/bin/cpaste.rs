@@ -1,12 +1,14 @@
 use std::io::{self, Read};
 
-use clap::{ArgGroup, ValueEnum};
 use clap::Parser;
+use clap::{ArgGroup, ValueEnum};
 use serde::Serialize;
+use urlencoding::encode;
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq, Eq, Default)]
 enum CliFormat {
     #[value(name = "plain_text")]
+    #[default]
     PlainText,
     #[value(name = "markdown")]
     Markdown,
@@ -16,24 +18,13 @@ enum CliFormat {
     Json,
 }
 
-impl Default for CliFormat {
-    fn default() -> Self {
-        CliFormat::PlainText
-    }
-}
-
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq, Eq, Default)]
 enum CliEncryption {
     #[value(name = "none")]
+    #[default]
     None,
     #[value(name = "aes256_gcm")]
     Aes256Gcm,
-}
-
-impl Default for CliEncryption {
-    fn default() -> Self {
-        CliEncryption::None
-    }
 }
 
 /// Submit text to a copypaste.fyi instance and print the resulting URL.
@@ -122,7 +113,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let retention = if cli.retention == 0 { None } else { Some(cli.retention) };
+    let retention = if cli.retention == 0 {
+        None
+    } else {
+        Some(cli.retention)
+    };
 
     let payload = PastePayload {
         content: &content,
@@ -139,10 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base_url = cli.host.trim_end_matches('/');
     let client = reqwest::blocking::Client::builder().build()?;
 
-    let response = client
-        .post(base_url)
-        .json(&payload)
-        .send()?;
+    let response = client.post(base_url).json(&payload).send()?;
 
     if !response.status().is_success() {
         eprintln!("Request failed with status: {}", response.status());
@@ -166,7 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let separator = if full_url.contains('?') { '&' } else { '?' };
             full_url.push(separator);
             full_url.push_str("key=");
-            full_url.push_str(&urlencoding::encode(key));
+            full_url.push_str(&encode(key));
         }
     }
 

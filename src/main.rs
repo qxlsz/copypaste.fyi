@@ -2,10 +2,13 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
+use aes_gcm::{Aes256Gcm, Nonce};
 use base64::{engine::general_purpose, Engine};
-use chrono::{DateTime, NaiveDateTime, Utc};
-use copypaste::{create_paste_store, EncryptionAlgorithm, PasteError, PasteFormat, SharedPasteStore, StoredContent, StoredPaste};
+use chrono::DateTime;
+use copypaste::{
+    create_paste_store, EncryptionAlgorithm, PasteError, PasteFormat, SharedPasteStore,
+    StoredContent, StoredPaste,
+};
 use html_escape::encode_safe;
 use pulldown_cmark::{html, Options, Parser};
 use rand::{rngs::OsRng, RngCore};
@@ -15,7 +18,6 @@ use rocket::response::content;
 use rocket::serde::json::Json;
 use rocket::serde::Deserialize;
 use rocket::{get, post, routes, Build, Rocket, State};
-use serde_json;
 use sha2::{Digest, Sha256};
 
 #[derive(Deserialize)]
@@ -70,23 +72,25 @@ async fn index() -> content::RawHtml<&'static str> {
 }
 
 #[post("/", data = "<body>")]
-async fn create(store: &State<SharedPasteStore>, body: Json<CreatePasteRequest>) -> Result<String, (Status, String)> {
+async fn create(
+    store: &State<SharedPasteStore>,
+    body: Json<CreatePasteRequest>,
+) -> Result<String, (Status, String)> {
     let now = current_timestamp();
     let format = body.format.clone().unwrap_or_default();
-    let expires_at = body
-        .retention_minutes
-        .and_then(|mins| match mins {
-            0 => None,
-            minutes => Some(now + i64::try_from(minutes).unwrap_or(0) * 60),
-        });
+    let expires_at = body.retention_minutes.and_then(|mins| match mins {
+        0 => None,
+        minutes => Some(now + i64::try_from(minutes).unwrap_or(0) * 60),
+    });
 
     let content = if let Some(enc) = &body.encryption {
         match enc.algorithm {
             EncryptionAlgorithm::None => StoredContent::Plain {
                 text: body.content.clone(),
             },
-            EncryptionAlgorithm::Aes256Gcm => encrypt_content(&body.content, &enc.key)
-                .map_err(|e| (Status::BadRequest, e))?,
+            EncryptionAlgorithm::Aes256Gcm => {
+                encrypt_content(&body.content, &enc.key).map_err(|e| (Status::BadRequest, e))?
+            }
         }
     } else {
         StoredContent::Plain {
@@ -120,7 +124,9 @@ async fn show(
 
 #[get("/static/<path..>")]
 async fn static_files(path: PathBuf) -> Option<NamedFile> {
-    NamedFile::open(PathBuf::from("static").join(path)).await.ok()
+    NamedFile::open(PathBuf::from("static").join(path))
+        .await
+        .ok()
 }
 
 fn current_timestamp() -> i64 {
@@ -135,18 +141,19 @@ fn encrypt_content(text: &str, key: &str) -> Result<StoredContent, String> {
     OsRng.fill_bytes(&mut salt);
 
     let mut hasher = Sha256::new();
-    hasher.update(&salt);
+    hasher.update(&salt[..]);
     hasher.update(key.as_bytes());
     let derived = hasher.finalize();
+    let derived: [u8; 32] = derived.into();
 
-    let aes_key = Key::<Aes256Gcm>::from_slice(&derived);
+    let cipher = Aes256Gcm::new_from_slice(&derived)
+        .map_err(|_| "failed to initialise cipher".to_string())?;
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
-    let cipher = Aes256Gcm::new(aes_key);
     let ciphertext = cipher
-        .encrypt(nonce, text.as_bytes())
+        .encrypt(&nonce, text.as_bytes())
         .map_err(|_| "failed to encrypt content".to_string())?;
 
     Ok(StoredContent::Encrypted {
@@ -174,7 +181,7 @@ fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<String,
             let salt_bytes = general_purpose::STANDARD
                 .decode(salt)
                 .map_err(|_| DecryptError::InvalidKey)?;
-            let nonce_bytes = general_purpose::STANDARD
+            let nonce_bytes_vec = general_purpose::STANDARD
                 .decode(nonce)
                 .map_err(|_| DecryptError::InvalidKey)?;
             let cipher_bytes = general_purpose::STANDARD
@@ -185,13 +192,17 @@ fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<String,
             hasher.update(&salt_bytes);
             hasher.update(key.as_bytes());
             let derived = hasher.finalize();
+            let derived: [u8; 32] = derived.into();
 
-            let aes_key = Key::<Aes256Gcm>::from_slice(&derived);
-            let nonce = Nonce::from_slice(&nonce_bytes);
-            let cipher = Aes256Gcm::new(aes_key);
+            let cipher =
+                Aes256Gcm::new_from_slice(&derived).map_err(|_| DecryptError::InvalidKey)?;
+            let nonce_array: [u8; 12] = nonce_bytes_vec
+                .try_into()
+                .map_err(|_| DecryptError::InvalidKey)?;
+            let nonce = Nonce::from(nonce_array);
 
             cipher
-                .decrypt(nonce, cipher_bytes.as_ref())
+                .decrypt(&nonce, cipher_bytes.as_ref())
                 .map_err(|_| DecryptError::InvalidKey)
                 .and_then(|bytes| String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey))
         }
@@ -214,16 +225,12 @@ fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
         PasteFormat::Json => format_json(text),
     };
 
-    let created = NaiveDateTime::from_timestamp_opt(paste.created_at, 0)
-        .map(|dt| DateTime::<Utc>::from_utc(dt, Utc))
+    let created = DateTime::from_timestamp(paste.created_at, 0)
         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
         .unwrap_or_else(|| "Unknown".to_string());
 
     let expires = paste.expires_at.and_then(|ts| {
-        NaiveDateTime::from_timestamp_opt(ts, 0).map(|dt| {
-            let dt = DateTime::<Utc>::from_utc(dt, Utc);
-            dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()
-        })
+        DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
     });
 
     let encryption = match paste.content {
@@ -331,7 +338,9 @@ fn format_code(text: &str) -> String {
 
 fn format_json(text: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(text) {
-        Ok(value) => format_code(&serde_json::to_string_pretty(&value).unwrap_or_else(|_| text.to_string())),
+        Ok(value) => {
+            format_code(&serde_json::to_string_pretty(&value).unwrap_or_else(|_| text.to_string()))
+        }
         Err(_) => format_code(text),
     }
 }

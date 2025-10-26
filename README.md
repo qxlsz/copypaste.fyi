@@ -131,6 +131,8 @@ The repository includes a helper to bundle the CLI binary for GitHub releases.
 # 3. Draft a GitHub release and upload the tarball + checksum
 ```
 
+A GitHub Actions workflow (`.github/workflows/release.yml`) automates steps 2–4 whenever a tag matching `v*` is pushed: it runs the packaging script and publishes the generated artifacts as release assets.
+
 ## Project Structure
 
 ```
