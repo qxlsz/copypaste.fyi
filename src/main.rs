@@ -1,39 +1,46 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use rocket::{get, post, routes};
+use std::path::{Path, PathBuf};
+use rocket::{get, post, routes, State};
 use rocket::response::content;
 use rocket::fs::{FileServer, NamedFile};
 use rand::{distributions::Alphanumeric, Rng};
-use std::path::{Path, PathBuf};
-use lazy_static::lazy_static;
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use chrono::NaiveDateTime;
+use std::env;
+use std::error::Error;
 
-lazy_static! {
-    static ref STORE: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
-}
+type DbPool = SqlitePool;
 
 #[get("/<id>")]
-async fn get_paste(id: String) -> Option<content::RawHtml<String>> {
-    let store = STORE.lock().unwrap();
-    store.get(&id).map(|content| content::RawHtml(content.clone()))
+async fn get_paste(pool: &State<DbPool>, id: String) -> Option<content::RawHtml<String>> {
+    match sqlx::query_scalar::<_, String>("SELECT content FROM pastes WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&**pool)
+        .await
+    {
+        Ok(Some(content)) => Some(content::RawHtml(content)),
+        _ => None,
+    }
 }
 
 #[post("/", data = "<content>")]
-async fn create_paste(content: String) -> String {
+async fn create_paste(pool: &State<DbPool>, content: String) -> String {
     let id: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(8)
         .map(char::from)
         .collect();
-    
-    // The created_at is not currently used, but we'll keep it for future use
-    let _created_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    
-    let mut store = STORE.lock().unwrap();
-    store.insert(id.clone(), content);
-    
+
+    if let Err(e) = sqlx::query(
+        "INSERT INTO pastes (id, content) VALUES (?, ?)"
+    )
+    .bind(&id)
+    .bind(&content)
+    .execute(&**pool)
+    .await {
+        eprintln!("Failed to insert paste: {}", e);
+        return "/error".to_string();
+    }
+
     format!("/{}", id)
 }
 
@@ -47,12 +54,33 @@ async fn static_files(file: PathBuf) -> Option<NamedFile> {
     NamedFile::open(Path::new("static/").join(file)).await.ok()
 }
 
-#[rocket::main]
-async fn main() -> Result<(), rocket::Error> {
+async fn init_db() -> Result<DbPool, Box<dyn Error>> {
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite:data/pastes.db".to_string());
+    
     // Create data directory if it doesn't exist
-    std::fs::create_dir_all("data").expect("Failed to create data directory");
+    if let Some(parent) = Path::new(&database_url).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+    
+    // Run migrations
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    
+    Ok(pool)
+}
+
+#[rocket::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize database
+    let db_pool = init_db().await?;
     
     let _rocket = rocket::build()
+        .manage(db_pool)
         .mount("/", routes![index, create_paste, get_paste, static_files])
         .mount("/", FileServer::from("static"))
         .launch()
