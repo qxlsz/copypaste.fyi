@@ -43,7 +43,7 @@ graph TD
     end
 
     subgraph Logic Layer
-        G[Key Derivation & Encryption\nAES-GCM, ChaCha20(-X)Poly1305]
+        G[Key Derivation & Encryption\nAES-GCM, ChaCha20/XChaCha20]
         H[Formatters\nPlain, Markdown, Code, JSON]
         I[Sharing Helpers\nCopy, Email, Slack, X, QR]
     end
