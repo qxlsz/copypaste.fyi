@@ -6,14 +6,16 @@
     <title>copypaste.fyi</title>
     <style>
         :root {
-            --background: #f4f4f5;
+            --background: #f6f7fb;
             --surface: #ffffff;
-            --border: #e4e4e7;
-            --text: #111827;
-            --muted: #6b7280;
+            --border: #e2e8f0;
+            --text: #0f172a;
+            --muted: #64748b;
             --primary: #2563eb;
             --primary-hover: #1d4ed8;
+            --secondary: #f1f5f9;
             --error: #dc2626;
+            --success: #0f766e;
         }
 
         * {
@@ -34,16 +36,18 @@
 
         header h1 {
             margin: 0;
-            font-size: 2.5rem;
+            font-size: 2.75rem;
+            letter-spacing: -0.02em;
         }
 
         header p {
             margin-top: 0.75rem;
             color: var(--muted);
+            font-size: 1.05rem;
         }
 
         main {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             padding: 0 1.5rem 4rem;
         }
@@ -53,36 +57,69 @@
             border: 1px solid var(--border);
             border-radius: 1rem;
             padding: 2rem;
-            box-shadow: 0 15px 30px -20px rgba(15, 23, 42, 0.25);
+            box-shadow: 0 18px 35px -20px rgba(15, 23, 42, 0.35);
+        }
+
+        .field {
+            margin-bottom: 1.5rem;
         }
 
         label {
             display: block;
             font-weight: 600;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
         }
 
         textarea {
             width: 100%;
-            min-height: 240px;
+            min-height: 260px;
             padding: 1rem 1.25rem;
             font-size: 1rem;
             border-radius: 0.75rem;
             border: 1px solid var(--border);
             resize: vertical;
             transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            background: #fcfcfd;
         }
 
         textarea:focus {
             outline: none;
             border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        select,
+        input[type="number"],
+        input[type="password"],
+        input[type="text"] {
+            width: 100%;
+            padding: 0.65rem 0.85rem;
+            font-size: 1rem;
+            border-radius: 0.65rem;
+            border: 1px solid var(--border);
+            background: #fff;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        select:focus,
+        input[type="number"]:focus,
+        input[type="password"]:focus,
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+        }
+
+        .grid {
+            display: grid;
+            gap: 1.25rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         }
 
         .actions {
-            margin-top: 1.25rem;
+            margin-top: 1.5rem;
             display: flex;
-            gap: 0.75rem;
+            gap: 0.85rem;
             align-items: center;
             flex-wrap: wrap;
         }
@@ -90,7 +127,7 @@
         button {
             background: var(--primary);
             color: #fff;
-            padding: 0.75rem 1.75rem;
+            padding: 0.8rem 1.8rem;
             border-radius: 999px;
             border: none;
             font-weight: 600;
@@ -111,22 +148,33 @@
             font-size: 0.95rem;
         }
 
-        .error {
+        .error,
+        .success {
             margin-top: 1rem;
-            padding: 0.75rem 1rem;
-            border-radius: 0.75rem;
-            border: 1px solid rgba(220, 38, 38, 0.2);
+            padding: 0.9rem 1.1rem;
+            border-radius: 0.85rem;
+            display: none;
+            border: 1px solid transparent;
+        }
+
+        .error {
+            border-color: rgba(220, 38, 38, 0.2);
             background: rgba(220, 38, 38, 0.08);
             color: var(--error);
-            display: none;
+        }
+
+        .success {
+            border-color: rgba(15, 118, 110, 0.2);
+            background: rgba(13, 148, 136, 0.08);
+            color: var(--success);
         }
 
         .result {
-            margin-top: 1.5rem;
-            padding: 1.25rem 1.5rem;
-            border-radius: 0.75rem;
+            margin-top: 1.75rem;
+            padding: 1.35rem 1.5rem;
+            border-radius: 0.85rem;
             border: 1px solid var(--border);
-            background: #f9fafb;
+            background: #f8fafc;
             display: none;
         }
 
@@ -138,6 +186,12 @@
 
         .result a:hover {
             text-decoration: underline;
+        }
+
+        .meta-note {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--muted);
         }
 
         footer {
@@ -156,14 +210,57 @@
 
     <main>
         <section class="card">
-            <label for="content">Your text</label>
-            <textarea id="content" placeholder="Type or paste your text here..."></textarea>
+            <div class="field">
+                <label for="content">Your text</label>
+                <textarea id="content" placeholder="Type or paste your text here..."></textarea>
+            </div>
+
+            <div class="grid">
+                <div class="field">
+                    <label for="format">Format</label>
+                    <select id="format">
+                        <option value="plain_text">Plain text</option>
+                        <option value="markdown">Markdown</option>
+                        <option value="code">Code block</option>
+                        <option value="json">JSON (pretty print)</option>
+                    </select>
+                    <div class="meta-note">Choose how the paste is rendered when viewed.</div>
+                </div>
+
+                <div class="field">
+                    <label for="retention">Retention</label>
+                    <select id="retention">
+                        <option value="0">No expiry</option>
+                        <option value="10">10 minutes</option>
+                        <option value="60">1 hour</option>
+                        <option value="1440">24 hours</option>
+                        <option value="10080">7 days</option>
+                    </select>
+                    <div class="meta-note">Pastes are removed automatically after the selected window.</div>
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="encryption-mode">Encryption</label>
+                <select id="encryption-mode">
+                    <option value="none">None</option>
+                    <option value="aes256_gcm">AES-256-GCM (client provided key)</option>
+                </select>
+                <div class="meta-note">Use encryption for sensitive snippets. Remember to share the key separately.</div>
+            </div>
+
+            <div class="field" id="encryption-key-field" style="display:none;">
+                <label for="encryption-key">Encryption key</label>
+                <input type="password" id="encryption-key" placeholder="Enter a strong key" autocomplete="off" />
+                <div class="meta-note">Key is never stored. Recipients must supply it to decrypt the paste.</div>
+            </div>
 
             <div class="actions">
                 <button id="create">Create paste</button>
                 <span class="status" id="status">Ready</span>
             </div>
 
+            <div id="success" class="success"></div>
             <div id="error" class="error"></div>
             <div id="result" class="result">
                 <strong>Your paste link:</strong>
@@ -173,36 +270,88 @@
     </main>
 
     <footer>
-        Temporary in-memory storage. Restart the server to clear pastes.
+        Pastes live in memory only. Restarting the server clears everything.
     </footer>
 
     <script>
         const textarea = document.getElementById('content');
+        const formatSelect = document.getElementById('format');
+        const retentionSelect = document.getElementById('retention');
+        const encryptionMode = document.getElementById('encryption-mode');
+        const encryptionKeyField = document.getElementById('encryption-key-field');
+        const encryptionKeyInput = document.getElementById('encryption-key');
+
         const createButton = document.getElementById('create');
         const status = document.getElementById('status');
         const errorBox = document.getElementById('error');
+        const successBox = document.getElementById('success');
         const resultBox = document.getElementById('result');
         const pasteLink = document.getElementById('paste-url');
 
+        function resetAlerts() {
+            errorBox.style.display = 'none';
+            successBox.style.display = 'none';
+        }
+
+        function showError(message) {
+            errorBox.textContent = message;
+            errorBox.style.display = 'block';
+            successBox.style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            successBox.textContent = message;
+            successBox.style.display = 'block';
+            errorBox.style.display = 'none';
+        }
+
+        encryptionMode.addEventListener('change', () => {
+            const mode = encryptionMode.value;
+            if (mode === 'aes256_gcm') {
+                encryptionKeyField.style.display = 'block';
+            } else {
+                encryptionKeyField.style.display = 'none';
+                encryptionKeyInput.value = '';
+            }
+        });
+
         async function createPaste() {
             const content = textarea.value.trim();
-
             if (!content) {
-                errorBox.textContent = 'Please enter some text to create a paste.';
-                errorBox.style.display = 'block';
+                showError('Please enter some text to create a paste.');
                 resultBox.style.display = 'none';
                 return;
             }
 
-            errorBox.style.display = 'none';
+            const format = formatSelect.value;
+            const retention = parseInt(retentionSelect.value, 10);
+            const encryption = encryptionMode.value;
+            const encryptionKey = encryptionKeyInput.value.trim();
+
+            if (encryption === 'aes256_gcm' && !encryptionKey) {
+                showError('Provide an encryption key or disable encryption.');
+                resultBox.style.display = 'none';
+                return;
+            }
+
+            resetAlerts();
             status.textContent = 'Saving...';
             createButton.disabled = true;
+
+            const payload = {
+                content,
+                format,
+                retention_minutes: retention || undefined,
+                encryption: encryption === 'aes256_gcm'
+                    ? { algorithm: 'aes256_gcm', key: encryptionKey }
+                    : undefined,
+            };
 
             try {
                 const response = await fetch('/', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: content,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
                 });
 
                 if (!response.ok) {
@@ -223,13 +372,16 @@
 
                 if (navigator.clipboard?.writeText) {
                     try {
-                        await navigator.clipboard.writeText(fullUrl);
-                        status.textContent = 'Link copied to clipboard';
-                    } catch (_) {}
+                        await navigator.clipboard.writeText(fullUrl + (encryptionKey ? `?key=${encodeURIComponent(encryptionKey)}` : ''));
+                        showSuccess('Link copied to clipboard');
+                    } catch (_) {
+                        showSuccess('Paste created successfully');
+                    }
+                } else {
+                    showSuccess('Paste created successfully');
                 }
             } catch (err) {
-                errorBox.textContent = err.message || 'Something went wrong. Please try again.';
-                errorBox.style.display = 'block';
+                showError(err.message || 'Something went wrong. Please try again.');
                 status.textContent = 'Something went wrong';
                 resultBox.style.display = 'none';
             } finally {

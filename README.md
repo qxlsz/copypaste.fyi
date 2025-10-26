@@ -103,6 +103,16 @@ cargo build --bin cpaste --release
 echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000 --
 ```
 
+**Flags & arguments**
+
+| Option | Description |
+| ------ | ----------- |
+| `--host <URL>` | Base URL of the copypaste server. Defaults to `http://127.0.0.1:8000`. |
+| `--stdin` | Read the paste content from standard input instead of the command line argument. |
+| positional text | When `--stdin` is not provided, the text to paste can be supplied as a positional argument. |
+
+`cpaste --help` displays the full command reference.
+
 ## Project Structure
 
 ```
