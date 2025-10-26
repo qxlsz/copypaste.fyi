@@ -6,16 +6,21 @@
     <title>copypaste.fyi</title>
     <style>
         :root {
-            --background: #f6f7fb;
-            --surface: #ffffff;
-            --border: #e2e8f0;
+            --page-gradient: linear-gradient(135deg, #1e3a8a 0%, #312e81 45%, #7c3aed 100%);
+            --background: #f4f5fb;
+            --surface: rgba(255, 255, 255, 0.88);
+            --surface-strong: rgba(255, 255, 255, 0.96);
+            --border: rgba(226, 232, 240, 0.7);
             --text: #0f172a;
             --muted: #64748b;
-            --primary: #2563eb;
-            --primary-hover: #1d4ed8;
-            --secondary: #f1f5f9;
-            --error: #dc2626;
-            --success: #0f766e;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --accent: #22d3ee;
+            --accent-hover: #0ea5e9;
+            --secondary: rgba(148, 163, 184, 0.16);
+            --error: #ef4444;
+            --success: #14b8a6;
+            --code-bg: #0f172a;
         }
 
         * {
@@ -24,40 +29,47 @@
 
         body {
             margin: 0;
+            min-height: 100vh;
             font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: var(--background);
+            background: var(--page-gradient);
             color: var(--text);
+            display: flex;
+            flex-direction: column;
         }
 
         header {
             text-align: center;
-            padding: 3rem 1.5rem 2rem;
+            padding: 3.5rem 1.5rem 2.5rem;
+            color: #fff;
         }
 
         header h1 {
             margin: 0;
-            font-size: 2.75rem;
-            letter-spacing: -0.02em;
+            font-size: 3rem;
+            letter-spacing: -0.03em;
+            text-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
         }
 
         header p {
             margin-top: 0.75rem;
-            color: var(--muted);
-            font-size: 1.05rem;
+            color: rgba(226, 232, 240, 0.9);
+            font-size: 1.1rem;
         }
 
         main {
             max-width: 900px;
             margin: 0 auto;
             padding: 0 1.5rem 4rem;
+            width: 100%;
         }
 
         .card {
+            backdrop-filter: blur(22px);
             background: var(--surface);
-            border: 1px solid var(--border);
+            border: 1px solid rgba(255, 255, 255, 0.24);
             border-radius: 1rem;
             padding: 2rem;
-            box-shadow: 0 18px 35px -20px rgba(15, 23, 42, 0.35);
+            box-shadow: 0 22px 65px -30px rgba(15, 23, 42, 0.55);
         }
 
         .field {
@@ -127,25 +139,51 @@
         button {
             background: var(--primary);
             color: #fff;
-            padding: 0.8rem 1.8rem;
+            padding: 0.75rem 1.6rem;
             border-radius: 999px;
             border: none;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s ease, transform 0.1s ease;
+            transition: background 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
         }
 
         button:hover {
             background: var(--primary-hover);
+            box-shadow: 0 12px 24px -18px rgba(79, 70, 229, 0.8);
         }
 
         button:active {
             transform: translateY(1px);
         }
 
+        button.secondary {
+            background: rgba(99, 102, 241, 0.12);
+            color: var(--primary);
+        }
+
+        button.secondary:hover {
+            background: rgba(99, 102, 241, 0.22);
+        }
+
         .status {
             color: var(--muted);
             font-size: 0.95rem;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.25rem 0.7rem;
+            font-size: 0.8rem;
+            border-radius: 999px;
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--primary);
+        }
+
+        .status-pill.status-danger {
+            background: rgba(239, 68, 68, 0.12);
+            color: var(--error);
         }
 
         .error,
@@ -171,11 +209,12 @@
 
         .result {
             margin-top: 1.75rem;
-            padding: 1.35rem 1.5rem;
-            border-radius: 0.85rem;
-            border: 1px solid var(--border);
-            background: #f8fafc;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            background: var(--surface-strong);
             display: none;
+            box-shadow: 0 14px 40px -32px rgba(15, 23, 42, 0.7);
         }
 
         .result a {
@@ -204,16 +243,17 @@
         }
 
         .ghost {
-            background: transparent;
+            background: rgba(99, 102, 241, 0.08);
             border: none;
             color: var(--primary);
             font-weight: 600;
             cursor: pointer;
-            padding: 0.25rem 0.5rem;
+            padding: 0.45rem 0.85rem;
+            border-radius: 999px;
         }
 
         .ghost:hover {
-            text-decoration: underline;
+            background: rgba(99, 102, 241, 0.16);
         }
 
         .split {
@@ -280,6 +320,72 @@
             color: var(--muted);
             font-size: 0.9rem;
             padding: 2rem 1.5rem 3rem;
+            margin-top: auto;
+        }
+
+        .share-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            margin-top: 1rem;
+        }
+
+        .share-actions button {
+            background: rgba(15, 23, 42, 0.06);
+            color: var(--text);
+        }
+
+        .share-actions button:hover {
+            background: rgba(15, 23, 42, 0.12);
+        }
+
+        .qr-card {
+            margin-top: 1.2rem;
+            padding: 1rem;
+            border-radius: 0.9rem;
+            border: 1px dashed rgba(148, 163, 184, 0.45);
+            background: rgba(241, 245, 249, 0.55);
+            display: flex;
+            justify-content: center;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .key-strength {
+            margin-top: 0.4rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .key-strength.weak {
+            color: #f97316;
+        }
+
+        .key-strength.medium {
+            color: #facc15;
+        }
+
+        .key-strength.strong {
+            color: var(--success);
+        }
+
+        .key-controls {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.6rem;
+        }
+
+        .key-input-row {
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+        }
+
+        .key-input-row input {
+            flex: 1;
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" integrity="sha384-Ys4LFQgJt6KRnE//v/WLDsPfyW4Mf4lEt9RBx0jCkIlvqdyeJRe87pUzgf+m9MHf" crossorigin="anonymous"></script>
@@ -333,6 +439,7 @@
                     <select id="encryption-mode">
                         <option value="none">None</option>
                         <option value="aes256_gcm">AES-256-GCM (client provided key)</option>
+                        <option value="chacha20_poly1305">ChaCha20-Poly1305 (fast + compact)</option>
                         <option value="xchacha20_poly1305">XChaCha20-Poly1305 (longer nonce)</option>
                     </select>
                     <div class="meta-note">Use encryption for sensitive snippets. Share the key separately (try the <strong>geek passphrase</strong> button for inspiration).</div>
@@ -340,11 +447,17 @@
 
                 <div class="field" id="encryption-key-field" style="display:none;">
                     <label for="encryption-key">Encryption key</label>
-                    <div class="actions" style="margin-top: 0.5rem; gap: 0.5rem;">
-                        <input type="password" id="encryption-key" placeholder="Enter a strong key" autocomplete="off" style="flex:1;" />
-                        <button class="ghost" id="generate-key" type="button">Geek passphrase</button>
+                    <div class="key-input-row">
+                        <input type="text" id="encryption-key" placeholder="Enter or generate a passphrase" autocomplete="off" />
+                        <button class="ghost" id="toggle-key-visibility" type="button">Hide key</button>
                     </div>
-                    <div class="meta-note">Key is never stored. Recipients must supply it to decrypt the paste.</div>
+                    <div class="key-controls">
+                        <button class="ghost" id="generate-key" type="button">Geek passphrase</button>
+                        <button class="ghost secondary" id="generate-emoji" type="button">Emoji combo</button>
+                        <button class="ghost secondary" id="generate-dice" type="button">Diceware blend</button>
+                    </div>
+                    <div class="key-strength hidden" id="key-strength"></div>
+                    <div class="meta-note">Key is never stored. Recipients must supply it to decrypt the paste. Generated passphrases stay visible so you can share them easily.</div>
                 </div>
             </div>
 
@@ -359,9 +472,20 @@
                 <div id="result" class="result">
                     <div class="meta-row">
                         <strong>Your paste link:</strong>
-                        <button class="ghost" id="copy-link">Copy</button>
+                        <span class="status-pill" id="result-status">Ready to share</span>
                     </div>
                     <a id="paste-url" href="#" target="_blank" rel="noopener"></a>
+                    <div class="share-actions">
+                        <button class="secondary" id="share-copy" type="button">Copy link</button>
+                        <button class="secondary" id="share-email" type="button">Email</button>
+                        <button class="secondary" id="share-tweet" type="button">Tweet</button>
+                        <button class="secondary" id="share-slack" type="button">Slack</button>
+                        <button class="secondary" id="share-qr" type="button">QR code</button>
+                        <button class="secondary hidden" id="share-native" type="button">System share</button>
+                    </div>
+                    <div class="qr-card hidden" id="qr-card">
+                        <img id="qr-image" alt="QR code preview" width="160" height="160" />
+                    </div>
                 </div>
             </div>
         </section>
@@ -396,9 +520,21 @@
         const successBox = document.getElementById('success');
         const resultBox = document.getElementById('result');
         const pasteLink = document.getElementById('paste-url');
-        const copyButton = document.getElementById('copy-link');
+        const resultStatus = document.getElementById('result-status');
+        const shareCopy = document.getElementById('share-copy');
+        const shareEmail = document.getElementById('share-email');
+        const shareTweet = document.getElementById('share-tweet');
+        const shareSlack = document.getElementById('share-slack');
+        const shareQr = document.getElementById('share-qr');
+        const shareNative = document.getElementById('share-native');
+        const qrCard = document.getElementById('qr-card');
+        const qrImage = document.getElementById('qr-image');
         const previewContainer = document.getElementById('preview');
         const resetPreviewBtn = document.getElementById('reset-preview');
+        const toggleKeyVisibility = document.getElementById('toggle-key-visibility');
+        const keyStrengthIndicator = document.getElementById('key-strength');
+        const generateEmojiButton = document.getElementById('generate-emoji');
+        const generateDiceButton = document.getElementById('generate-dice');
 
         function resetAlerts() {
             errorBox.style.display = 'none';
@@ -419,11 +555,12 @@
 
         encryptionMode.addEventListener('change', () => {
             const mode = encryptionMode.value;
-            if (mode === 'aes256_gcm' || mode === 'xchacha20_poly1305') {
+            if (mode === 'aes256_gcm' || mode === 'chacha20_poly1305' || mode === 'xchacha20_poly1305') {
                 encryptionKeyField.style.display = 'block';
             } else {
                 encryptionKeyField.style.display = 'none';
                 encryptionKeyInput.value = '';
+                keyStrengthIndicator.classList.add('hidden');
             }
             renderPreview();
         });
@@ -444,7 +581,86 @@
             generateKeyButton.addEventListener('click', () => {
                 const key = generateGeekKey();
                 encryptionKeyInput.value = key;
+                updateKeyStrength(key);
+                ensureKeyVisible();
             });
+        }
+
+        const emojiParts = ['🚀', '🛰️', '🧠', '🦾', '🧬', '🛸', '🪐', '🔒', '⚡', '💾', '🧲', '🥷'];
+        const emojiAdjectives = ['neon', 'cyber', 'holo', 'quantum', 'proto', 'retro', 'plasma'];
+        const emojiNouns = ['matrix', 'kernel', 'cipher', 'drone', 'avatar', 'daemon', 'gateway'];
+
+        function generateEmojiCombo() {
+            const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+            return `${pick(emojiParts)}-${pick(emojiAdjectives)}-${pick(emojiNouns)}-${pick(emojiParts)}`;
+        }
+
+        if (generateEmojiButton) {
+            generateEmojiButton.addEventListener('click', () => {
+                const key = generateEmojiCombo();
+                encryptionKeyInput.value = key;
+                updateKeyStrength(key);
+                ensureKeyVisible();
+            });
+        }
+
+        const dicewareWords = [
+            'anode','binary','cobalt','delta','entropy','flux','geode','helium','ion','joule','kepler','lumen','neutrino','omega','photon','qubit','raster','synapse','tachyon','vector','warp','xenon','yotta','zephyr'
+        ];
+
+        function generateDicewareBlend() {
+            const pick = () => dicewareWords[Math.floor(Math.random() * dicewareWords.length)];
+            const number = Math.floor(Math.random() * 900 + 100);
+            return `${pick()}-${pick()}-${pick()}-${number}`;
+        }
+
+        if (generateDiceButton) {
+            generateDiceButton.addEventListener('click', () => {
+                const key = generateDicewareBlend();
+                encryptionKeyInput.value = key;
+                updateKeyStrength(key);
+                ensureKeyVisible();
+            });
+        }
+
+        if (toggleKeyVisibility) {
+            toggleKeyVisibility.addEventListener('click', () => {
+                if (encryptionKeyInput.type === 'text') {
+                    encryptionKeyInput.type = 'password';
+                    toggleKeyVisibility.textContent = 'Show key';
+                } else {
+                    encryptionKeyInput.type = 'text';
+                    toggleKeyVisibility.textContent = 'Hide key';
+                }
+            });
+        }
+
+        function ensureKeyVisible() {
+            if (encryptionKeyInput.type !== 'text') {
+                encryptionKeyInput.type = 'text';
+                toggleKeyVisibility.textContent = 'Hide key';
+            }
+        }
+
+        function updateKeyStrength(key) {
+            if (!keyStrengthIndicator) return;
+            const strength = assessKeyStrength(key);
+            keyStrengthIndicator.textContent = `Key strength: ${strength.label}`;
+            keyStrengthIndicator.className = `key-strength ${strength.className}`;
+            keyStrengthIndicator.classList.remove('hidden');
+        }
+
+        function assessKeyStrength(key) {
+            let score = 0;
+            if (key.length >= 16) score += 1;
+            if (/[0-9]/.test(key)) score += 1;
+            if (/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?~`]/.test(key)) score += 1;
+            if (/[A-Z]/.test(key) && /[a-z]/.test(key)) score += 1;
+            if (/\p{Emoji}/u.test(key)) score += 1;
+
+            if (score >= 4) return { label: 'strong', className: 'strong' };
+            if (score >= 2) return { label: 'medium', className: 'medium' };
+            return { label: 'weak', className: 'weak' };
         }
 
         function escapeHtml(value) {
@@ -535,16 +751,20 @@
                 }
 
                 const fullUrl = new URL(path, window.location.origin).toString();
-                pasteLink.textContent = fullUrl + (encryptionKey ? `?key=${encodeURIComponent(encryptionKey)}` : '');
-                pasteLink.href = fullUrl + (encryptionKey ? `?key=${encodeURIComponent(encryptionKey)}` : '');
+                const shareableUrl = buildShareLink(fullUrl, encryptionKey);
+                pasteLink.textContent = shareableUrl;
+                pasteLink.href = shareableUrl;
                 resultBox.style.display = 'block';
+                qrCard.classList.add('hidden');
                 status.textContent = 'Link ready';
+                resultStatus.textContent = encryption === 'none' ? 'Public paste' : 'Key required';
+                resultStatus.classList.toggle('status-danger', encryption !== 'none');
                 textarea.value = '';
                 renderPreview();
 
                 if (navigator.clipboard?.writeText) {
                     try {
-                        await navigator.clipboard.writeText(fullUrl + (encryptionKey ? `?key=${encodeURIComponent(encryptionKey)}` : ''));
+                        await navigator.clipboard.writeText(shareableUrl);
                         showSuccess('Link copied to clipboard');
                     } catch (_) {
                         showSuccess('Paste created successfully');
@@ -579,19 +799,112 @@
             resetAlerts();
             status.textContent = 'Ready';
         });
-        copyButton.addEventListener('click', async () => {
-            const link = pasteLink.href;
-            if (!link) {
-                showError('Create a paste before copying the link.');
-                return;
+
+        encryptionKeyInput.addEventListener('input', () => {
+            const key = encryptionKeyInput.value.trim();
+            if (key) {
+                updateKeyStrength(key);
+            } else if (keyStrengthIndicator) {
+                keyStrengthIndicator.classList.add('hidden');
             }
+        });
+
+        async function copyToClipboard(text) {
             try {
-                await navigator.clipboard.writeText(link);
+                await navigator.clipboard.writeText(text);
                 showSuccess('Link copied to clipboard');
             } catch (err) {
                 showError('Unable to copy automatically. Copy the link manually.');
             }
-        });
+        }
+
+        function buildShareLink(baseUrl, key) {
+            if (!key) return baseUrl;
+            const separator = baseUrl.includes('?') ? '&' : '?';
+            return `${baseUrl}${separator}key=${encodeURIComponent(key)}`;
+        }
+
+        if (shareCopy) {
+            shareCopy.addEventListener('click', async () => {
+                const link = pasteLink.href;
+                if (!link) {
+                    showError('Create a paste before sharing.');
+                    return;
+                }
+                await copyToClipboard(link);
+            });
+        }
+
+        if (shareEmail) {
+            shareEmail.addEventListener('click', () => {
+                const link = pasteLink.href;
+                if (!link) {
+                    showError('Create a paste before sharing.');
+                    return;
+                }
+                const subject = encodeURIComponent('copypaste.fyi share');
+                const body = encodeURIComponent(`Here is the paste link: ${link}`);
+                window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+            });
+        }
+
+        if (shareTweet) {
+            shareTweet.addEventListener('click', () => {
+                const link = pasteLink.href;
+                if (!link) {
+                    showError('Create a paste before sharing.');
+                    return;
+                }
+                const text = encodeURIComponent('Sharing a paste via copypaste.fyi');
+                window.open(`https://x.com/intent/tweet?text=${text}&url=${encodeURIComponent(link)}`, '_blank');
+            });
+        }
+
+        if (shareSlack) {
+            shareSlack.addEventListener('click', () => {
+                const link = pasteLink.href;
+                if (!link) {
+                    showError('Create a paste before sharing.');
+                    return;
+                }
+                const text = encodeURIComponent(`Paste drop: ${link}`);
+                window.open(`https://slack.com/app_redirect?channel=general&message=${text}`, '_blank');
+            });
+        }
+
+        function makeQr(link) {
+            const endpoint = 'https://api.qrserver.com/v1/create-qr-code/';
+            return `${endpoint}?size=160x160&data=${encodeURIComponent(link)}`;
+        }
+
+        if (shareQr) {
+            shareQr.addEventListener('click', () => {
+                const link = pasteLink.href;
+                if (!link) {
+                    showError('Create a paste before sharing.');
+                    return;
+                }
+                qrImage.src = makeQr(link);
+                qrCard.classList.remove('hidden');
+                showSuccess('QR code ready below.');
+            });
+        }
+
+        if (navigator.share) {
+            shareNative.classList.remove('hidden');
+            shareNative.addEventListener('click', async () => {
+                const link = pasteLink.href;
+                if (!link) {
+                    showError('Create a paste before sharing.');
+                    return;
+                }
+                try {
+                    await navigator.share({ title: 'copypaste.fyi', text: 'Check out this paste', url: link });
+                } catch (err) {
+                    showError('System share canceled or unsupported.');
+                }
+            });
+        }
 
         renderPreview();
     </script>

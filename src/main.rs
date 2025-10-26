@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
+use aes_gcm::{Aes256Gcm, Nonce as AesNonce};
 use base64::{engine::general_purpose, Engine};
-use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaNonce, XChaCha20Poly1305, XNonce};
 use chrono::DateTime;
 use copypaste::{
     create_paste_store, EncryptionAlgorithm, PasteError, PasteFormat, SharedPasteStore,
@@ -134,6 +134,37 @@ mod tests {
     }
 
     #[rocket::async_test]
+    async fn post_encrypted_chacha_roundtrip() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "orbital payload",
+            "format": "kotlin",
+            "retention_minutes": 0,
+            "encryption": {
+                "algorithm": "chacha20_poly1305",
+                "key": "retro-synthwave-9001"
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let path = response.into_string().await.expect("body");
+
+        let with_key = client
+            .get(format!("{}?key=retro-synthwave-9001", path))
+            .dispatch()
+            .await;
+        let html = with_key.into_string().await.expect("html");
+        assert!(html.contains("orbital payload"));
+    }
+
+    #[rocket::async_test]
     async fn post_encrypted_xchacha_roundtrip() {
         let client = rocket_client().await;
         let payload = json!({
@@ -192,6 +223,16 @@ mod tests {
         let decrypted =
             decrypt_content(&stored, Some(key)).expect("decrypting with same key succeeds");
         assert_eq!(decrypted, "super secret");
+    }
+
+    #[test]
+    fn chacha_roundtrip() {
+        let key = "tachyon-vector-2048";
+        let stored = encrypt_content("ghost signal", key, EncryptionAlgorithm::ChaCha20Poly1305)
+            .expect("encryption succeeds");
+        let decrypted =
+            decrypt_content(&stored, Some(key)).expect("decrypting with same key succeeds");
+        assert_eq!(decrypted, "ghost signal");
     }
 
     #[test]
@@ -264,12 +305,15 @@ async fn create(
     });
 
     let content = if let Some(enc) = &body.encryption {
-        match enc.algorithm {
+        let algorithm = enc.algorithm;
+        match algorithm {
             EncryptionAlgorithm::None => StoredContent::Plain {
                 text: body.content.clone(),
             },
-            algo @ (EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::XChaCha20Poly1305) => {
-                encrypt_content(&body.content, &enc.key, algo)
+            EncryptionAlgorithm::Aes256Gcm
+            | EncryptionAlgorithm::ChaCha20Poly1305
+            | EncryptionAlgorithm::XChaCha20Poly1305 => {
+                encrypt_content(&body.content, &enc.key, algorithm)
                     .map_err(|e| (Status::BadRequest, e))?
             }
         }
@@ -336,7 +380,25 @@ fn encrypt_content(
                 .map_err(|_| "failed to initialise cipher".to_string())?;
             let mut nonce_bytes = [0u8; 12];
             OsRng.fill_bytes(&mut nonce_bytes);
-            let nonce = Nonce::from(nonce_bytes);
+            let nonce = AesNonce::from(nonce_bytes);
+
+            let ciphertext = cipher
+                .encrypt(&nonce, text.as_bytes())
+                .map_err(|_| "failed to encrypt content".to_string())?;
+
+            Ok(StoredContent::Encrypted {
+                algorithm,
+                ciphertext: general_purpose::STANDARD.encode(ciphertext),
+                nonce: general_purpose::STANDARD.encode(nonce_bytes),
+                salt: general_purpose::STANDARD.encode(salt),
+            })
+        }
+        EncryptionAlgorithm::ChaCha20Poly1305 => {
+            let cipher = ChaCha20Poly1305::new_from_slice(&derived)
+                .map_err(|_| "failed to initialise cipher".to_string())?;
+            let mut nonce_bytes = [0u8; 12];
+            OsRng.fill_bytes(&mut nonce_bytes);
+            let nonce = ChaNonce::from(nonce_bytes);
 
             let ciphertext = cipher
                 .encrypt(&nonce, text.as_bytes())
@@ -402,7 +464,22 @@ fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<String,
                     let nonce_array: [u8; 12] = nonce_bytes_vec
                         .try_into()
                         .map_err(|_| DecryptError::InvalidKey)?;
-                    let nonce = Nonce::from(nonce_array);
+                    let nonce = AesNonce::from(nonce_array);
+
+                    cipher
+                        .decrypt(&nonce, cipher_bytes.as_ref())
+                        .map_err(|_| DecryptError::InvalidKey)
+                        .and_then(|bytes| {
+                            String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey)
+                        })
+                }
+                EncryptionAlgorithm::ChaCha20Poly1305 => {
+                    let cipher = ChaCha20Poly1305::new_from_slice(&derived)
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce_array: [u8; 12] = nonce_bytes_vec
+                        .try_into()
+                        .map_err(|_| DecryptError::InvalidKey)?;
+                    let nonce = ChaNonce::from(nonce_array);
 
                     cipher
                         .decrypt(&nonce, cipher_bytes.as_ref())
@@ -471,6 +548,7 @@ fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
         StoredContent::Encrypted { ref algorithm, .. } => match algorithm {
             EncryptionAlgorithm::None => "None".to_string(),
             EncryptionAlgorithm::Aes256Gcm => "AES-256-GCM".to_string(),
+            EncryptionAlgorithm::ChaCha20Poly1305 => "ChaCha20-Poly1305".to_string(),
             EncryptionAlgorithm::XChaCha20Poly1305 => "XChaCha20-Poly1305".to_string(),
         },
     };

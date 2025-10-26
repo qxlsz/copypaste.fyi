@@ -56,3 +56,26 @@ async fn store_handles_encrypted_variant() {
         .expect("encrypted paste should exist");
     assert!(matches!(stored.content, StoredContent::Encrypted { .. }));
 }
+
+#[tokio::test]
+async fn store_handles_chacha_variant() {
+    let store = create_paste_store();
+    let paste = StoredPaste {
+        content: StoredContent::Encrypted {
+            algorithm: EncryptionAlgorithm::ChaCha20Poly1305,
+            ciphertext: "cipher".into(),
+            nonce: "nonce".into(),
+            salt: "salt".into(),
+        },
+        format: PasteFormat::Code,
+        created_at: 0,
+        expires_at: None,
+    };
+
+    let id = store.create_paste(paste).await;
+    let stored = store
+        .get_paste(&id)
+        .await
+        .expect("encrypted paste should exist");
+    assert!(matches!(stored.content, StoredContent::Encrypted { .. }));
+}

@@ -99,9 +99,10 @@ Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **
 
 - `None` – store plaintext (default)
 - `AES-256-GCM` – deterministic 12-byte nonce per paste, client-supplied passphrase
+- `ChaCha20-Poly1305` – compact 96-bit nonce cipher for performance-oriented clients
 - `XChaCha20-Poly1305` – 24-byte nonce variant suited for longer keys and high-entropy secrets
 
-The web UI includes a **Geek passphrase** button that suggests a memorable hacker-style key such as `quantum-glitch-daemon-4096`. Share the key out-of-band—the server never stores it.
+The web UI includes multiple passphrase helpers (**Geek**, **Emoji combo**, **Diceware blend**) and a live key-strength meter. Keys stay visible (or toggle to hidden) so you can share them out-of-band—the server never stores them. A share panel provides easy copy, email, Slack, X/Twitter, QR, and native share shortcuts.
 
 ### Run with Docker Compose
 
@@ -138,7 +139,7 @@ echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000
 | `--host <URL>` | Base URL of the copypaste server. Defaults to `http://127.0.0.1:8000`. |
 | `--stdin` | Read the paste content from standard input instead of the command line argument. |
 | `--format <plain_text|markdown|code|json|go|cpp|kotlin|java>` | Rendering mode for the paste. Defaults to `plain_text`. |
-| `--encryption <none|aes256_gcm|xchacha20_poly1305>` | Client-side encryption algorithm. When not `none`, pass `--key`. |
+| `--encryption <none|aes256_gcm|chacha20_poly1305|xchacha20_poly1305>` | Client-side encryption algorithm. When not `none`, pass `--key`. |
 | `--key <string>` | Encryption key / passphrase (required for encrypted pastes). |
 | positional text | When `--stdin` is not provided, supply the text to paste as a positional argument. |
 

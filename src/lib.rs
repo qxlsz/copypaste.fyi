@@ -30,6 +30,8 @@ pub enum EncryptionAlgorithm {
     #[default]
     None,
     Aes256Gcm,
+    #[serde(rename = "chacha20_poly1305")]
+    ChaCha20Poly1305,
     #[serde(rename = "xchacha20_poly1305")]
     XChaCha20Poly1305,
 }

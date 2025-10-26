@@ -33,6 +33,8 @@ enum CliEncryption {
     None,
     #[value(name = "aes256_gcm")]
     Aes256Gcm,
+    #[value(name = "chacha20_poly1305")]
+    ChaCha20Poly1305,
     #[value(name = "xchacha20_poly1305")]
     XChaCha20Poly1305,
 }
@@ -107,7 +109,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let encryption = match cli.encryption_mode {
         CliEncryption::None => None,
-        CliEncryption::Aes256Gcm | CliEncryption::XChaCha20Poly1305 => {
+        CliEncryption::Aes256Gcm
+        | CliEncryption::ChaCha20Poly1305
+        | CliEncryption::XChaCha20Poly1305 => {
             let key = cli
                 .encryption_key
                 .as_deref()
@@ -122,6 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(EncryptionPayload {
                 algorithm: match cli.encryption_mode {
                     CliEncryption::Aes256Gcm => "aes256_gcm",
+                    CliEncryption::ChaCha20Poly1305 => "chacha20_poly1305",
                     CliEncryption::XChaCha20Poly1305 => "xchacha20_poly1305",
                     CliEncryption::None => unreachable!(),
                 },
