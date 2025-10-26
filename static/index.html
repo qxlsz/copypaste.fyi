@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>copypaste.fyi</title>
+    <style>
+        :root {
+            --background: #f5f5f5;
+            --surface: #ffffff;
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --border: #d1d5db;
+            --text: #111827;
+            --muted: #6b7280;
+            --error: #dc2626;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--background);
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+        header {
+            padding: 3rem 1.5rem 2rem;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+
+        header p {
+            margin: 0.5rem 0 0;
+            color: var(--muted);
+            font-size: 1.1rem;
+        }
+
+        main {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 1.5rem 3rem;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 15px 30px -20px rgba(15, 23, 42, 0.25);
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 240px;
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1rem 1.25rem;
+            font-size: 1rem;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        .actions {
+            margin-top: 1.25rem;
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 999px;
+            padding: 0.75rem 1.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.1s ease;
+        }
+
+        button:hover {
+            background: var(--primary-hover);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .status {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .error {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            background: rgba(220, 38, 38, 0.08);
+            color: var(--error);
+            display: none;
+        }
+
+        .result {
+            margin-top: 1.5rem;
+            padding: 1.25rem 1.5rem;
+            border-radius: 0.75rem;
+            border: 1px solid var(--border);
+            background: #f9fafb;
+            display: none;
+        }
+
+        .result strong {
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .result a {
+            color: var(--primary);
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .result a:hover {
+            text-decoration: underline;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem 1.5rem 3rem;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>copypaste.fyi</h1>
+        <p>Create a paste in seconds and share the link anywhere.</p>
+    </header>
+
+    <main>
+        <section class="card">
+            <label for="content">Your text</label>
+            <textarea id="content" placeholder="Type or paste your text here..."></textarea>
+
+            <div class="actions">
+                <button id="create">Create paste</button>
+                <span class="status" id="status">Ready</span>
+            </div>
+
+            <div id="error" class="error"></div>
+            <div id="result" class="result">
+                <strong>Your paste link:</strong>
+                <a id="paste-url" href="#" target="_blank" rel="noopener"></a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span>Links are stored in memory for this session only.</span>
+    </footer>
+
+    <script>
+        const textarea = document.getElementById('content');
+        const createButton = document.getElementById('create');
+        const status = document.getElementById('status');
+        const errorBox = document.getElementById('error');
+        const resultBox = document.getElementById('result');
+        const pasteLink = document.getElementById('paste-url');
+
+        async function createPaste() {
+            const content = textarea.value.trim();
+
+            if (!content) {
+                errorBox.textContent = 'Please enter some text to create a paste.';
+                errorBox.style.display = 'block';
+                resultBox.style.display = 'none';
+                return;
+            }
+
+            errorBox.style.display = 'none';
+            status.textContent = 'Saving...';
+            createButton.disabled = true;
+
+            try {
+                const response = await fetch('/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain',
+                    },
+                    body: content,
+                });
+
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+
+                const path = (await response.text()).trim();
+                if (!path) {
+                    throw new Error('Server returned an empty response');
+                }
+
+                const fullUrl = new URL(path, window.location.origin).toString();
+                pasteLink.textContent = fullUrl;
+                pasteLink.href = fullUrl;
+                resultBox.style.display = 'block';
+                status.textContent = 'Link ready';
+                textarea.value = '';
+
+                if (navigator.clipboard?.writeText) {
+                    try {
+                        await navigator.clipboard.writeText(fullUrl);
+                        status.textContent = 'Link copied to clipboard';
+                    } catch (_) {
+                        // Ignore clipboard errors silently
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                errorBox.textContent = err.message || 'Something went wrong. Please try again.';
+                errorBox.style.display = 'block';
+                status.textContent = 'Something went wrong';
+                resultBox.style.display = 'none';
+            } finally {
+                createButton.disabled = false;
+            }
+        }
+
+        createButton.addEventListener('click', createPaste);
+        textarea.addEventListener('keydown', (event) => {
+            if (event.metaKey && event.key === 'Enter') {
+                createPaste();
+            }
+        });
+    </script>
+</body>
+</html>

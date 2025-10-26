@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package copypaste;
+
+// A single paste entry
+message Paste {
+  string id = 1;
+  string content = 2;
+  int64 created_at = 3;  // Unix timestamp in seconds
+}
+
+// Request to create a new paste
+message CreatePasteRequest {
+  string content = 1;
+}
+
+// Response containing the paste ID
+message CreatePasteResponse {
+  string id = 1;
+}
+
+// Request to get a paste by ID
+message GetPasteRequest {
+  string id = 1;
+}
+
+// Response containing the paste content
+message GetPasteResponse {
+  string content = 1;
+}
+
+// Service definition for the pastebin API
+service PasteService {
+  rpc CreatePaste(CreatePasteRequest) returns (CreatePasteResponse) {}
+  rpc GetPaste(GetPasteRequest) returns (GetPasteResponse) {}
+}

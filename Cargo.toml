@@ -1,0 +1,25 @@
+[package]
+name = "copypaste"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rocket = { version = "0.5.0-rc.3", features = ["json"] }
+tokio = { version = "1.0", features = ["full"] }
+nanoid = "0.4"
+async-trait = "0.1"
+thiserror = "1.0"
+lazy_static = "1.4"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
+
+[lib]
+name = "copypaste"
+path = "src/lib.rs"
+
+[[bin]]
+name = "copypaste"
+path = "src/main.rs"
+
+[[bin]]
+name = "cpaste"
+path = "src/bin/cpaste.rs"
