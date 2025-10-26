@@ -1,90 +1,121 @@
-use std::path::{Path, PathBuf};
+// QXEL COMMAND CENTER
+// OPERATION: METAL_GOLD
+// STATUS: ALPHA
+// WARNING: UNAUTHORIZED ACCESS PROHIBITED
+
+#![feature(proc_macro_hygiene, decl_macro)]
+
+#[macro_use] extern crate rocket;
+
+use std::path::PathBuf;
+use std::sync::Arc;
 use rocket::{get, post, routes, State};
 use rocket::response::content;
 use rocket::fs::{FileServer, NamedFile};
-use rand::{distributions::Alphanumeric, Rng};
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
-use chrono::NaiveDateTime;
-use std::env;
-use std::error::Error;
+use copypaste::{QuantumCore, init_quantum_core, QuantumError};
 
-type DbPool = SqlitePool;
+// Mission parameters
+const QUANTUM_PORT: u16 = 8000;
+const DINOSAUR_FORCE_LEVEL: u32 = 9001;
 
-#[get("/<id>")]
-async fn get_paste(pool: &State<DbPool>, id: String) -> Option<content::RawHtml<String>> {
-    match sqlx::query_scalar::<_, String>("SELECT content FROM pastes WHERE id = ?")
-        .bind(&id)
-        .fetch_optional(&**pool)
-        .await
-    {
-        Ok(Some(content)) => Some(content::RawHtml(content)),
-        _ => None,
+// Quantum Core Initialization Sequence
+lazy_static::lazy_static! {
+    static ref QUANTUM_CORE: QuantumCore = init_quantum_core();
+}
+
+/// QUANTUM RETRIEVAL PROTOCOL
+/// Access Code: DINOSAUR-ALPHA-ACCESS-GRANTED
+#[get("/<quantum_signal>")]
+async fn quantum_retrieval(quantum_signal: String) -> Result<content::RawHtml<String>, String> {
+    // Activate quantum decryption sequence
+    match QUANTUM_CORE.quantum_decrypt(&quantum_signal).await {
+        Ok(decrypted_data) => {
+            // Successfully retrieved quantum data
+            Ok(content::RawHtml(decrypted_data))
+        },
+        Err(QuantumError::TargetLost(_)) => {
+            // Quantum signature not found in the continuum
+            Err("QUANTUM SIGNAL NOT FOUND IN CONTINUUM".to_string())
+        },
+        Err(QuantumError::DinosaurDeficit) => {
+            // Insufficient dinosaur force
+            Err("ACCESS DENIED: INSUFFICIENT DINOSAUR_FORCE".to_string())
+        },
+        _ => {
+            // Quantum decryption failed
+            Err("QUANTUM DECRYPTION FAILURE".to_string())
+        }
     }
 }
 
-#[post("/", data = "<content>")]
-async fn create_paste(pool: &State<DbPool>, content: String) -> String {
-    let id: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(8)
-        .map(char::from)
-        .collect();
-
-    if let Err(e) = sqlx::query(
-        "INSERT INTO pastes (id, content) VALUES (?, ?)"
-    )
-    .bind(&id)
-    .bind(&content)
-    .execute(&**pool)
-    .await {
-        eprintln!("Failed to insert paste: {}", e);
-        return "/error".to_string();
+/// QUANTUM ENCRYPTION PROTOCOL
+/// Security Level: METAL_GOLD
+#[post("/quantum_encrypt", data = "<dinosaur_data>")]
+async fn quantum_encryption(dinosaur_data: String) -> String {
+    // Verify dinosaur force levels
+    if DINOSAUR_FORCE_LEVEL < 9000 {
+        return "/error/insufficient_dinosaur_force".to_string();
     }
-
-    format!("/{}", id)
+    
+    // Initiate quantum encryption sequence
+    match QUANTUM_CORE.quantum_encrypt(dinosaur_data).await {
+        Ok(quantum_signature) => {
+            // Return quantum access URL
+            format!("/quantum_access/{}", quantum_signature)
+        },
+        Err(e) => {
+            // Log quantum encryption failure
+            eprintln!("QUANTUM ENCRYPTION FAILURE: {}", e);
+            "/error/quantum_failure".to_string()
+        }
+    }
 }
 
-#[get("/")]
-async fn index() -> content::RawHtml<&'static str> {
+/// MISSION CONTROL CENTER
+/// Access: PUBLIC
+#[get("/mission_control")]
+async fn mission_control() -> content::RawHtml<&'static str> {
     content::RawHtml(include_str!("../static/index.html"))
 }
 
-#[get("/static/<file..>")]
-async fn static_files(file: PathBuf) -> Option<NamedFile> {
-    NamedFile::open(Path::new("static/").join(file)).await.ok()
+/// QUANTUM ASSET DELIVERY SYSTEM
+/// Security Clearance: PUBLIC
+#[get("/quantum_assets/<asset_path..>")]
+async fn quantum_assets(asset_path: PathBuf) -> Option<NamedFile> {
+    NamedFile::open(PathBuf::from("static/").join(asset_path)).await.ok()
 }
 
-async fn init_db() -> Result<DbPool, Box<dyn Error>> {
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:data/pastes.db".to_string());
-    
-    // Create data directory if it doesn't exist
-    if let Some(parent) = Path::new(&database_url).parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
-    
-    // Run migrations
-    sqlx::migrate!("./migrations").run(&pool).await?;
-    
-    Ok(pool)
-}
-
+/// QUANTUM INITIALIZATION SEQUENCE
+/// WARNING: DO NOT INTERRUPT
 #[rocket::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize database
-    let db_pool = init_db().await?;
+    // Initialize quantum core (DINOSAUR PROTOCOL ACTIVATED)
+    println!("INITIALIZING QUANTUM CORE...");
+    println!("DINOSAUR_FORCE: {}", DINOSAUR_FORCE_LEVEL);
+    
+    if DINOSAUR_FORCE_LEVEL < 9000 {
+        eprintln!("CRITICAL: INSUFFICIENT DINOSAUR_FORCE");
+        std::process::exit(1);
+    }
+    
+    // Launch quantum server
+    println!("ACTIVATING QUANTUM SERVER ON PORT {}", QUANTUM_PORT);
     
     let _rocket = rocket::build()
-        .manage(db_pool)
-        .mount("/", routes![index, create_paste, get_paste, static_files])
+        .configure(rocket::Config {
+            port: QUANTUM_PORT,
+            ..rocket::Config::debug_default()
+        })
+        .mount("/", routes![
+            mission_control,
+            quantum_encryption,
+            quantum_retrieval,
+            quantum_assets
+        ])
         .mount("/", FileServer::from("static"))
         .launch()
         .await?;
-        
+    
+    println!("QUANTUM SERVER TERMINATED");
     Ok(())
 }

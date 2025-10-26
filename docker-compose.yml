@@ -4,13 +4,11 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
-      - ./static:/app/static
+      - ./static:/static
     restart: unless-stopped
     environment:
       - ROCKET_ADDRESS=0.0.0.0
       - ROCKET_PORT=8000
-      - DATABASE_URL=sqlite:/app/data/pastes.db
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8000"]
       interval: 30s
