@@ -89,6 +89,20 @@ cargo run --bin copypaste
 
 Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **Create paste** to receive a link.
 
+**Formatting options**
+
+- Plain text / Markdown / generic code block
+- Language-specific code blocks: Go, C++, Kotlin, Java
+- JSON pretty-print (parses and auto-indents or shows raw fallback)
+
+**Encryption options**
+
+- `None` – store plaintext (default)
+- `AES-256-GCM` – deterministic 12-byte nonce per paste, client-supplied passphrase
+- `XChaCha20-Poly1305` – 24-byte nonce variant suited for longer keys and high-entropy secrets
+
+The web UI includes a **Geek passphrase** button that suggests a memorable hacker-style key such as `quantum-glitch-daemon-4096`. Share the key out-of-band—the server never stores it.
+
 ### Run with Docker Compose
 
 ```bash
@@ -123,7 +137,10 @@ echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000
 | ------ | ----------- |
 | `--host <URL>` | Base URL of the copypaste server. Defaults to `http://127.0.0.1:8000`. |
 | `--stdin` | Read the paste content from standard input instead of the command line argument. |
-| positional text | When `--stdin` is not provided, the text to paste can be supplied as a positional argument. |
+| `--format <plain_text|markdown|code|json|go|cpp|kotlin|java>` | Rendering mode for the paste. Defaults to `plain_text`. |
+| `--encryption <none|aes256_gcm|xchacha20_poly1305>` | Client-side encryption algorithm. When not `none`, pass `--key`. |
+| `--key <string>` | Encryption key / passphrase (required for encrypted pastes). |
+| positional text | When `--stdin` is not provided, supply the text to paste as a positional argument. |
 
 `cpaste --help` displays the full command reference.
 

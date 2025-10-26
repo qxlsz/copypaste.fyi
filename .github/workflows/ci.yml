@@ -60,7 +60,7 @@ jobs:
         run: cargo nextest run --workspace --all-features
 
       - name: Coverage (llvm-cov)
-        run: cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75 --lcov --output-path coverage/lcov.info
+        run: cargo llvm-cov nextest --workspace --all-features --fail-under-lines 75 --lcov --output-path coverage/lcov.info
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

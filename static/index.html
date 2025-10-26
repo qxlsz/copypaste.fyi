@@ -304,10 +304,14 @@
                         <select id="format">
                             <option value="plain_text">Plain text</option>
                             <option value="markdown">Markdown</option>
-                            <option value="code">Code block</option>
+                            <option value="code">Code block (generic)</option>
                             <option value="json">JSON (pretty print)</option>
+                            <option value="go">Go</option>
+                            <option value="cpp">C++</option>
+                            <option value="kotlin">Kotlin</option>
+                            <option value="java">Java</option>
                         </select>
-                        <div class="meta-note">Choose how the paste is rendered when viewed.</div>
+                        <div class="meta-note">Choose how the paste is rendered when viewed. Language-specific options render as preformatted code blocks.</div>
                     </div>
 
                     <div class="field">
@@ -329,13 +333,17 @@
                     <select id="encryption-mode">
                         <option value="none">None</option>
                         <option value="aes256_gcm">AES-256-GCM (client provided key)</option>
+                        <option value="xchacha20_poly1305">XChaCha20-Poly1305 (longer nonce)</option>
                     </select>
-                    <div class="meta-note">Use encryption for sensitive snippets. Remember to share the key separately.</div>
+                    <div class="meta-note">Use encryption for sensitive snippets. Share the key separately (try the <strong>geek passphrase</strong> button for inspiration).</div>
                 </div>
 
                 <div class="field" id="encryption-key-field" style="display:none;">
                     <label for="encryption-key">Encryption key</label>
-                    <input type="password" id="encryption-key" placeholder="Enter a strong key" autocomplete="off" />
+                    <div class="actions" style="margin-top: 0.5rem; gap: 0.5rem;">
+                        <input type="password" id="encryption-key" placeholder="Enter a strong key" autocomplete="off" style="flex:1;" />
+                        <button class="ghost" id="generate-key" type="button">Geek passphrase</button>
+                    </div>
                     <div class="meta-note">Key is never stored. Recipients must supply it to decrypt the paste.</div>
                 </div>
             </div>
@@ -380,6 +388,7 @@
         const encryptionMode = document.getElementById('encryption-mode');
         const encryptionKeyField = document.getElementById('encryption-key-field');
         const encryptionKeyInput = document.getElementById('encryption-key');
+        const generateKeyButton = document.getElementById('generate-key');
 
         const createButton = document.getElementById('create');
         const status = document.getElementById('status');
@@ -410,7 +419,7 @@
 
         encryptionMode.addEventListener('change', () => {
             const mode = encryptionMode.value;
-            if (mode === 'aes256_gcm') {
+            if (mode === 'aes256_gcm' || mode === 'xchacha20_poly1305') {
                 encryptionKeyField.style.display = 'block';
             } else {
                 encryptionKeyField.style.display = 'none';
@@ -418,6 +427,25 @@
             }
             renderPreview();
         });
+
+        const cyberWords = [
+            'quantum', 'neon', 'flux', 'cipher', 'daemon', 'matrix', 'entropy', 'glitch',
+            'wormhole', 'subroutine', 'cosmos', 'overclock', 'phase', 'lambda', 'phoenix',
+            'hyperdrive', 'tachyon', 'synthwave', 'bytecode', 'singularity', 'nanobot', 'astral'
+        ];
+
+        function generateGeekKey() {
+            const pick = () => cyberWords[Math.floor(Math.random() * cyberWords.length)];
+            const segments = [pick(), pick(), pick(), Math.floor(Math.random() * 9000 + 1000)];
+            return segments.join('-');
+        }
+
+        if (generateKeyButton) {
+            generateKeyButton.addEventListener('click', () => {
+                const key = generateGeekKey();
+                encryptionKeyInput.value = key;
+            });
+        }
 
         function escapeHtml(value) {
             const div = document.createElement('div');
@@ -450,7 +478,7 @@
                 return;
             }
 
-            if (format === 'code') {
+            if (['code', 'go', 'cpp', 'kotlin', 'java'].includes(format)) {
                 previewContainer.innerHTML = `<pre><code>${escapeHtml(text)}</code></pre>`;
                 return;
             }
@@ -471,7 +499,7 @@
             const encryption = encryptionMode.value;
             const encryptionKey = encryptionKeyInput.value.trim();
 
-            if (encryption === 'aes256_gcm' && !encryptionKey) {
+            if ((encryption === 'aes256_gcm' || encryption === 'xchacha20_poly1305') && !encryptionKey) {
                 showError('Provide an encryption key or disable encryption.');
                 resultBox.style.display = 'none';
                 return;
@@ -485,8 +513,8 @@
                 content,
                 format,
                 retention_minutes: retention || undefined,
-                encryption: encryption === 'aes256_gcm'
-                    ? { algorithm: 'aes256_gcm', key: encryptionKey }
+                encryption: encryption !== 'none'
+                    ? { algorithm: encryption, key: encryptionKey }
                     : undefined,
             };
 

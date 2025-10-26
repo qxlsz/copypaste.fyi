@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PasteFormat {
     #[default]
@@ -16,14 +16,22 @@ pub enum PasteFormat {
     Markdown,
     Code,
     Json,
+    #[serde(rename = "go")]
+    Go,
+    #[serde(rename = "cpp")]
+    Cpp,
+    Kotlin,
+    Java,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionAlgorithm {
     #[default]
     None,
     Aes256Gcm,
+    #[serde(rename = "xchacha20_poly1305")]
+    XChaCha20Poly1305,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
