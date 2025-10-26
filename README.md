@@ -25,28 +25,62 @@ Key traits:
 ```mermaid
 graph TD
     classDef client fill:#2563eb,stroke:#1e3a8a,color:#fff;
-    classDef app fill:#10b981,stroke:#047857,color:#fff;
-    classDef trait fill:#f59e0b,stroke:#b45309,color:#fff;
+    classDef service fill:#10b981,stroke:#047857,color:#fff;
+    classDef logic fill:#f59e0b,stroke:#b45309,color:#fff;
     classDef storage fill:#f87171,stroke:#b91c1c,color:#fff;
+    classDef util fill:#8b5cf6,stroke:#5b21b6,color:#fff;
+    classDef share fill:#0ea5e9,stroke:#0369a1,color:#fff;
     classDef link stroke-width:2px;
 
-    A[Web Client\nStatic HTML + Fetch]
-    B[Rocket Web App\nRoutes: /, /<id>, /static]
-    C[PasteStore Trait]
-    D[MemoryPasteStore\nIn-memory HashMap]
+    subgraph Client Tier
+        A[Web UI\nStatic HTML + JS]
+        B[CLI\n`cpaste` binary]
+    end
 
-    A -->|POST /, GET /| B
-    B -->|Async tasks| C
-    C -->|Implementation| D
+    subgraph Service Layer
+        C[Rocket Routes\n`GET /`, `POST /`, `GET /<id>`]
+        F[Responder Templates\nHTML rendering]
+    end
 
-    class A client;
-    class B app;
-    class C trait;
-    class D storage;
-    class A,B,C,D link;
+    subgraph Logic Layer
+        G[Key Derivation & Encryption\nAES-GCM, ChaCha20(-X)Poly1305]
+        H[Formatters\nPlain, Markdown, Code, JSON]
+        I[Sharing Helpers\nCopy, Email, Slack, X, QR]
+    end
+
+    subgraph Persistence
+        J[PasteStore Trait]
+        K[MemoryPasteStore\nEphemeral HashMap]
+    end
+
+    subgraph External Consumers
+        L[Share Targets\nBrowsers, Chat apps]
+    end
+
+    A -->|Fetch API JSON| C
+    B -->|HTTP JSON| C
+    C --> F
+    C --> G
+    C --> H
+    G --> J
+    H --> J
+    J --> K
+    F --> A
+    F --> L
+    I --> L
+    G -.-> I
+
+    class A,B client;
+    class C,F service;
+    class G,H logic;
+    class I util;
+    class J storage;
+    class K storage;
+    class L share;
+    class A,B,C,F,G,H,I,J,K,L link;
 ```
 
-The flow is intentionally straightforward: the browser posts raw text to `/`, Rocket forwards the request to the `PasteStore` interface, and the in-memory backend issues a short identifier used for lookups.
+The flow stays minimal: the web UI (or CLI) posts JSON to `/`, Rocket validates retention/encryption choices, derives keys when needed, and persists the paste via the `PasteStore`. Renderers shape the viewing experience (markdown, code, JSON), while sharing helpers surface links to browsers, chat apps, and QR devices.
 
 - **Language:** Rust (edition 2021)
 - **Framework:** Rocket 0.5
@@ -103,6 +137,8 @@ Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **
 - `XChaCha20-Poly1305` – 24-byte nonce variant suited for longer keys and high-entropy secrets
 
 The web UI includes multiple passphrase helpers (**Geek**, **Emoji combo**, **Diceware blend**) and a live key-strength meter. Keys stay visible (or toggle to hidden) so you can share them out-of-band—the server never stores them. A share panel provides easy copy, email, Slack, X/Twitter, QR, and native share shortcuts.
+
+➡️ Dive deeper in the [Encryption guide](docs/encryption.md) for algorithm notes, key derivation details, and operational advice.
 
 ### Run with Docker Compose
 
