@@ -8,38 +8,30 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PasteFormat {
+    #[default]
     PlainText,
     Markdown,
     Code,
     Json,
 }
 
-impl Default for PasteFormat {
-    fn default() -> Self {
-        PasteFormat::PlainText
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionAlgorithm {
+    #[default]
     None,
     Aes256Gcm,
-}
-
-impl Default for EncryptionAlgorithm {
-    fn default() -> Self {
-        EncryptionAlgorithm::None
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StoredContent {
-    Plain { text: String },
+    Plain {
+        text: String,
+    },
     Encrypted {
         algorithm: EncryptionAlgorithm,
         ciphertext: String,
@@ -79,6 +71,12 @@ impl MemoryPasteStore {
         Self {
             entries: RwLock::new(HashMap::new()),
         }
+    }
+}
+
+impl Default for MemoryPasteStore {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
