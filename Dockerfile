@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for copypaste.fyi server
-FROM rust:1.82 AS builder
+FROM rust:1.84 AS builder
 WORKDIR /app
 
 # Pre-fetch dependencies to benefit from caching when the source changes infrequently

@@ -11,6 +11,7 @@ async fn store_round_trip_plain() {
         created_at: 1,
         expires_at: None,
         burn_after_reading: false,
+        metadata: Default::default(),
     };
 
     let id = store.create_paste(paste.clone()).await;
@@ -30,6 +31,7 @@ async fn store_expired_returns_error() {
         created_at: 10,
         expires_at: Some(5),
         burn_after_reading: false,
+        metadata: Default::default(),
     };
 
     let id = store.create_paste(paste).await;
@@ -50,6 +52,7 @@ async fn store_handles_encrypted_variant() {
         created_at: 0,
         expires_at: None,
         burn_after_reading: false,
+        metadata: Default::default(),
     };
 
     let id = store.create_paste(paste).await;
@@ -74,6 +77,7 @@ async fn store_handles_chacha_variant() {
         created_at: 0,
         expires_at: None,
         burn_after_reading: false,
+        metadata: Default::default(),
     };
 
     let id = store.create_paste(paste).await;
