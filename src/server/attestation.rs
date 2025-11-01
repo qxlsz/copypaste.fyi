@@ -194,3 +194,82 @@ fn totp_code(secret: &[u8], counter: u64, digits: u32) -> Option<String> {
     let value = (binary as u64) % modulo;
     Some(format!("{:0width$}", value, width = digits as usize))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SECRET: &str = "JBSWY3DPEHPK3PXP"; // base32 for "Hello!"
+
+    #[test]
+    fn totp_verification_accepts_valid_code() {
+        let now = 30 * 1_000; // align with step window
+        let bytes = decode_totp_secret(SECRET).expect("base32 secret");
+        let counter = (now as u64) / 30;
+        let code = totp_code(&bytes, counter, 6).expect("code generation");
+        assert!(verify_totp(SECRET, &code, 6, 30, 1, now));
+    }
+
+    #[test]
+    fn totp_verification_rejects_invalid_code() {
+        let now = 30 * 1_234;
+        assert!(!verify_totp(SECRET, "000000", 6, 30, 0, now));
+    }
+
+    #[test]
+    fn requirement_from_request_validates_parameters() {
+        let request = AttestationRequest::Totp {
+            secret: SECRET.into(),
+            digits: Some(6),
+            step: Some(30),
+            allowed_drift: Some(1),
+            issuer: Some("Test Issuer".into()),
+        };
+
+        let requirement = requirement_from_request(&request).expect("valid request");
+        match requirement {
+            AttestationRequirement::Totp {
+                digits,
+                step,
+                allowed_drift,
+                issuer,
+                ..
+            } => {
+                assert_eq!(digits, 6);
+                assert_eq!(step, 30);
+                assert_eq!(allowed_drift, 1);
+                assert_eq!(issuer.as_deref(), Some("Test Issuer"));
+            }
+            _ => panic!("unexpected requirement variant"),
+        }
+    }
+
+    #[test]
+    fn requirement_from_request_rejects_invalid_digits() {
+        let request = AttestationRequest::Totp {
+            secret: SECRET.into(),
+            digits: Some(12),
+            step: Some(30),
+            allowed_drift: None,
+            issuer: None,
+        };
+
+        let err = requirement_from_request(&request).expect_err("digits > 10 should fail");
+        assert!(err.contains("digits"));
+    }
+
+    #[test]
+    fn shared_secret_hashes_to_base64() {
+        let request = AttestationRequest::SharedSecret {
+            secret: "topsecret".into(),
+        };
+
+        let requirement = requirement_from_request(&request).expect("hashable");
+        match requirement {
+            AttestationRequirement::SharedSecret { hash } => {
+                assert_eq!(hash.len() % 4, 0, "base64 padding expected");
+            }
+            _ => panic!("unexpected requirement variant"),
+        }
+    }
+}

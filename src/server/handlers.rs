@@ -394,3 +394,104 @@ fn resolve_content(
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use copypaste::MemoryPasteStore;
+    use rocket::http::ContentType;
+    use rocket::local::blocking::Client;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    #[test]
+    fn apply_time_lock_validates_order() {
+        let mut metadata = PasteMetadata::default();
+        let request = TimeLockRequest {
+            not_before: Some("2024-01-01T00:00:00Z".into()),
+            not_after: Some("2024-01-02T00:00:00Z".into()),
+        };
+
+        apply_time_lock(&request, &mut metadata).expect("valid window");
+        assert!(metadata.not_before.unwrap() < metadata.not_after.unwrap());
+    }
+
+    #[test]
+    fn apply_time_lock_rejects_inverted_window() {
+        let mut metadata = PasteMetadata::default();
+        let request = TimeLockRequest {
+            not_before: Some("2024-01-02T00:00:00Z".into()),
+            not_after: Some("2024-01-01T00:00:00Z".into()),
+        };
+
+        let err = apply_time_lock(&request, &mut metadata).expect_err("window invalid");
+        assert_eq!(err.0, Status::BadRequest);
+    }
+
+    #[test]
+    fn persistence_locator_validates_inputs() {
+        let memory = persistence_locator_from_request(&PersistenceRequest::Memory).unwrap();
+        matches!(memory, PersistenceLocator::Memory);
+
+        let err = persistence_locator_from_request(&PersistenceRequest::Vault {
+            key_path: "".into(),
+        })
+        .expect_err("empty key path");
+        assert_eq!(err.0, Status::BadRequest);
+
+        let loc = persistence_locator_from_request(&PersistenceRequest::S3 {
+            bucket: "bucket".into(),
+            prefix: Some("prefix".into()),
+        })
+        .unwrap();
+        matches!(loc, PersistenceLocator::S3 { .. });
+    }
+
+    #[test]
+    fn webhook_config_requires_url() {
+        let err = webhook_config_from_request(&WebhookRequest {
+            url: " ".into(),
+            ..Default::default()
+        })
+        .expect_err("empty url should fail");
+        assert_eq!(err.0, Status::BadRequest);
+
+        let cfg = webhook_config_from_request(&WebhookRequest {
+            url: "https://example.com".into(),
+            ..Default::default()
+        })
+        .expect("valid webhook");
+        assert_eq!(cfg.url, "https://example.com");
+    }
+
+    #[test]
+    fn show_route_triggers_burn_after_reading_flow() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "payload",
+            "format": "plain_text",
+            "burn_after_reading": true,
+            "webhook": {
+                "url": "https://example.com/webhook"
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let id = response.into_string().unwrap();
+
+        let view = client.get(&id).dispatch();
+        assert_eq!(view.status(), Status::Ok);
+
+        let second = client.get(&id).dispatch();
+        assert_eq!(second.status(), Status::NotFound);
+    }
+}
