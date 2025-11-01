@@ -19,6 +19,15 @@ afterEach(() => {
 
 describe('getInitialTheme', () => {
   it('defaults to light when window is undefined', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      value: originalMatchMedia,
+      writable: true,
+    })
+    Object.defineProperty(window, 'localStorage', {
+      value: originalLocalStorage,
+      writable: true,
+    })
+
     expect(getInitialTheme()).toBe('light')
   })
 
