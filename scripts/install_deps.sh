@@ -28,4 +28,19 @@ cargo install cargo-nextest --locked --force
 echo "Installing cargo-llvm-cov (coverage tooling)..."
 cargo install cargo-llvm-cov --locked --force
 
+if ! command -v npm &>/dev/null; then
+  echo "npm is required for the frontend build. Please install Node.js LTS (https://nodejs.org/) before continuing." >&2
+  exit 1
+fi
+
+echo "Installing frontend dependencies..."
+(
+  cd frontend
+  if [[ -f package-lock.json ]]; then
+    npm ci
+  else
+    npm install
+  fi
+)
+
 echo "Dependencies installed successfully."
