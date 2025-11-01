@@ -4,7 +4,9 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import { Layout } from './components/Layout'
 import { PasteFormPage } from './pages/PasteForm'
+import { PasteViewPage } from './pages/PasteView'
 import { StatsPage } from './pages/Stats'
+import { ThemeProvider } from './theme/ThemeProvider'
 
 function App() {
   const [queryClient] = useState(() => new QueryClient())
@@ -12,12 +14,15 @@ function App() {
   return (
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<PasteFormPage />} />
-            <Route path="stats" element={<StatsPage />} />
-          </Route>
-        </Routes>
+        <ThemeProvider>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<PasteFormPage />} />
+              <Route path="p/:id" element={<PasteViewPage />} />
+              <Route path="stats" element={<StatsPage />} />
+            </Route>
+          </Routes>
+        </ThemeProvider>
       </QueryClientProvider>
     </BrowserRouter>
   )

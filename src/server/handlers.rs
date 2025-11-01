@@ -15,7 +15,8 @@ use super::attestation::{self, AttestationVerdict};
 use super::bundles::build_bundle_overview;
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    CreatePasteRequest, PasteViewQuery, PersistenceRequest, TimeLockRequest, WebhookRequest,
+    CreatePasteRequest, CreatePasteResponse, PasteViewQuery, PasteViewResponse, PersistenceRequest,
+    TimeLockRequest, WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -27,8 +28,91 @@ use super::webhook::{trigger_webhook, WebhookEvent};
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     rocket::build()
         .manage(store)
-        .mount("/", routes![index, create, show, show_raw, static_files])
-        .mount("/", FileServer::from("static"))
+        .mount(
+            "/",
+            routes![
+                index,
+                spa_fallback,
+                create,
+                create_api,
+                show,
+                show_api,
+                show_raw
+            ],
+        )
+        .mount("/static", FileServer::from("static"))
+}
+
+#[get("/api/pastes/<id>?<query..>")]
+async fn show_api(
+    store: &State<SharedPasteStore>,
+    id: String,
+    query: PasteViewQuery,
+) -> Result<Json<PasteViewResponse>, (Status, String)> {
+    match store.get_paste(&id).await {
+        Ok(paste) => {
+            let now = current_timestamp();
+            if evaluate_time_lock(&paste.metadata, now).is_some() {
+                return Err((Status::Locked, "Paste is time-locked".into()));
+            }
+
+            if let Some(requirement) = paste.metadata.attestation.as_ref() {
+                match attestation::verify_attestation(requirement, &query, now) {
+                    AttestationVerdict::Granted => {}
+                    AttestationVerdict::Prompt { invalid } => {
+                        let message = if invalid {
+                            "Attestation invalid"
+                        } else {
+                            "Attestation required"
+                        };
+                        return Err((Status::Unauthorized, message.into()));
+                    }
+                }
+            }
+
+            match decrypt_content(&paste.content, query.key.as_deref()) {
+                Ok(text) => {
+                    if paste.burn_after_reading {
+                        let webhook_config = paste.metadata.webhook.clone();
+                        if let Some(config) = webhook_config.clone() {
+                            trigger_webhook(
+                                config,
+                                WebhookEvent::Viewed,
+                                &id,
+                                paste.metadata.bundle_label.clone(),
+                            );
+                        }
+                        let deleted = store.delete_paste(&id).await;
+                        if deleted {
+                            if let Some(config) = webhook_config {
+                                trigger_webhook(
+                                    config,
+                                    WebhookEvent::Consumed,
+                                    &id,
+                                    paste.metadata.bundle_label.clone(),
+                                );
+                            }
+                        }
+                    }
+
+                    let response = PasteViewResponse {
+                        id,
+                        format: paste.format,
+                        content: text,
+                        created_at: paste.created_at,
+                        expires_at: paste.expires_at,
+                        burn_after_reading: paste.burn_after_reading,
+                        bundle: paste.metadata.bundle.clone(),
+                    };
+                    Ok(Json(response))
+                }
+                Err(DecryptError::MissingKey) => Err((Status::Unauthorized, "Missing key".into())),
+                Err(DecryptError::InvalidKey) => Err((Status::Forbidden, "Invalid key".into())),
+            }
+        }
+        Err(PasteError::NotFound(_)) => Err((Status::NotFound, "Paste not found".into())),
+        Err(PasteError::Expired(_)) => Err((Status::Gone, "Paste expired".into())),
+    }
 }
 
 pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,17 +130,33 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[get("/")]
-async fn index() -> content::RawHtml<&'static str> {
-    content::RawHtml(include_str!("../../static/index.html"))
+async fn spa_index() -> Option<NamedFile> {
+    if let Ok(file) = NamedFile::open("static/dist/index.html").await {
+        Some(file)
+    } else {
+        NamedFile::open("static/index.html").await.ok()
+    }
 }
 
-#[post("/", data = "<body>")]
-async fn create(
-    store: &State<SharedPasteStore>,
-    body: Json<CreatePasteRequest>,
-) -> Result<String, (Status, String)> {
-    let body = body.into_inner();
+#[get("/")]
+async fn index() -> Option<NamedFile> {
+    spa_index().await
+}
+
+#[get("/<_path..>", rank = 20)]
+async fn spa_fallback(_path: PathBuf) -> Option<NamedFile> {
+    spa_index().await
+}
+
+struct CreatedPaste {
+    id: String,
+    path: String,
+}
+
+async fn create_paste_internal(
+    store: &SharedPasteStore,
+    body: CreatePasteRequest,
+) -> Result<CreatedPaste, (Status, String)> {
     let now = current_timestamp();
     let format = body.format.unwrap_or_default();
     let expires_at = body.retention_minutes.and_then(|mins| match mins {
@@ -150,7 +250,33 @@ async fn create(
     };
 
     let id = store.create_paste(paste).await;
-    Ok(format!("/{}", id))
+    let path = format!("/{}", id);
+    Ok(CreatedPaste { id, path })
+}
+
+#[post("/", data = "<body>")]
+async fn create(
+    store: &State<SharedPasteStore>,
+    body: Json<CreatePasteRequest>,
+) -> Result<String, (Status, String)> {
+    let body = body.into_inner();
+    let created = create_paste_internal(store.inner(), body).await?;
+    Ok(created.path)
+}
+
+#[post("/api/pastes", data = "<body>")]
+async fn create_api(
+    store: &State<SharedPasteStore>,
+    body: Json<CreatePasteRequest>,
+) -> Result<Json<CreatePasteResponse>, (Status, String)> {
+    let body = body.into_inner();
+    let created = create_paste_internal(store.inner(), body).await?;
+    let response = CreatePasteResponse {
+        id: created.id,
+        path: created.path.clone(),
+        shareable_url: created.path,
+    };
+    Ok(Json(response))
 }
 
 #[get("/<id>?<query..>")]
@@ -298,13 +424,6 @@ async fn show_raw(
         Err(PasteError::NotFound(_)) => Err(Status::NotFound),
         Err(PasteError::Expired(_)) => Err(Status::Gone),
     }
-}
-
-#[get("/static/<path..>")]
-async fn static_files(path: PathBuf) -> Option<NamedFile> {
-    NamedFile::open(PathBuf::from("static").join(path))
-        .await
-        .ok()
 }
 
 fn apply_time_lock(
@@ -493,5 +612,33 @@ mod tests {
 
         let second = client.get(&id).dispatch();
         assert_eq!(second.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn create_api_returns_json_and_persists_paste() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "hello world",
+            "format": "plain_text"
+        });
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().expect("json body");
+        let parsed: CreatePasteResponse = serde_json::from_str(&body).expect("parse");
+        assert!(parsed.path.starts_with('/'));
+        assert_eq!(parsed.path, parsed.shareable_url);
+
+        // Fetch the paste to ensure it was stored.
+        let get_response = client.get(&parsed.path).dispatch();
+        assert_eq!(get_response.status(), Status::Ok);
     }
 }

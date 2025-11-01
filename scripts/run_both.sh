@@ -46,7 +46,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Frontend dev server running at ${FRONTEND_URL}"
-echo "Starting Rocket API on http://127.0.0.1:8000"
+echo "Starting Rocket backend on http://127.0.0.1:8000"
 ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste
 
 popd >/dev/null

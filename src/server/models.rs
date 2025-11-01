@@ -1,6 +1,6 @@
-use copypaste::{EncryptionAlgorithm, PasteFormat, WebhookProvider};
+use copypaste::{BundleMetadata, EncryptionAlgorithm, PasteFormat, WebhookProvider};
 use rocket::form::FromForm;
-use rocket::serde::Deserialize;
+use rocket::serde::{Deserialize, Serialize};
 
 use crate::server::attestation::AttestationRequest;
 
@@ -9,6 +9,26 @@ use crate::server::attestation::AttestationRequest;
 pub struct EncryptionRequest {
     pub algorithm: EncryptionAlgorithm,
     pub key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePasteResponse {
+    pub id: String,
+    pub path: String,
+    pub shareable_url: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteViewResponse {
+    pub id: String,
+    pub format: PasteFormat,
+    pub content: String,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
+    pub burn_after_reading: bool,
+    pub bundle: Option<BundleMetadata>,
 }
 
 #[derive(Deserialize, Default, Clone)]
