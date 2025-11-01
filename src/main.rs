@@ -31,7 +31,7 @@ struct EncryptionRequest {
 fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     rocket::build()
         .manage(store)
-        .mount("/", routes![index, create, show, static_files])
+    .mount("/", routes![index, create, show, show_raw, static_files])
         .mount("/", FileServer::from("static"))
 }
 
@@ -205,6 +205,7 @@ mod tests {
             format: PasteFormat::PlainText,
             created_at: 0,
             expires_at: Some(-1),
+            burn_after_reading: false,
         };
 
         let id = store.create_paste(paste).await;
@@ -213,6 +214,92 @@ mod tests {
         let expired = client.get(format!("/{}", id)).dispatch().await;
         let html = expired.into_string().await.expect("html");
         assert!(html.contains("Paste expired"));
+    }
+
+    #[rocket::async_test]
+    async fn burn_after_reading_deletes_paste() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::default());
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "vanish".into(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: current_timestamp(),
+            expires_at: None,
+            burn_after_reading: true,
+        };
+
+        let id = store.create_paste(paste).await;
+        let client = rocket_client_with_store(store.clone()).await;
+
+        let first = client.get(format!("/{}", id)).dispatch().await;
+        assert_eq!(first.status(), Status::Ok);
+
+        let second = client.get(format!("/{}", id)).dispatch().await;
+        assert_eq!(second.status(), Status::NotFound);
+    }
+
+    #[rocket::async_test]
+    async fn raw_endpoint_honors_burn_after_reading() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::default());
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "raw-body".into(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: current_timestamp(),
+            expires_at: None,
+            burn_after_reading: true,
+        };
+
+        let id = store.create_paste(paste).await;
+        let client = rocket_client_with_store(store.clone()).await;
+
+        let first = client.get(format!("/raw/{}", id)).dispatch().await;
+        assert_eq!(first.status(), Status::Ok);
+        let body = first.into_string().await.expect("body");
+        assert_eq!(body, "raw-body");
+
+        let second = client.get(format!("/raw/{}", id)).dispatch().await;
+        assert_eq!(second.status(), Status::NotFound);
+    }
+
+    #[rocket::async_test]
+    async fn raw_endpoint_requires_key_for_encrypted_content() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::default());
+        let encrypted = encrypt_content(
+            "stealth payload",
+            "super-secret",
+            EncryptionAlgorithm::Aes256Gcm,
+        )
+        .expect("encryption successful");
+        let paste = StoredPaste {
+            content: encrypted,
+            format: PasteFormat::PlainText,
+            created_at: current_timestamp(),
+            expires_at: None,
+            burn_after_reading: false,
+        };
+
+        let id = store.create_paste(paste).await;
+        let client = rocket_client_with_store(store.clone()).await;
+
+        let missing_key = client.get(format!("/raw/{}", id)).dispatch().await;
+        assert_eq!(missing_key.status(), Status::Unauthorized);
+
+        let wrong_key = client
+            .get(format!("/raw/{}?key=not-it", id))
+            .dispatch()
+            .await;
+        assert_eq!(wrong_key.status(), Status::Forbidden);
+
+        let ok = client
+            .get(format!("/raw/{}?key=super-secret", id))
+            .dispatch()
+            .await;
+        assert_eq!(ok.status(), Status::Ok);
+        let content = ok.into_string().await.expect("body");
+        assert_eq!(content, "stealth payload");
     }
 
     #[test]
@@ -279,6 +366,8 @@ struct CreatePasteRequest {
     format: Option<PasteFormat>,
     retention_minutes: Option<u64>,
     encryption: Option<EncryptionRequest>,
+    #[serde(default)]
+    burn_after_reading: bool,
 }
 
 #[derive(Debug)]
@@ -303,6 +392,7 @@ async fn create(
         0 => None,
         minutes => Some(now + i64::try_from(minutes).unwrap_or(0) * 60),
     });
+    let burn_after_reading = body.burn_after_reading;
 
     let content = if let Some(enc) = &body.encryption {
         let algorithm = enc.algorithm;
@@ -328,6 +418,7 @@ async fn create(
         format,
         created_at: now,
         expires_at,
+        burn_after_reading,
     };
 
     let id = store.create_paste(paste).await;
@@ -341,9 +432,40 @@ async fn show(
     key: Option<String>,
 ) -> Result<content::RawHtml<String>, Status> {
     match store.get_paste(&id).await {
-        Ok(paste) => Ok(content::RawHtml(render_paste(&id, &paste, key.as_deref()))),
+        Ok(paste) => match decrypt_content(&paste.content, key.as_deref()) {
+            Ok(text) => {
+                if paste.burn_after_reading {
+                    let _ = store.delete_paste(&id).await;
+                }
+                Ok(content::RawHtml(render_paste_view(&id, &paste, &text)))
+            }
+            Err(DecryptError::MissingKey) => Ok(content::RawHtml(render_key_prompt(&id))),
+            Err(DecryptError::InvalidKey) => Ok(content::RawHtml(render_invalid_key(&id))),
+        },
         Err(PasteError::NotFound(_)) => Err(Status::NotFound),
         Err(PasteError::Expired(_)) => Ok(content::RawHtml(render_expired(&id))),
+    }
+}
+
+#[get("/raw/<id>?<key>")]
+async fn show_raw(
+    store: &State<SharedPasteStore>,
+    id: String,
+    key: Option<String>,
+) -> Result<content::RawText<String>, Status> {
+    match store.get_paste(&id).await {
+        Ok(paste) => match decrypt_content(&paste.content, key.as_deref()) {
+            Ok(text) => {
+                if paste.burn_after_reading {
+                    let _ = store.delete_paste(&id).await;
+                }
+                Ok(content::RawText(text))
+            }
+            Err(DecryptError::MissingKey) => Err(Status::Unauthorized),
+            Err(DecryptError::InvalidKey) => Err(Status::Forbidden),
+        },
+        Err(PasteError::NotFound(_)) => Err(Status::NotFound),
+        Err(PasteError::Expired(_)) => Err(Status::Gone),
     }
 }
 
@@ -515,14 +637,6 @@ fn derive_key_material(key: &str, salt: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-fn render_paste(id: &str, paste: &StoredPaste, key: Option<&str>) -> String {
-    match decrypt_content(&paste.content, key) {
-        Ok(text) => render_paste_view(id, paste, &text),
-        Err(DecryptError::MissingKey) => render_key_prompt(id),
-        Err(DecryptError::InvalidKey) => render_invalid_key(id),
-    }
-}
-
 fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
     let rendered_body = match paste.format {
         PasteFormat::PlainText => format_plain(text),
@@ -553,6 +667,18 @@ fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
         },
     };
 
+    let burn_status = if paste.burn_after_reading {
+        "Yes (link disabled after this view)".to_string()
+    } else {
+        "No".to_string()
+    };
+
+    let burn_note = if paste.burn_after_reading {
+        r#"<p class="burn-note">This paste was configured to burn after reading. The link is now invalid for future visits.</p>"#.to_string()
+    } else {
+        String::new()
+    };
+
     layout(
         "copypaste.fyi | View paste",
         format!(
@@ -562,8 +688,10 @@ fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
     <div><strong>Created:</strong> {created}</div>
     <div><strong>Retention:</strong> {retention}</div>
     <div><strong>Encryption:</strong> {encryption}</div>
+    <div><strong>Burn after reading:</strong> {burn}</div>
 </section>
 <article class="content">
+    {burn_note}
     {rendered_body}
 </article>
 "#,
@@ -572,6 +700,8 @@ fn render_paste_view(id: &str, paste: &StoredPaste, text: &str) -> String {
             created = created,
             retention = expires.unwrap_or_else(|| "No expiry".to_string()),
             encryption = encryption,
+            burn = burn_status,
+            burn_note = burn_note,
             rendered_body = rendered_body,
         ),
     )

@@ -76,6 +76,18 @@
             margin-bottom: 1.5rem;
         }
 
+        .toggle-field label {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .toggle-field input[type="checkbox"] {
+            width: 1.1rem;
+            height: 1.1rem;
+            accent-color: var(--primary);
+        }
+
         label {
             display: block;
             font-weight: 600;
@@ -445,6 +457,14 @@
                     <div class="meta-note">Use encryption for sensitive snippets. Share the key separately (try the <strong>geek passphrase</strong> button for inspiration).</div>
                 </div>
 
+                <div class="field toggle-field">
+                    <label for="burn-after-reading">
+                        <input type="checkbox" id="burn-after-reading" />
+                        Burn after reading
+                    </label>
+                    <div class="meta-note">Delete the paste immediately after the first successful view.</div>
+                </div>
+
                 <div class="field" id="encryption-key-field" style="display:none;">
                     <label for="encryption-key">Encryption key</label>
                     <div class="key-input-row">
@@ -535,6 +555,7 @@
         const keyStrengthIndicator = document.getElementById('key-strength');
         const generateEmojiButton = document.getElementById('generate-emoji');
         const generateDiceButton = document.getElementById('generate-dice');
+    const burnAfterReading = document.getElementById('burn-after-reading');
 
         function resetAlerts() {
             errorBox.style.display = 'none';
@@ -714,6 +735,7 @@
             const retention = parseInt(retentionSelect.value, 10);
             const encryption = encryptionMode.value;
             const encryptionKey = encryptionKeyInput.value.trim();
+            const burn = burnAfterReading?.checked ?? false;
 
             if ((encryption === 'aes256_gcm' || encryption === 'xchacha20_poly1305') && !encryptionKey) {
                 showError('Provide an encryption key or disable encryption.');
@@ -733,6 +755,10 @@
                     ? { algorithm: encryption, key: encryptionKey }
                     : undefined,
             };
+
+            if (burn) {
+                payload.burn_after_reading = true;
+            }
 
             try {
                 const response = await fetch('/', {
@@ -757,20 +783,30 @@
                 resultBox.style.display = 'block';
                 qrCard.classList.add('hidden');
                 status.textContent = 'Link ready';
-                resultStatus.textContent = encryption === 'none' ? 'Public paste' : 'Key required';
-                resultStatus.classList.toggle('status-danger', encryption !== 'none');
+                if (burn) {
+                    resultStatus.textContent = 'One-time link';
+                    resultStatus.classList.add('status-danger');
+                } else if (encryption !== 'none') {
+                    resultStatus.textContent = 'Key required';
+                    resultStatus.classList.add('status-danger');
+                } else {
+                    resultStatus.textContent = 'Public paste';
+                    resultStatus.classList.remove('status-danger');
+                }
                 textarea.value = '';
                 renderPreview();
 
+                const clipboardMessage = burn ? 'One-time link copied to clipboard' : 'Link copied to clipboard';
+                const createdMessage = burn ? 'One-time paste created. Save the link!' : 'Paste created successfully';
                 if (navigator.clipboard?.writeText) {
                     try {
                         await navigator.clipboard.writeText(shareableUrl);
-                        showSuccess('Link copied to clipboard');
+                        showSuccess(clipboardMessage);
                     } catch (_) {
-                        showSuccess('Paste created successfully');
+                        showSuccess(createdMessage);
                     }
                 } else {
-                    showSuccess('Paste created successfully');
+                    showSuccess(createdMessage);
                 }
             } catch (err) {
                 showError(err.message || 'Something went wrong. Please try again.');

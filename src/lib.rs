@@ -56,6 +56,8 @@ pub struct StoredPaste {
     pub format: PasteFormat,
     pub created_at: i64,
     pub expires_at: Option<i64>,
+    #[serde(default)]
+    pub burn_after_reading: bool,
 }
 
 #[derive(Error, Debug)]
@@ -70,6 +72,7 @@ pub enum PasteError {
 pub trait PasteStore: Send + Sync + 'static {
     async fn create_paste(&self, paste: StoredPaste) -> String;
     async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError>;
+    async fn delete_paste(&self, id: &str) -> bool;
 }
 
 pub struct MemoryPasteStore {
@@ -122,6 +125,11 @@ impl PasteStore for MemoryPasteStore {
             None => Err(PasteError::NotFound(id.to_string())),
         }
     }
+
+    async fn delete_paste(&self, id: &str) -> bool {
+        let mut map = self.entries.write().await;
+        map.remove(id).is_some()
+    }
 }
 
 pub type SharedPasteStore = Arc<dyn PasteStore>;
@@ -144,6 +152,7 @@ mod tests {
             format: PasteFormat::Markdown,
             created_at: 1234,
             expires_at: None,
+            burn_after_reading: false,
         };
 
         let id = store.create_paste(paste).await;
@@ -165,6 +174,7 @@ mod tests {
             format: PasteFormat::PlainText,
             created_at: 100,
             expires_at: Some(50),
+            burn_after_reading: false,
         };
 
         let id = store.create_paste(paste).await;
@@ -190,6 +200,7 @@ mod tests {
             format: PasteFormat::Code,
             created_at: 0,
             expires_at: None,
+            burn_after_reading: false,
         };
 
         let id = store.create_paste(paste).await;

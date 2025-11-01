@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  copypaste:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: copypaste.fyi:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - ROCKET_ADDRESS=0.0.0.0
+      - ROCKET_PORT=8000
+    volumes:
+      - ./static:/app/static
+    restart: unless-stopped
