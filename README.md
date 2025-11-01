@@ -30,64 +30,72 @@ graph TD
     classDef logic fill:#f59e0b,stroke:#b45309,color:#fff;
     classDef storage fill:#f87171,stroke:#b91c1c,color:#fff;
     classDef util fill:#8b5cf6,stroke:#5b21b6,color:#fff;
-    classDef share fill:#0ea5e9,stroke:#0369a1,color:#fff;
+    classDef tooling fill:#0ea5e9,stroke:#0369a1,color:#fff;
     classDef link stroke-width:2px;
 
     subgraph Client Tier
-        A[Web UI\nStatic HTML + JS]
+        A[React SPA\nVite dev server]
         B[CLI\n`cpaste` binary]
+        C[Server-rendered fallback]
     end
 
     subgraph Service Layer
-        C[Rocket Routes\n`GET /`, `POST /`, `GET /<id>`]
-        F[Responder Templates\nHTML rendering]
+        D[Rocket Router\n`GET /`, `GET /p/<id>`]
+        E[REST API\n`POST /api/pastes`, `GET /api/pastes/<id>`]
+        F[Static assets\n`/static`, SPA fallback]
     end
 
-    subgraph Logic Layer
-        G[Key Derivation & Encryption\nAES-GCM, ChaCha20/XChaCha20]
-        H[Formatters\nPlain, Markdown, Code, JSON]
-        I[Sharing Helpers\nCopy, Email, Slack, X, QR]
+    subgraph Domain Logic
+        G[Encryption & Key Derivation]
+        H[Attestation & Time Locks]
+        I[Bundle + Burn-after-reading]
+        J[Renderers\nMarkdown / code / raw]
+        K[Webhooks]
     end
 
     subgraph Persistence
-        J[PasteStore Trait]
-        K[MemoryPasteStore\nEphemeral HashMap]
+        L[PasteStore Trait]
+        M[MemoryPasteStore\nEphemeral HashMap]
     end
 
-    subgraph External Consumers
-        L[Share Targets\nBrowsers, Chat apps]
+    subgraph Tooling
+        N[Vitest + ESLint]
+        O[Cargo fmt / clippy / nextest]
     end
 
-    A -->|Fetch API JSON| C
-    B -->|HTTP JSON| C
-    C --> F
-    C --> G
-    C --> H
-    G --> J
-    H --> J
-    J --> K
-    F --> A
-    F --> L
+    A -->|fetch| E
+    B -->|HTTP JSON| E
+    C -->|HTML view| D
+    D --> F
+    D --> G
+    D --> H
+    E --> G
+    E --> H
+    G --> L
+    H --> L
     I --> L
-    G -.-> I
+    L --> M
+    D --> J
+    E --> I
+    I --> K
+    N --> A
+    O --> D
 
-    class A,B client;
-    class C,F service;
-    class G,H logic;
-    class I util;
-    class J storage;
-    class K storage;
-    class L share;
-    class A,B,C,F,G,H,I,J,K,L link;
+    class A,B,C client;
+    class D,E,F service;
+    class G,H,I,J,K logic;
+    class L,M storage;
+    class N,O tooling;
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O link;
 ```
 
-The flow stays minimal: the web UI (or CLI) posts JSON to `/`, Rocket validates retention/encryption choices, derives keys when needed, and persists the paste via the `PasteStore`. Renderers shape the viewing experience (markdown, code, JSON), while sharing helpers surface links to browsers, chat apps, and QR devices.
+The SPA communicates with the Rocket REST API for creation and viewing, while the server still renders HTML for raw links and one-time fallbacks. Domain helpers handle encryption, attestations, bundles, and webhook notifications before persisting to the in-memory store.
 
-- **Language:** Rust (edition 2021)
-- **Framework:** Rocket 0.5
-- **Async runtime:** Tokio 1.x
-- **Storage:** Ephemeral in-memory hash map
+- **Backend:** Rust (edition 2021), Rocket 0.5, Tokio 1.x
+- **Frontend:** React 19 + Vite 7, TanStack Query, Tailwind CSS
+- **Storage:** Ephemeral in-memory `PasteStore`
 - **CLI:** `cpaste` using `reqwest`
+- **Tooling:** Cargo fmt/clippy/nextest, Vitest, ESLint
 
 ## Getting Started
 
@@ -122,9 +130,26 @@ cargo run --bin copypaste
 # Application available at http://127.0.0.1:8000/
 ```
 
-Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **Create paste** to receive a link.
+Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **Create paste** to receive a link. The backend serves the pre-built SPA from `static/dist` when the Vite dev server is not running.
 
-**Formatting options**
+### Frontend development
+
+```bash
+cd frontend
+npm install               # run once; scripts/precommit.sh handles this too
+npm run dev               # Vite dev server at http://127.0.0.1:5173/
+
+# Lint + unit tests (Vitest)
+npm run lint
+npm test -- --run
+
+# Build production assets (writes to static/dist)
+npm run build
+```
+
+For an all-in-one local environment (Rocket API + Vite dev server) run `./scripts/run_both.sh`. Stop everything with `./scripts/stop.sh`.
+
+### Formatting options
 
 - Plain text / Markdown / generic code block
 - Language-specific code blocks: Go, C++, Kotlin, Java

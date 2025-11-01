@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use copypaste::{
-    create_paste_store, BundleMetadata, BundlePointer, EncryptionAlgorithm, PasteError,
-    PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste,
-    WebhookConfig,
+    create_paste_store, AttestationRequirement, BundleMetadata, BundlePointer, EncryptionAlgorithm,
+    PasteError, PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent,
+    StoredPaste, WebhookConfig,
 };
 use rocket::fs::{FileServer, NamedFile};
 use rocket::http::Status;
@@ -15,8 +15,9 @@ use super::attestation::{self, AttestationVerdict};
 use super::bundles::build_bundle_overview;
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    CreatePasteRequest, CreatePasteResponse, PasteViewQuery, PasteViewResponse, PersistenceRequest,
-    TimeLockRequest, WebhookRequest,
+    CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo, PasteEncryptionInfo,
+    PastePersistenceInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse, PasteWebhookInfo,
+    PersistenceRequest, TimeLockRequest, WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -95,6 +96,72 @@ async fn show_api(
                         }
                     }
 
+                    let metadata = &paste.metadata;
+                    let encryption = match &paste.content {
+                        StoredContent::Plain { .. } => PasteEncryptionInfo {
+                            algorithm: EncryptionAlgorithm::None,
+                            requires_key: false,
+                        },
+                        StoredContent::Encrypted { algorithm, .. } => PasteEncryptionInfo {
+                            algorithm: *algorithm,
+                            requires_key: true,
+                        },
+                    };
+
+                    let time_lock = if metadata.not_before.is_some() || metadata.not_after.is_some()
+                    {
+                        Some(PasteTimeLockInfo {
+                            not_before: metadata.not_before,
+                            not_after: metadata.not_after,
+                        })
+                    } else {
+                        None
+                    };
+
+                    let attestation =
+                        metadata
+                            .attestation
+                            .as_ref()
+                            .map(|requirement| match requirement {
+                                AttestationRequirement::Totp { issuer, .. } => {
+                                    PasteAttestationInfo {
+                                        kind: "totp".to_string(),
+                                        issuer: issuer.clone(),
+                                    }
+                                }
+                                AttestationRequirement::SharedSecret { .. } => {
+                                    PasteAttestationInfo {
+                                        kind: "shared_secret".to_string(),
+                                        issuer: None,
+                                    }
+                                }
+                            });
+
+                    let persistence = metadata.persistence.as_ref().map(|locator| match locator {
+                        PersistenceLocator::Memory => PastePersistenceInfo {
+                            kind: "memory".to_string(),
+                            detail: None,
+                        },
+                        PersistenceLocator::Vault { key_path } => PastePersistenceInfo {
+                            kind: "vault".to_string(),
+                            detail: Some(key_path.clone()),
+                        },
+                        PersistenceLocator::S3 { bucket, prefix } => {
+                            let detail = match prefix.as_ref() {
+                                Some(p) if !p.is_empty() => format!("{}/{}", bucket, p),
+                                _ => bucket.clone(),
+                            };
+                            PastePersistenceInfo {
+                                kind: "s3".to_string(),
+                                detail: Some(detail),
+                            }
+                        }
+                    });
+
+                    let webhook = metadata.webhook.as_ref().map(|config| PasteWebhookInfo {
+                        provider: config.provider.clone(),
+                    });
+
                     let response = PasteViewResponse {
                         id,
                         format: paste.format,
@@ -102,7 +169,12 @@ async fn show_api(
                         created_at: paste.created_at,
                         expires_at: paste.expires_at,
                         burn_after_reading: paste.burn_after_reading,
-                        bundle: paste.metadata.bundle.clone(),
+                        bundle: metadata.bundle.clone(),
+                        encryption,
+                        time_lock,
+                        attestation,
+                        persistence,
+                        webhook,
                     };
                     Ok(Json(response))
                 }

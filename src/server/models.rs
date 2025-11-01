@@ -29,6 +29,54 @@ pub struct PasteViewResponse {
     pub expires_at: Option<i64>,
     pub burn_after_reading: bool,
     pub bundle: Option<BundleMetadata>,
+    pub encryption: PasteEncryptionInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_lock: Option<PasteTimeLockInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attestation: Option<PasteAttestationInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persistence: Option<PastePersistenceInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook: Option<PasteWebhookInfo>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteEncryptionInfo {
+    pub algorithm: EncryptionAlgorithm,
+    pub requires_key: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteTimeLockInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_after: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteAttestationInfo {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PastePersistenceInfo {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteWebhookInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<WebhookProvider>,
 }
 
 #[derive(Deserialize, Default, Clone)]
