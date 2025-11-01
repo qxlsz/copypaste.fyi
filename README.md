@@ -19,6 +19,7 @@ Key traits:
 - ⚡ **Fast** – Rocket-based async backend with Tokio.
 - 🐳 **Container friendly** – ready-to-run Docker image and compose service.
 - 🔗 **Scriptable** – companion CLI (`cpaste`) for shell automation.
+- 🧨 **One-time links** – optional burn-after-reading destroys pastes after the first successful view.
 
 ## Architecture
 
@@ -138,6 +139,11 @@ Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **
 
 The web UI includes multiple passphrase helpers (**Geek**, **Emoji combo**, **Diceware blend**) and a live key-strength meter. Keys stay visible (or toggle to hidden) so you can share them out-of-band—the server never stores them. A share panel provides easy copy, email, Slack, X/Twitter, QR, and native share shortcuts.
 
+**Extras**
+
+- Burn after reading: toggle in the composer (or pass `--burn-after-reading` via CLI) to delete the paste after the first successful view.
+- Raw view: append `/raw/<id>` (plus `?key=<passphrase>` when encrypted) to retrieve plaintext without HTML chrome.
+
 ➡️ Dive deeper in the [Encryption guide](docs/encryption.md) for algorithm notes, key derivation details, and operational advice.
 
 ### Run with Docker Compose
@@ -177,6 +183,7 @@ echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000
 | `--format <plain_text|markdown|code|json|go|cpp|kotlin|java>` | Rendering mode for the paste. Defaults to `plain_text`. |
 | `--encryption <none|aes256_gcm|chacha20_poly1305|xchacha20_poly1305>` | Client-side encryption algorithm. When not `none`, pass `--key`. |
 | `--key <string>` | Encryption key / passphrase (required for encrypted pastes). |
+| `--burn-after-reading` | Delete the paste immediately after the first successful view (one-time link). |
 | positional text | When `--stdin` is not provided, supply the text to paste as a positional argument. |
 
 `cpaste --help` displays the full command reference.
@@ -222,6 +229,7 @@ copypaste.fyi/
 - Pastes are kept in-process; production deployments should consider persistent storage.
 - Use `cargo fmt` and `cargo clippy` before committing.
 - The Docker image is built with Rust 1.82 slim base and serves the compiled binary on Debian bookworm.
+- Async code steers clear of the futurelock pattern described in [RFD 609](https://rfd.shared.oxide.computer/rfd/0609); when adding concurrent flows, prefer spawning owned futures or a `JoinSet` instead of holding borrowed futures across `await` points.
 
 ## Contributing
 

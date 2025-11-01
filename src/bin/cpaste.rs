@@ -71,6 +71,10 @@ struct Cli {
     /// Encryption key (required when encryption is not "none").
     #[arg(long = "key")]
     encryption_key: Option<String>,
+
+    /// Delete the paste immediately after the first successful view.
+    #[arg(long)]
+    burn_after_reading: bool,
 }
 
 #[derive(Serialize)]
@@ -89,6 +93,8 @@ struct PastePayload<'a> {
     retention_minutes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     encryption: Option<EncryptionPayload<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    burn_after_reading: Option<bool>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -155,6 +161,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         retention_minutes: retention,
         encryption,
+        burn_after_reading: if cli.burn_after_reading {
+            Some(true)
+        } else {
+            None
+        },
     };
 
     let base_url = cli.host.trim_end_matches('/');
