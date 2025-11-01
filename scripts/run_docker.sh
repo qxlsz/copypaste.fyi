@@ -11,6 +11,22 @@ if ! command -v docker &>/dev/null; then
 	exit 1
 fi
 
+if ! command -v npm &>/dev/null; then
+  echo "npm is required to build the frontend for Docker images. Install Node.js LTS." >&2
+  exit 1
+fi
+
+echo "Building frontend assets ..."
+(
+  cd frontend
+  if [[ -f package-lock.json ]]; then
+    npm ci
+  else
+    npm install
+  fi
+  npm run build
+)
+
 echo "Building and starting Docker compose ..."
 docker compose up --build
 

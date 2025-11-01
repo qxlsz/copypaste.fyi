@@ -1,4 +1,16 @@
-# Multi-stage Dockerfile for copypaste.fyi server
+# Multi-stage Dockerfile for copypaste.fyi server and frontend
+
+# 1) Build frontend assets using Node
+FROM node:20 AS frontend-builder
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend ./
+RUN npm run build
+
+# 2) Build backend binary with Rust
 FROM rust:1.84 AS builder
 WORKDIR /app
 
@@ -25,6 +37,7 @@ RUN apt-get update \
 
 COPY --from=builder /app/target/release/copypaste /usr/local/bin/copypaste
 COPY --from=builder /app/static ./static
+COPY --from=frontend-builder /app/frontend/dist ./static/dist
 
 ENV ROCKET_ADDRESS=0.0.0.0
 ENV ROCKET_PORT=8000

@@ -11,7 +11,24 @@ if ! command -v cargo &>/dev/null; then
   exit 1
 fi
 
-echo "Starting copypaste.fyi on http://127.0.0.1:8000 ..."
+if ! command -v npm &>/dev/null; then
+  echo "npm is required to run the frontend dev server. Install Node.js LTS from https://nodejs.org/." >&2
+  exit 1
+fi
+
+echo "Installing frontend dependencies (if needed) ..."
+(
+  cd frontend
+  if [[ -f package-lock.json ]]; then
+    npm ci
+  else
+    npm install
+  fi
+)
+
+echo "Tip: in another terminal, run 'cd frontend && npm run dev' for the React UI."
+
+echo "Starting copypaste.fyi API on http://127.0.0.1:8000 ..."
 ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste
 
 popd >/dev/null

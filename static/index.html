@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>copypaste.fyi</title>
+    <title>Copy Paste</title>
     <style>
         :root {
             --page-gradient: linear-gradient(135deg, #1e3a8a 0%, #312e81 45%, #7c3aed 100%);
@@ -38,42 +38,99 @@
         }
 
         header {
-            text-align: center;
-            padding: 3.5rem 1.5rem 2.5rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem 2rem;
+            align-items: center;
+            justify-content: space-between;
+            padding: clamp(1.75rem, 5vw, 3rem) clamp(1.25rem, 4vw, 3.5rem) clamp(1.5rem, 3vw, 2.5rem);
             color: #fff;
         }
 
         header h1 {
             margin: 0;
-            font-size: 3rem;
+            font-size: clamp(2.25rem, 3vw, 3rem);
             letter-spacing: -0.03em;
             text-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
         }
 
-        header p {
-            margin-top: 0.75rem;
+        header .tagline {
+            margin: 0;
             color: rgba(226, 232, 240, 0.9);
-            font-size: 1.1rem;
+            font-size: 1rem;
         }
 
-        main {
-            max-width: 900px;
+        .controls-top {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        main.workspace {
+            flex: 1;
+            width: min(1460px, 98vw);
             margin: 0 auto;
-            padding: 0 1.5rem 4rem;
-            width: 100%;
+            padding: 0 clamp(1.25rem, 2vw, 2rem) clamp(2.5rem, 4vw, 3.5rem);
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: clamp(1.85rem, 4vw, 3rem);
+            align-items: start;
         }
 
-        .card {
-            backdrop-filter: blur(22px);
-            background: var(--surface);
-            border: 1px solid rgba(255, 255, 255, 0.24);
+        @media (max-width: 1180px) {
+            main.workspace {
+                grid-template-columns: minmax(0, 1fr);
+            }
+        }
+
+        .editor-panel {
+            backdrop-filter: blur(20px);
+            background: rgba(248, 250, 252, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 1.35rem;
+            padding: clamp(2rem, 3vw, 3rem);
+            box-shadow: 0 25px 65px -26px rgba(15, 23, 42, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 1.75rem;
+            min-height: 75vh;
+        }
+
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .status-card {
+            backdrop-filter: blur(12px);
+            background: rgba(15, 23, 42, 0.72);
             border-radius: 1rem;
-            padding: 2rem;
-            box-shadow: 0 22px 65px -30px rgba(15, 23, 42, 0.55);
+            padding: 1.6rem;
+            color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+            box-shadow: 0 18px 45px -24px rgba(15, 23, 42, 0.55);
         }
 
-        .field {
-            margin-bottom: 1.5rem;
+        .share-card {
+            backdrop-filter: blur(16px);
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            box-shadow: 0 20px 45px -28px rgba(15, 23, 42, 0.28);
+        }
+
+        .share-card h2 {
+            margin: 0;
+            font-size: 1.15rem;
+            color: #0f172a;
         }
 
         .toggle-field label {
@@ -89,21 +146,23 @@
         }
 
         label {
-            display: block;
             font-weight: 600;
-            margin-bottom: 0.5rem;
         }
 
         textarea {
             width: 100%;
-            min-height: 260px;
-            padding: 1rem 1.25rem;
-            font-size: 1rem;
-            border-radius: 0.75rem;
-            border: 1px solid var(--border);
+            flex: 1;
+            min-height: 62vh;
             resize: vertical;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-            background: #fcfcfd;
+            padding: clamp(1.1rem, 2.2vw, 1.5rem);
+            border-radius: 1.1rem;
+            border: 1px solid rgba(148, 163, 184, 0.38);
+            background: rgba(255, 255, 255, 0.96);
+            font-family: "JetBrains Mono", SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: clamp(1.02rem, 1.15vw, 1.18rem);
+            color: var(--text);
+            line-height: 1.75;
+            box-shadow: inset 0 1px 6px rgba(15, 23, 42, 0.06);
         }
 
         textarea:focus {
@@ -134,18 +193,14 @@
             box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
         }
 
-        .grid {
-            display: grid;
-            gap: 1.25rem;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        }
-
-        .actions {
-            margin-top: 1.5rem;
+        .controls-footer {
             display: flex;
-            gap: 0.85rem;
             align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
             flex-wrap: wrap;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(148, 163, 184, 0.22);
         }
 
         button {
@@ -268,70 +323,11 @@
             background: rgba(99, 102, 241, 0.16);
         }
 
-        .split {
-            display: grid;
-            gap: 2rem;
-        }
-
-        @media (min-width: 960px) {
-            .split {
-                grid-template-columns: minmax(0, 1fr) 340px;
-                align-items: start;
-            }
-        }
-
-        .composer {
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
-
-        .preview-panel {
-            background: var(--secondary);
-            border: 1px solid var(--border);
-            border-radius: 1rem;
-            padding: 1.25rem;
-            box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
-        }
-
-        .preview-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-            font-weight: 600;
-        }
-
-        .preview-content {
-            background: #fff;
-            border-radius: 0.75rem;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            padding: 1.25rem;
-            min-height: 200px;
-            max-height: 420px;
-            overflow: auto;
-            line-height: 1.6;
-            color: #1e293b;
-        }
-
-        .preview-content pre {
-            background: #0f172a;
-            color: #e2e8f0;
-            padding: 1rem;
-            border-radius: 0.75rem;
-            overflow-x: auto;
-        }
-
-        .preview-placeholder {
-            color: var(--muted);
-            font-style: italic;
-        }
-
         footer {
             text-align: center;
             color: var(--muted);
             font-size: 0.9rem;
-            padding: 2rem 1.5rem 3rem;
+            padding: 1.5rem;
             margin-top: auto;
         }
 
@@ -399,125 +395,140 @@
         .key-input-row input {
             flex: 1;
         }
+
+        .controls-top .field {
+            margin-bottom: 0;
+            min-width: 150px;
+        }
+
+        .meta-column {
+            max-width: 320px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" integrity="sha384-Ys4LFQgJt6KRnE//v/WLDsPfyW4Mf4lEt9RBx0jCkIlvqdyeJRe87pUzgf+m9MHf" crossorigin="anonymous"></script>
 </head>
 <body>
     <header>
-        <h1>copypaste.fyi</h1>
-        <p>Create a paste in seconds and share the link anywhere.</p>
+        <div>
+            <h1>Copy Paste</h1>
+            <p class="tagline">Pasteboard for builders. Encrypt, share, done.</p>
+        </div>
+        <div class="controls-top">
+            <div class="field">
+                <label for="format">Format</label>
+                <select id="format">
+                    <option value="plain_text">Plain text</option>
+                    <option value="markdown">Markdown</option>
+                    <option value="code">Code block (generic)</option>
+                    <option value="json">JSON (pretty print)</option>
+                    <option value="go">Go</option>
+                    <option value="cpp">C++</option>
+                    <option value="kotlin">Kotlin</option>
+                    <option value="java">Java</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="retention">Retention</label>
+                <select id="retention">
+                    <option value="0">No expiry</option>
+                    <option value="10">10 minutes</option>
+                    <option value="60">1 hour</option>
+                    <option value="1440">24 hours</option>
+                    <option value="10080">7 days</option>
+                    <option value="43200" selected>30 days</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="encryption-mode">Encryption</label>
+                <select id="encryption-mode">
+                    <option value="none">None</option>
+                    <option value="aes256_gcm">AES-256-GCM</option>
+                    <option value="chacha20_poly1305">ChaCha20-Poly1305</option>
+                    <option value="xchacha20_poly1305">XChaCha20-Poly1305</option>
+                </select>
+            </div>
+            <div class="field toggle-field">
+                <label for="burn-after-reading">
+                    <input type="checkbox" id="burn-after-reading" />
+                    Burn after reading
+                </label>
+            </div>
+        </div>
     </header>
 
-    <main class="split">
-        <section class="card composer">
-            <div>
-                <div class="field">
-                    <label for="content">Your text</label>
-                    <textarea id="content" placeholder="Type or paste your text here..."></textarea>
-                </div>
-
-                <div class="grid">
-                    <div class="field">
-                        <label for="format">Format</label>
-                        <select id="format">
-                            <option value="plain_text">Plain text</option>
-                            <option value="markdown">Markdown</option>
-                            <option value="code">Code block (generic)</option>
-                            <option value="json">JSON (pretty print)</option>
-                            <option value="go">Go</option>
-                            <option value="cpp">C++</option>
-                            <option value="kotlin">Kotlin</option>
-                            <option value="java">Java</option>
-                        </select>
-                        <div class="meta-note">Choose how the paste is rendered when viewed. Language-specific options render as preformatted code blocks.</div>
-                    </div>
-
-                    <div class="field">
-                        <label for="retention">Retention</label>
-                        <select id="retention">
-                            <option value="0">No expiry</option>
-                            <option value="10">10 minutes</option>
-                            <option value="60">1 hour</option>
-                            <option value="1440">24 hours</option>
-                            <option value="10080">7 days</option>
-                            <option value="43200" selected>30 days</option>
-                        </select>
-                        <div class="meta-note">Pastes are removed automatically after the selected window.</div>
-                    </div>
-                </div>
-
-                <div class="field">
-                    <label for="encryption-mode">Encryption</label>
-                    <select id="encryption-mode">
-                        <option value="none">None</option>
-                        <option value="aes256_gcm">AES-256-GCM (client provided key)</option>
-                        <option value="chacha20_poly1305">ChaCha20-Poly1305 (fast + compact)</option>
-                        <option value="xchacha20_poly1305">XChaCha20-Poly1305 (longer nonce)</option>
-                    </select>
-                    <div class="meta-note">Use encryption for sensitive snippets. Share the key separately (try the <strong>geek passphrase</strong> button for inspiration).</div>
-                </div>
-
-                <div class="field toggle-field">
-                    <label for="burn-after-reading">
-                        <input type="checkbox" id="burn-after-reading" />
-                        Burn after reading
-                    </label>
-                    <div class="meta-note">Delete the paste immediately after the first successful view.</div>
-                </div>
-
-                <div class="field" id="encryption-key-field" style="display:none;">
-                    <label for="encryption-key">Encryption key</label>
-                    <div class="key-input-row">
-                        <input type="text" id="encryption-key" placeholder="Enter or generate a passphrase" autocomplete="off" />
-                        <button class="ghost" id="toggle-key-visibility" type="button">Hide key</button>
-                    </div>
-                    <div class="key-controls">
-                        <button class="ghost" id="generate-key" type="button">Geek passphrase</button>
-                        <button class="ghost secondary" id="generate-emoji" type="button">Emoji combo</button>
-                        <button class="ghost secondary" id="generate-dice" type="button">Diceware blend</button>
-                    </div>
-                    <div class="key-strength hidden" id="key-strength"></div>
-                    <div class="meta-note">Key is never stored. Recipients must supply it to decrypt the paste. Generated passphrases stay visible so you can share them easily.</div>
-                </div>
+    <main class="workspace">
+        <section class="editor-panel">
+            <div class="field">
+                <label for="content">Your text</label>
+                <textarea id="content" placeholder="Type or paste your text here..."></textarea>
             </div>
 
-            <div>
+            <div class="field" id="encryption-key-field" style="display:none;">
+                <label for="encryption-key">Encryption key</label>
+                <div class="key-input-row">
+                    <input type="text" id="encryption-key" placeholder="Enter or generate a passphrase" autocomplete="off" />
+                    <button class="ghost" id="toggle-key-visibility" type="button">Hide key</button>
+                </div>
+                <div class="key-controls">
+                    <button class="ghost" id="generate-key" type="button">Geek passphrase</button>
+                    <button class="ghost secondary" id="generate-emoji" type="button">Emoji combo</button>
+                    <button class="ghost secondary" id="generate-dice" type="button">Diceware blend</button>
+                </div>
+                <div class="key-strength hidden" id="key-strength"></div>
+                <div class="meta-note">Key is never stored. Share it separately.</div>
+            </div>
+
+            <div class="controls-footer">
                 <div class="actions">
                     <button id="create">Create paste</button>
                     <span class="status" id="status">Ready</span>
                 </div>
-
-                <div id="success" class="success"></div>
-                <div id="error" class="error"></div>
-                <div id="result" class="result">
-                    <div class="meta-row">
-                        <strong>Your paste link:</strong>
-                        <span class="status-pill" id="result-status">Ready to share</span>
-                    </div>
-                    <a id="paste-url" href="#" target="_blank" rel="noopener"></a>
-                    <div class="share-actions">
-                        <button class="secondary" id="share-copy" type="button">Copy link</button>
-                        <button class="secondary" id="share-email" type="button">Email</button>
-                        <button class="secondary" id="share-tweet" type="button">Tweet</button>
-                        <button class="secondary" id="share-slack" type="button">Slack</button>
-                        <button class="secondary" id="share-qr" type="button">QR code</button>
-                        <button class="secondary hidden" id="share-native" type="button">System share</button>
-                    </div>
-                    <div class="qr-card hidden" id="qr-card">
-                        <img id="qr-image" alt="QR code preview" width="160" height="160" />
-                    </div>
+                <div class="meta-column">
+                    <div class="meta-note">Burn deletes after the first view. Keys never touch the server.</div>
                 </div>
             </div>
+
+            <div id="success" class="success"></div>
+            <div id="error" class="error"></div>
         </section>
 
-        <aside class="preview-panel">
-            <div class="preview-header">
-                <span>Live preview</span>
-                <button class="ghost" id="reset-preview">Clear</button>
+        <aside class="side-panel">
+            <div class="status-card">
+                <div class="meta-row">
+                    <div>
+                        <strong>Status</strong>
+                        <div class="meta-note" id="status-help">Ready to create a paste.</div>
+                    </div>
+                    <span class="status-pill" id="result-status">Idle</span>
+                </div>
+                <div>
+                    <label class="meta-note" for="encryption-mode">Encryption</label>
+                    <div class="summary-line" id="summary-encryption">No encryption selected.</div>
+                </div>
+                <div>
+                    <label class="meta-note" for="retention">Retention</label>
+                    <div class="summary-line" id="summary-retention">No expiry</div>
+                </div>
             </div>
-            <div id="preview" class="preview-content">
-                <div class="preview-placeholder">Start typing to preview content.</div>
+
+            <div class="share-card" id="result-card" style="display:none;">
+                <h2>Share</h2>
+                <p class="meta-note">Copy or send the link directly. Keep passphrases off-channel.</p>
+                <a id="paste-url" href="#" target="_blank" rel="noopener"></a>
+                <div class="share-actions">
+                    <button class="secondary" id="share-copy" type="button">Copy link</button>
+                    <button class="secondary" id="share-email" type="button">Email</button>
+                    <button class="secondary" id="share-tweet" type="button">Tweet</button>
+                    <button class="secondary" id="share-slack" type="button">Slack</button>
+                    <button class="secondary" id="share-qr" type="button">QR code</button>
+                    <button class="secondary hidden" id="share-native" type="button">System share</button>
+                </div>
+                <div class="qr-card hidden" id="qr-card">
+                    <img id="qr-image" alt="QR code preview" width="160" height="160" />
+                </div>
             </div>
+
         </aside>
     </main>
 
@@ -538,7 +549,7 @@
         const status = document.getElementById('status');
         const errorBox = document.getElementById('error');
         const successBox = document.getElementById('success');
-        const resultBox = document.getElementById('result');
+        const resultCard = document.getElementById('result-card');
         const pasteLink = document.getElementById('paste-url');
         const resultStatus = document.getElementById('result-status');
         const shareCopy = document.getElementById('share-copy');
@@ -549,13 +560,14 @@
         const shareNative = document.getElementById('share-native');
         const qrCard = document.getElementById('qr-card');
         const qrImage = document.getElementById('qr-image');
-        const previewContainer = document.getElementById('preview');
-        const resetPreviewBtn = document.getElementById('reset-preview');
         const toggleKeyVisibility = document.getElementById('toggle-key-visibility');
         const keyStrengthIndicator = document.getElementById('key-strength');
         const generateEmojiButton = document.getElementById('generate-emoji');
         const generateDiceButton = document.getElementById('generate-dice');
-    const burnAfterReading = document.getElementById('burn-after-reading');
+        const burnAfterReading = document.getElementById('burn-after-reading');
+        const statusHelp = document.getElementById('status-help');
+        const summaryRetention = document.getElementById('summary-retention');
+        const summaryEncryption = document.getElementById('summary-encryption');
 
         function resetAlerts() {
             errorBox.style.display = 'none';
@@ -583,7 +595,16 @@
                 encryptionKeyInput.value = '';
                 keyStrengthIndicator.classList.add('hidden');
             }
-            renderPreview();
+            if (summaryEncryption) {
+                summaryEncryption.textContent = encryptionSummary(mode);
+            }
+        });
+
+        retentionSelect.addEventListener('change', () => {
+            const minutes = parseInt(retentionSelect.value, 10);
+            if (summaryRetention) {
+                summaryRetention.textContent = retentionLabel(minutes);
+            }
         });
 
         const cyberWords = [
@@ -684,50 +705,63 @@
             return { label: 'weak', className: 'weak' };
         }
 
-        function escapeHtml(value) {
-            const div = document.createElement('div');
-            div.textContent = value;
-            return div.innerHTML;
+        function retentionLabel(minutes) {
+            switch (minutes) {
+                case 0:
+                    return 'No expiry';
+                case 10:
+                    return '10 minutes';
+                case 60:
+                    return '1 hour';
+                case 1440:
+                    return '24 hours';
+                case 10080:
+                    return '7 days';
+                case 43200:
+                    return '30 days';
+                default: {
+                    if (!Number.isFinite(minutes) || minutes <= 0) {
+                        return 'Custom';
+                    }
+                    if (minutes % 1440 === 0) {
+                        const days = minutes / 1440;
+                        return `${days} day${days === 1 ? '' : 's'}`;
+                    }
+                    if (minutes % 60 === 0) {
+                        const hours = minutes / 60;
+                        return `${hours} hour${hours === 1 ? '' : 's'}`;
+                    }
+                    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+                }
+            }
         }
 
-        function renderPreview() {
-            const text = textarea.value.trim();
-            const format = formatSelect.value;
-
-            if (!text) {
-                previewContainer.innerHTML = '<div class="preview-placeholder">Start typing to preview content.</div>';
-                return;
+        function encryptionSummary(mode) {
+            switch (mode) {
+                case 'aes256_gcm':
+                    return 'AES-256-GCM encryption enabled';
+                case 'chacha20_poly1305':
+                    return 'ChaCha20-Poly1305 encryption enabled';
+                case 'xchacha20_poly1305':
+                    return 'XChaCha20-Poly1305 encryption enabled';
+                case 'none':
+                default:
+                    return 'No encryption selected.';
             }
+        }
 
-            if (format === 'markdown' && typeof marked !== 'undefined') {
-                previewContainer.innerHTML = marked.parse(text, { breaks: true });
-                return;
-            }
-
-            if (format === 'json') {
-                try {
-                    const parsed = JSON.parse(text);
-                    const pretty = JSON.stringify(parsed, null, 2);
-                    previewContainer.innerHTML = `<pre>${escapeHtml(pretty)}</pre>`;
-                } catch (err) {
-                    previewContainer.innerHTML = `<div class="preview-placeholder">${escapeHtml(err.message)}. Showing raw input.</div><pre>${escapeHtml(text)}</pre>`;
-                }
-                return;
-            }
-
-            if (['code', 'go', 'cpp', 'kotlin', 'java'].includes(format)) {
-                previewContainer.innerHTML = `<pre><code>${escapeHtml(text)}</code></pre>`;
-                return;
-            }
-
-            previewContainer.innerHTML = `<pre>${escapeHtml(text)}</pre>`;
+        if (summaryRetention) {
+            summaryRetention.textContent = retentionLabel(parseInt(retentionSelect.value, 10));
+        }
+        if (summaryEncryption) {
+            summaryEncryption.textContent = encryptionSummary(encryptionMode.value);
         }
 
         async function createPaste() {
             const content = textarea.value.trim();
             if (!content) {
                 showError('Please enter some text to create a paste.');
-                resultBox.style.display = 'none';
+                resultCard.style.display = 'none';
                 return;
             }
 
@@ -739,7 +773,7 @@
 
             if ((encryption === 'aes256_gcm' || encryption === 'xchacha20_poly1305') && !encryptionKey) {
                 showError('Provide an encryption key or disable encryption.');
-                resultBox.style.display = 'none';
+                resultCard.style.display = 'none';
                 return;
             }
 
@@ -780,21 +814,29 @@
                 const shareableUrl = buildShareLink(fullUrl, encryptionKey);
                 pasteLink.textContent = shareableUrl;
                 pasteLink.href = shareableUrl;
-                resultBox.style.display = 'block';
+                resultCard.style.display = 'block';
                 qrCard.classList.add('hidden');
                 status.textContent = 'Link ready';
+                resultStatus.classList.remove('status-danger');
+                if (statusHelp) {
+                    statusHelp.textContent = 'Share the link or copy it to your clipboard.';
+                }
                 if (burn) {
                     resultStatus.textContent = 'One-time link';
                     resultStatus.classList.add('status-danger');
+                    summaryRetention.textContent = 'One-time, burns on view';
                 } else if (encryption !== 'none') {
                     resultStatus.textContent = 'Key required';
                     resultStatus.classList.add('status-danger');
+                    summaryRetention.textContent = retentionLabel(retention);
                 } else {
                     resultStatus.textContent = 'Public paste';
-                    resultStatus.classList.remove('status-danger');
+                    summaryRetention.textContent = retentionLabel(retention);
+                }
+                if (summaryEncryption) {
+                    summaryEncryption.textContent = encryptionSummary(encryption);
                 }
                 textarea.value = '';
-                renderPreview();
 
                 const clipboardMessage = burn ? 'One-time link copied to clipboard' : 'Link copied to clipboard';
                 const createdMessage = burn ? 'One-time paste created. Save the link!' : 'Paste created successfully';
@@ -811,7 +853,10 @@
             } catch (err) {
                 showError(err.message || 'Something went wrong. Please try again.');
                 status.textContent = 'Something went wrong';
-                resultBox.style.display = 'none';
+                resultCard.style.display = 'none';
+                if (statusHelp) {
+                    statusHelp.textContent = 'Something went wrong. Check the message below and try again.';
+                }
             } finally {
                 createButton.disabled = false;
             }
@@ -824,14 +869,6 @@
             }
         });
         textarea.addEventListener('input', () => {
-            resetAlerts();
-            status.textContent = 'Ready';
-            renderPreview();
-        });
-        formatSelect.addEventListener('change', renderPreview);
-        resetPreviewBtn.addEventListener('click', () => {
-            textarea.value = '';
-            renderPreview();
             resetAlerts();
             status.textContent = 'Ready';
         });
@@ -942,7 +979,6 @@
             });
         }
 
-        renderPreview();
     </script>
 </body>
 </html>
