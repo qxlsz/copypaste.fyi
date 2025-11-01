@@ -10,6 +10,7 @@
     --color-accent: #0ea5e9;
     --color-success: #16a34a;
     --color-danger: #dc2626;
+    color-scheme: light;
     font-family: theme('fontFamily.sans');
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -23,13 +24,14 @@
     --color-accent: #22d3ee;
     --color-success: #14b8a6;
     --color-danger: #ef4444;
+    color-scheme: dark;
   }
 
   body {
-    @apply min-h-screen bg-background text-slate-900 transition-colors duration-200;
+    @apply min-h-screen bg-background text-slate-900 transition-colors duration-200 dark:bg-background dark:text-slate-100;
   }
 
   #root {
-    @apply min-h-screen bg-background text-inherit;
+    @apply min-h-screen bg-background text-inherit transition-colors duration-200 dark:bg-background;
   }
 }
