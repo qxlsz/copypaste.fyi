@@ -394,28 +394,3 @@ fn resolve_content(
         })
     }
 }
-
-pub fn format_attestation_requirement(requirement: &AttestationRequirement) -> AttestationRequest {
-    match requirement {
-        AttestationRequirement::Totp {
-            secret,
-            digits,
-            step,
-            allowed_drift,
-            issuer,
-        } => AttestationRequest::Totp {
-            secret: secret.clone(),
-            digits: Some(*digits),
-            step: Some(*step),
-            allowed_drift: Some(*allowed_drift),
-            issuer: issuer.clone(),
-        },
-        AttestationRequirement::SharedSecret { .. } => AttestationRequest::SharedSecret {
-            secret: String::new(),
-        },
-    }
-}
-
-pub fn render_bundle_empty() -> content::RawHtml<String> {
-    content::RawHtml(layout("copypaste.fyi", "<p>No bundle content.</p>".into()))
-}

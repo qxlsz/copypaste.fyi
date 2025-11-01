@@ -1,4 +1,4 @@
-use copypaste::{BundleMetadata, BundlePointer, PasteError, SharedPasteStore};
+use copypaste::{BundleMetadata, PasteError, SharedPasteStore};
 
 use super::models::PasteViewQuery;
 

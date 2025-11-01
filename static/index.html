@@ -565,6 +565,9 @@
         const generateEmojiButton = document.getElementById('generate-emoji');
         const generateDiceButton = document.getElementById('generate-dice');
         const burnAfterReading = document.getElementById('burn-after-reading');
+        const statusHelp = document.getElementById('status-help');
+        const summaryRetention = document.getElementById('summary-retention');
+        const summaryEncryption = document.getElementById('summary-encryption');
 
         function resetAlerts() {
             errorBox.style.display = 'none';
@@ -591,6 +594,16 @@
                 encryptionKeyField.style.display = 'none';
                 encryptionKeyInput.value = '';
                 keyStrengthIndicator.classList.add('hidden');
+            }
+            if (summaryEncryption) {
+                summaryEncryption.textContent = encryptionSummary(mode);
+            }
+        });
+
+        retentionSelect.addEventListener('change', () => {
+            const minutes = parseInt(retentionSelect.value, 10);
+            if (summaryRetention) {
+                summaryRetention.textContent = retentionLabel(minutes);
             }
         });
 
@@ -692,6 +705,58 @@
             return { label: 'weak', className: 'weak' };
         }
 
+        function retentionLabel(minutes) {
+            switch (minutes) {
+                case 0:
+                    return 'No expiry';
+                case 10:
+                    return '10 minutes';
+                case 60:
+                    return '1 hour';
+                case 1440:
+                    return '24 hours';
+                case 10080:
+                    return '7 days';
+                case 43200:
+                    return '30 days';
+                default: {
+                    if (!Number.isFinite(minutes) || minutes <= 0) {
+                        return 'Custom';
+                    }
+                    if (minutes % 1440 === 0) {
+                        const days = minutes / 1440;
+                        return `${days} day${days === 1 ? '' : 's'}`;
+                    }
+                    if (minutes % 60 === 0) {
+                        const hours = minutes / 60;
+                        return `${hours} hour${hours === 1 ? '' : 's'}`;
+                    }
+                    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+                }
+            }
+        }
+
+        function encryptionSummary(mode) {
+            switch (mode) {
+                case 'aes256_gcm':
+                    return 'AES-256-GCM encryption enabled';
+                case 'chacha20_poly1305':
+                    return 'ChaCha20-Poly1305 encryption enabled';
+                case 'xchacha20_poly1305':
+                    return 'XChaCha20-Poly1305 encryption enabled';
+                case 'none':
+                default:
+                    return 'No encryption selected.';
+            }
+        }
+
+        if (summaryRetention) {
+            summaryRetention.textContent = retentionLabel(parseInt(retentionSelect.value, 10));
+        }
+        if (summaryEncryption) {
+            summaryEncryption.textContent = encryptionSummary(encryptionMode.value);
+        }
+
         async function createPaste() {
             const content = textarea.value.trim();
             if (!content) {
@@ -753,7 +818,9 @@
                 qrCard.classList.add('hidden');
                 status.textContent = 'Link ready';
                 resultStatus.classList.remove('status-danger');
-                statusHelp.textContent = 'Share the link or copy it to your clipboard.';
+                if (statusHelp) {
+                    statusHelp.textContent = 'Share the link or copy it to your clipboard.';
+                }
                 if (burn) {
                     resultStatus.textContent = 'One-time link';
                     resultStatus.classList.add('status-danger');
@@ -766,7 +833,9 @@
                     resultStatus.textContent = 'Public paste';
                     summaryRetention.textContent = retentionLabel(retention);
                 }
-                summaryEncryption.textContent = encryptionSummary(encryption);
+                if (summaryEncryption) {
+                    summaryEncryption.textContent = encryptionSummary(encryption);
+                }
                 textarea.value = '';
 
                 const clipboardMessage = burn ? 'One-time link copied to clipboard' : 'Link copied to clipboard';
@@ -785,6 +854,9 @@
                 showError(err.message || 'Something went wrong. Please try again.');
                 status.textContent = 'Something went wrong';
                 resultCard.style.display = 'none';
+                if (statusHelp) {
+                    statusHelp.textContent = 'Something went wrong. Check the message below and try again.';
+                }
             } finally {
                 createButton.disabled = false;
             }

@@ -6,5 +6,3 @@ pub mod models;
 pub mod render;
 pub mod time;
 pub mod webhook;
-
-pub use handlers::build_rocket;
