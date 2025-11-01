@@ -1,9 +1,11 @@
 import clsx from 'clsx'
+import type { ReactElement } from 'react'
 import { useMemo } from 'react'
 
-import { useTheme } from '../theme/ThemeProvider'
+import { useTheme } from '../hooks/useTheme'
+import type { Theme } from '../theme/ThemeContext'
 
-const icons = {
+const icons: Record<Theme, ReactElement> = {
   light: (
     <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
       <path fill="currentColor" d="M12 18a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Zm7.071-3.071a1 1 0 0 1 1.414 1.414l-1.415 1.414a1 1 0 0 1-1.414-1.414ZM12 6a1 1 0 0 1-1-1V3a1 1 0 0 1 2 0v2a1 1 0 0 1-1 1Zm6.364-3.536a1 1 0 0 1 1.415 1.414L18.364 5.293a1 1 0 0 1-1.414-1.414ZM5 12a1 1 0 0 1-1 1H2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1Zm17 0a1 1 0 0 1-1 1h-2a1 1 0 1 1 0-2h2a1 1 0 0 1 1 1ZM5.636 3.636a1 1 0 0 1 1.414-1.414L8.465 3.636A1 1 0 0 1 7.05 5.05ZM6 12a6 6 0 1 1 6 6 6 6 0 0 1-6-6Zm6 4a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm-6.364.707a1 1 0 0 1 0 1.414L4.222 19.12a1 1 0 0 1-1.414-1.414l1.414-1.415a1 1 0 0 1 1.414 0Z" />
