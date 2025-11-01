@@ -55,9 +55,10 @@ pub struct CreatePasteRequest {
     pub webhook: Option<WebhookRequest>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PersistenceRequest {
+    #[default]
     Memory,
     Vault {
         key_path: String,
@@ -67,12 +68,6 @@ pub enum PersistenceRequest {
         #[serde(default)]
         prefix: Option<String>,
     },
-}
-
-impl Default for PersistenceRequest {
-    fn default() -> Self {
-        Self::Memory
-    }
 }
 
 #[derive(Deserialize, Default)]

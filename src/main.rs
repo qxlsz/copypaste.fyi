@@ -233,6 +233,103 @@ mod tests {
         let result = format_json(r#"{"foo":1,"bar":[true,false]}"#);
         assert!(result.contains('\n'));
         assert!(result.starts_with("<pre><code>"));
-        assert!(result.contains("\"foo\""));
+        assert!(result.contains("&quot;foo&quot;"));
+    }
+
+    #[rocket::async_test]
+    async fn time_locked_paste_is_protected() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::default());
+        let future_unlock = current_timestamp() + 3600;
+        let metadata = PasteMetadata {
+            not_before: Some(future_unlock),
+            ..Default::default()
+        };
+
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "sealed".into(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: current_timestamp(),
+            expires_at: None,
+            burn_after_reading: false,
+            metadata,
+        };
+
+        let id = store.create_paste(paste).await;
+        let client = rocket_client_with_store(store.clone()).await;
+
+        let gated = client.get(format!("/{id}")).dispatch().await;
+        assert_eq!(gated.status(), Status::Ok);
+        let gated_html = gated.into_string().await.expect("html body");
+        assert!(gated_html.contains("Time-locked paste"));
+
+        let raw = client.get(format!("/raw/{id}")).dispatch().await;
+        assert_eq!(raw.status(), Status::Locked);
+    }
+
+    #[rocket::async_test]
+    async fn bundle_creation_requires_encryption() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "parent plain",
+            "format": "plain_text",
+            "bundle": {
+                "children": [
+                    { "content": "child secret" }
+                ]
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::BadRequest);
+        let message = response.into_string().await.expect("error body");
+        assert!(message.contains("requires an encryption key"));
+    }
+
+    #[rocket::async_test]
+    async fn bundle_creation_renders_children() {
+        let client = rocket_client().await;
+        let payload = json!({
+            "content": "parent encrypted",
+            "format": "plain_text",
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "bundle-pass"
+            },
+            "bundle": {
+                "children": [
+                    {
+                        "content": "child payload",
+                        "label": "child-one"
+                    }
+                ]
+            }
+        });
+
+        let response = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch()
+            .await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let path = response.into_string().await.expect("path body");
+
+        let html_response = client
+            .get(format!("{}?key=bundle-pass", path))
+            .dispatch()
+            .await;
+        assert_eq!(html_response.status(), Status::Ok);
+        let html = html_response.into_string().await.expect("html body");
+        assert!(html.contains("Bundle shares"));
+        assert!(html.contains("child-one"));
     }
 }

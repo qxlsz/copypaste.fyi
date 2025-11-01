@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use copypaste::{
-    create_paste_store, AttestationRequirement, BundleMetadata, BundlePointer, EncryptionAlgorithm,
-    PasteError, PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent,
-    StoredPaste, WebhookConfig,
+    create_paste_store, BundleMetadata, BundlePointer, EncryptionAlgorithm, PasteError,
+    PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste,
+    WebhookConfig,
 };
 use rocket::fs::{FileServer, NamedFile};
 use rocket::http::Status;
@@ -11,14 +11,14 @@ use rocket::response::content;
 use rocket::serde::json::Json;
 use rocket::{get, post, routes, Build, Rocket, State};
 
-use super::attestation::{self, AttestationRequest, AttestationVerdict};
+use super::attestation::{self, AttestationVerdict};
 use super::bundles::build_bundle_overview;
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
     CreatePasteRequest, PasteViewQuery, PersistenceRequest, TimeLockRequest, WebhookRequest,
 };
 use super::render::{
-    layout, render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
+    render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
     render_paste_view, render_time_locked, StoredPasteView,
 };
 use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp};
