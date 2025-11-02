@@ -9,25 +9,29 @@ import { StatsPage } from './pages/Stats'
 import { DashboardPage } from './pages/Dashboard'
 import { ThemeProvider } from './theme/ThemeProvider'
 
-function App() {
+export function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Layout />}>
+        <Route index element={<PasteFormPage />} />
+        <Route path="p/:id" element={<PasteViewPage />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="stats" element={<StatsPage />} />
+      </Route>
+    </Routes>
+  )
+}
+
+export default function AppWithProviders() {
   const [queryClient] = useState(() => new QueryClient())
 
   return (
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <Routes>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<PasteFormPage />} />
-              <Route path="p/:id" element={<PasteViewPage />} />
-              <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="stats" element={<StatsPage />} />
-            </Route>
-          </Routes>
+          <App />
         </ThemeProvider>
       </QueryClientProvider>
     </BrowserRouter>
   )
 }
-
-export default App
