@@ -149,6 +149,100 @@ npm run build
 
 For an all-in-one local environment (Rocket API + Vite dev server) run `./scripts/run_both.sh`. Stop everything with `./scripts/stop.sh`.
 
+## REST API
+
+Interact with copypaste.fyi programmatically through the JSON API. All endpoints live under `/api` and accept/return UTF-8 JSON.
+
+### Create a paste
+
+`POST /api/pastes`
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/pastes \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "content": "Hello from the API",
+        "format": "plain_text",
+        "retention_minutes": 60,
+        "burn_after_reading": false,
+        "encryption": {
+          "algorithm": "aes256_gcm",
+          "key": "correct-horse-battery-staple"
+        }
+      }'
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `content` | `string` | ✅ | Paste body. |
+| `format` | `string` | ❌ | One of `plain_text`, `markdown`, `code`, `json`, `go`, `cpp`, `kotlin`, `java`. Defaults to `plain_text`. |
+| `retention_minutes` | `number` | ❌ | Minutes before automatic deletion. Omit for no expiry. |
+| `burn_after_reading` | `boolean` | ❌ | Delete paste after first successful view. |
+| `encryption.algorithm` | `string` | ❌ | `aes256_gcm`, `chacha20_poly1305`, or `xchacha20_poly1305`. |
+| `encryption.key` | `string` | ⚠️ | Required when `encryption.algorithm` is provided. Never stored server-side. |
+
+**Response**
+
+```jsonc
+{
+  "id": "AbCdEf12",
+  "shareableUrl": "/p/AbCdEf12",
+  "burnAfterReading": false
+}
+```
+
+The `shareableUrl` is relative to the server origin. For encrypted pastes, append `?key=<secret>` to the share link before sharing.
+
+### Fetch a paste
+
+`GET /api/pastes/{id}`
+
+```bash
+curl http://127.0.0.1:8000/api/pastes/AbCdEf12
+
+# Encrypted paste
+curl "http://127.0.0.1:8000/api/pastes/AbCdEf12?key=correct-horse-battery-staple"
+```
+
+**Response**
+
+```jsonc
+{
+  "id": "AbCdEf12",
+  "content": "Hello from the API",
+  "format": "plain_text",
+  "createdAt": 1730518840,
+  "expiresAt": null,
+  "burnAfterReading": false,
+  "encryption": {
+    "requiresKey": true,
+    "algorithm": "aes256_gcm"
+  },
+  "timeLock": null,
+  "persistence": {
+    "kind": "memory"
+  }
+}
+```
+
+A `401 Unauthorized` response indicates a missing or invalid key for an encrypted paste. A `404` means the paste never existed or was already burned/time-locked.
+
+### Raw paste view
+
+`GET /p/{id}/raw`
+
+Returns plain text (no JSON envelope) for shell-friendly consumption.
+
+```bash
+curl http://127.0.0.1:8000/p/AbCdEf12/raw
+```
+
+Encrypted pastes require the key query parameter: `/p/{id}/raw?key=<secret>`.
+
+> 💡 Looking for CLI automation? See [CLI Usage (`cpaste`)](#cli-usage-cpaste) for examples that wrap these endpoints.
+
 ### Formatting options
 
 - Plain text / Markdown / generic code block

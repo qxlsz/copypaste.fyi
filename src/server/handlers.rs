@@ -12,12 +12,17 @@ use rocket::serde::json::Json;
 use rocket::{get, post, routes, Build, Rocket, State};
 
 use super::attestation::{self, AttestationVerdict};
+use super::blockchain::{
+    default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
+    AnchorManifest, AnchorPayload, SharedAnchorRelayer,
+};
 use super::bundles::build_bundle_overview;
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo, PasteEncryptionInfo,
-    PastePersistenceInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse, PasteWebhookInfo,
-    PersistenceRequest, TimeLockRequest, WebhookRequest,
+    AnchorRequest, AnchorResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
+    PasteEncryptionInfo, PastePersistenceInfo, PasteTimeLockInfo, PasteViewQuery,
+    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, TimeLockRequest,
+    WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -29,6 +34,7 @@ use super::webhook::{trigger_webhook, WebhookEvent};
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     rocket::build()
         .manage(store)
+        .manage(default_anchor_relayer())
         .mount(
             "/",
             routes![
@@ -36,12 +42,75 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 spa_fallback,
                 create,
                 create_api,
+                anchor_api,
                 show,
                 show_api,
-                show_raw
+                show_raw,
+                stats_summary_api
             ],
         )
         .mount("/static", FileServer::from("static"))
+}
+
+#[get("/api/stats/summary")]
+async fn stats_summary_api(store: &State<SharedPasteStore>) -> Json<StatsSummaryResponse> {
+    let stats = store.stats().await;
+    Json(stats.into())
+}
+
+#[post("/api/pastes/<id>/anchor", data = "<body>")]
+async fn anchor_api(
+    store: &State<SharedPasteStore>,
+    relayer: &State<SharedAnchorRelayer>,
+    id: String,
+    body: Option<Json<AnchorRequest>>,
+) -> Result<Json<AnchorResponse>, (Status, String)> {
+    let request = body.map(|json| json.into_inner()).unwrap_or_default();
+
+    let paste = match store.get_paste(&id).await {
+        Ok(paste) => paste,
+        Err(PasteError::NotFound(_)) => return Err((Status::NotFound, "Paste not found".into())),
+        Err(PasteError::Expired(_)) => return Err((Status::Gone, "Paste expired".into())),
+    };
+
+    let manifest = AnchorManifest::from_paste(id.clone(), &paste);
+    let hash = manifest_hash(&manifest).map_err(|error| {
+        (
+            Status::InternalServerError,
+            format!("Failed to hash manifest: {error}"),
+        )
+    })?;
+
+    let retention_class = request
+        .retention_class
+        .or_else(|| infer_retention_class(&manifest));
+    let attestation_ref = request
+        .attestation_ref
+        .or_else(|| infer_attestation_ref(&manifest.metadata));
+
+    let payload = AnchorPayload::new(
+        manifest.clone(),
+        hash.clone(),
+        retention_class,
+        attestation_ref.clone(),
+    );
+
+    let relayer = relayer.inner().clone();
+    let receipt = relayer
+        .submit(payload)
+        .await
+        .map_err(|error| (Status::BadGateway, format!("Relayer error: {error}")))?;
+
+    let response = AnchorResponse {
+        paste_id: id,
+        hash,
+        retention_class,
+        attestation_ref,
+        manifest,
+        receipt,
+    };
+
+    Ok(Json(response))
 }
 
 #[get("/api/pastes/<id>?<query..>")]
@@ -712,5 +781,40 @@ mod tests {
         // Fetch the paste to ensure it was stored.
         let get_response = client.get(&parsed.path).dispatch();
         assert_eq!(get_response.status(), Status::Ok);
+    }
+
+    #[test]
+    fn stats_summary_endpoint_returns_counts() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(Arc::clone(&store));
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "diagnostic entry",
+            "format": "markdown",
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "secret-key"
+            }
+        });
+
+        let create_response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+
+        assert_eq!(create_response.status(), Status::Ok);
+
+        let response = client.get("/api/stats/summary").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().expect("body");
+        let stats: StatsSummaryResponse = serde_json::from_str(&body).expect("stats payload");
+
+        assert!(stats.total_pastes >= 1);
+        assert!(stats.active_pastes >= 1);
+        assert!(!stats.formats.is_empty());
+        assert!(!stats.encryption_usage.is_empty());
     }
 }

@@ -1,6 +1,16 @@
 # Multi-stage Dockerfile for copypaste.fyi server and frontend
 
-# 1) Build frontend assets using Node
+# 1) Build blockchain tooling (Hardhat)
+FROM node:20 AS blockchain-builder
+WORKDIR /app/blockchain
+
+COPY blockchain/package*.json ./
+RUN npm install
+
+COPY blockchain ./
+RUN npm run build
+
+# 2) Build frontend assets using Node
 FROM node:20 AS frontend-builder
 WORKDIR /app/frontend
 
@@ -10,7 +20,7 @@ RUN npm install
 COPY frontend ./
 RUN npm run build
 
-# 2) Build backend binary with Rust
+# 3) Build backend binary with Rust
 FROM rust:1.84 AS builder
 WORKDIR /app
 
@@ -23,6 +33,7 @@ COPY src ./src
 COPY static ./static
 COPY docs ./docs
 COPY README.md ./
+COPY --from=blockchain-builder /app/blockchain ./blockchain
 
 # Build the application binary
 RUN cargo build --release --locked --bin copypaste

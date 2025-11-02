@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
@@ -91,13 +91,25 @@ const formatWebhook = (webhook?: PasteViewResponse['webhook']) => {
 
 export const PasteViewPage = () => {
   const { id } = useParams<{ id: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const key = searchParams.get('key') ?? undefined
+  const [enteredKey, setEnteredKey] = useState(() => key ?? '')
 
-  const queryKey = useMemo(() => ['paste', id, key], [id, key])
+  const handleKeySubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmed = enteredKey.trim()
+    if (trimmed) {
+      const next = new URLSearchParams(searchParams)
+      next.set('key', trimmed)
+      setSearchParams(next)
+    }
+  }
+
+  const queryKey = useMemo(() => ['paste', id, key ?? null], [id, key])
 
   const { data, isLoading, isError, error } = useQuery({
     enabled: Boolean(id),
+    retry: false,
     queryKey,
     queryFn: () => fetchPaste(id!, key),
   })
@@ -117,10 +129,76 @@ export const PasteViewPage = () => {
 
   if (isError || !data) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+    const isBackendDown = message.includes('timed out') || message.includes('Failed to fetch')
+    const isUnauthorized =
+      message.includes('401') ||
+      message.toLowerCase().includes('unauthorized') ||
+      message.toLowerCase().includes('missing key')
+
+    const requiresKey = isUnauthorized
+
+    if (requiresKey) {
+      return (
+        <div className="mx-auto max-w-md space-y-6">
+          <div className="space-y-2 text-center">
+            <h1 className="text-2xl font-semibold text-slate-100">Encrypted paste</h1>
+            <p className="text-slate-400">This paste requires an encryption key to view.</p>
+          </div>
+
+          <form onSubmit={handleKeySubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-300" htmlFor="pasteKey">
+                Encryption key
+              </label>
+              <input
+                id="pasteKey"
+                type="password"
+                value={enteredKey}
+                onChange={(event) => setEnteredKey(event.target.value)}
+                placeholder="Enter the encryption key..."
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20"
+                required
+                autoFocus
+              />
+              {key && (
+                <p className="text-sm text-danger">
+                  The provided key was rejected. Please double-check and try again.
+                </p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30"
+            >
+              View paste
+            </button>
+          </form>
+
+          <div className="text-center text-xs text-slate-500">
+            <p>The key was provided when the paste was created.</p>
+            <p>If you don't have the key, the paste cannot be viewed.</p>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-semibold text-danger">Unable to load paste</h1>
-        <p className="text-slate-400">{message}</p>
+        <h1 className="text-2xl font-semibold text-danger">
+          {isBackendDown ? 'Backend unavailable' : 'Unable to load paste'}
+        </h1>
+        <p className="text-slate-400">
+          {isBackendDown
+            ? 'The paste service is currently unavailable. Please try again later or contact support if the issue persists.'
+            : message
+          }
+        </p>
+        {isBackendDown && (
+          <p className="text-sm text-slate-500">
+            Make sure the backend server is running on port 8000.
+          </p>
+        )}
       </div>
     )
   }
@@ -154,10 +232,12 @@ export const PasteViewPage = () => {
               {formatEncryption(data.encryption.requiresKey, data.encryption.algorithm)}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Attestation</dt>
-            <dd className="text-sm text-slate-200">{formatAttestation(data.attestation)}</dd>
-          </div>
+          {data.attestation ? (
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-slate-500">Attestation</dt>
+              <dd className="text-sm text-slate-200">{formatAttestation(data.attestation)}</dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Time lock</dt>
             <dd className="text-sm text-slate-200">{formatTimeLock(data.timeLock)}</dd>

@@ -1,4 +1,5 @@
 pub mod attestation;
+pub mod blockchain;
 pub mod bundles;
 pub mod crypto;
 pub mod handlers;

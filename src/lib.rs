@@ -1,15 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum PasteFormat {
     #[default]
@@ -25,7 +26,7 @@ pub enum PasteFormat {
     Java,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionAlgorithm {
     #[default]
@@ -61,6 +62,40 @@ pub struct StoredPaste {
     pub burn_after_reading: bool,
     #[serde(default)]
     pub metadata: PasteMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StoreStats {
+    pub total_pastes: usize,
+    pub active_pastes: usize,
+    pub expired_pastes: usize,
+    pub burn_after_reading_count: usize,
+    pub time_locked_count: usize,
+    pub formats: Vec<FormatUsage>,
+    pub encryption_usage: Vec<EncryptionUsage>,
+    pub created_by_day: Vec<DailyCount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatUsage {
+    pub format: PasteFormat,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncryptionUsage {
+    pub algorithm: EncryptionAlgorithm,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyCount {
+    pub date: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -153,6 +188,7 @@ pub trait PasteStore: Send + Sync + 'static {
     async fn create_paste(&self, paste: StoredPaste) -> String;
     async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError>;
     async fn delete_paste(&self, id: &str) -> bool;
+    async fn stats(&self) -> StoreStats;
 }
 
 #[derive(Error, Debug)]
@@ -275,6 +311,69 @@ impl PasteStore for MemoryPasteStore {
             let _ = adapter.delete(id).await;
         }
         existed
+    }
+
+    async fn stats(&self) -> StoreStats {
+        let map = self.entries.read().await;
+        let mut total = 0usize;
+        let mut active = 0usize;
+        let mut expired = 0usize;
+        let mut burn_count = 0usize;
+        let mut time_locked = 0usize;
+        let mut format_counts: HashMap<PasteFormat, usize> = HashMap::new();
+        let mut encryption_counts: HashMap<EncryptionAlgorithm, usize> = HashMap::new();
+        let mut daily_counts: BTreeMap<String, usize> = BTreeMap::new();
+
+        for paste in map.values() {
+            total += 1;
+            let paste_expired = is_expired(paste);
+            if paste_expired {
+                expired += 1;
+            } else {
+                active += 1;
+            }
+
+            if paste.burn_after_reading {
+                burn_count += 1;
+            }
+
+            if paste.metadata.not_before.is_some() || paste.metadata.not_after.is_some() {
+                time_locked += 1;
+            }
+
+            *format_counts.entry(paste.format).or_default() += 1;
+
+            let algorithm = match &paste.content {
+                StoredContent::Plain { .. } => EncryptionAlgorithm::None,
+                StoredContent::Encrypted { algorithm, .. } => *algorithm,
+            };
+            *encryption_counts.entry(algorithm).or_default() += 1;
+
+            if let Some(dt) = DateTime::<Utc>::from_timestamp(paste.created_at, 0) {
+                let date = dt.date_naive().format("%Y-%m-%d").to_string();
+                *daily_counts.entry(date).or_default() += 1;
+            }
+        }
+
+        StoreStats {
+            total_pastes: total,
+            active_pastes: active,
+            expired_pastes: expired,
+            burn_after_reading_count: burn_count,
+            time_locked_count: time_locked,
+            formats: format_counts
+                .into_iter()
+                .map(|(format, count)| FormatUsage { format, count })
+                .collect(),
+            encryption_usage: encryption_counts
+                .into_iter()
+                .map(|(algorithm, count)| EncryptionUsage { algorithm, count })
+                .collect(),
+            created_by_day: daily_counts
+                .into_iter()
+                .map(|(date, count)| DailyCount { date, count })
+                .collect(),
+        }
     }
 }
 

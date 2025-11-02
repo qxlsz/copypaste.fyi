@@ -2,6 +2,35 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Verifying Webpage Loads
+
+To ensure the webpage loads properly without showing a white screen:
+
+### Unit Tests
+```bash
+# Run unit tests to verify components render without errors
+npm run test:load
+```
+
+### Health Check Tests
+```bash
+# Run end-to-end tests to verify the webpage loads and functions correctly
+npm run test:health
+```
+
+These tests check that:
+- The page loads without JavaScript errors
+- Core UI elements are present (header, navigation, forms)
+- No critical console errors occur
+
+### Manual Verification
+1. Start the development server: `npm run dev`
+2. Open http://localhost:5173 in your browser
+3. Verify the page shows content (not a white screen)
+4. Check browser console for any JavaScript errors
+
+## Development
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh

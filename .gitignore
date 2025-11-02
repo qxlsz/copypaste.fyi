@@ -9,6 +9,12 @@ frontend/coverage/
 frontend/playwright-report/
 frontend/test-results/
 
+# Blockchain workspace (Hardhat)
+blockchain/node_modules/
+blockchain/artifacts/
+blockchain/cache/
+blockchain/typechain/
+
 # Local coverage reports
 coverage/
 
