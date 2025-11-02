@@ -125,7 +125,7 @@ export const PasteFormPage = () => {
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="space-y-8">
       <section className="space-y-6">
         <header className="space-y-2">
           <h1 className="text-3xl font-semibold text-slate-900 dark:text-slate-100">Create a secure paste</h1>
@@ -143,7 +143,7 @@ export const PasteFormPage = () => {
               value={content}
               onChange={(event) => setContent(event.target.value)}
               placeholder="Paste or type your content here..."
-              className="h-72 w-full rounded-xl border border-slate-200 bg-surface p-4 font-mono text-sm text-slate-900 transition focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
+              className="min-h-[28rem] w-full rounded-2xl border border-slate-200 bg-surface p-5 font-mono text-base text-slate-900 transition focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
               required
             />
           </div>
@@ -244,14 +244,8 @@ export const PasteFormPage = () => {
           </button>
         </form>
       </section>
-      <aside className="space-y-6">
-        <div className="rounded-xl border border-slate-200 bg-background/80 p-4 dark:border-slate-700 dark:bg-background/60">
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Toggle <span className="font-medium text-primary">Burn after first view</span> when you need a one-time link.
-            Combine with end-to-end encryption for maximum privacy.
-          </p>
-        </div>
-        {shareUrl && (
+      {shareUrl && (
+        <aside className="space-y-4">
           <div className="space-y-3 rounded-xl border border-slate-200 bg-background/80 p-4 dark:border-slate-700 dark:bg-background/60">
             
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Shareable link</p>
@@ -278,8 +272,12 @@ export const PasteFormPage = () => {
               {isCopying ? 'Copying…' : 'Copy link'}
             </button>
           </div>
-        )}
-      </aside>
+        </aside>
+      )}
+
+      <footer className="rounded-xl border border-slate-200 bg-background/80 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-background/60 dark:text-slate-300">
+        Toggle <span className="font-medium text-primary">Burn after first view</span> when you need a one-time link. Combine with end-to-end encryption for maximum privacy.
+      </footer>
     </div>
   )
 }
