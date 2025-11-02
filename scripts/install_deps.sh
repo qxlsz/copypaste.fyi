@@ -43,4 +43,16 @@ echo "Installing frontend dependencies..."
   fi
 )
 
+if [[ -d blockchain ]]; then
+  echo "Installing blockchain (Hardhat) dependencies..."
+  (
+    cd blockchain
+    if [[ -f package-lock.json ]]; then
+      npm ci
+    else
+      npm install
+    fi
+  )
+fi
+
 echo "Dependencies installed successfully."
