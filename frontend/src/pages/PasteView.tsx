@@ -232,10 +232,12 @@ export const PasteViewPage = () => {
               {formatEncryption(data.encryption.requiresKey, data.encryption.algorithm)}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Attestation</dt>
-            <dd className="text-sm text-slate-200">{formatAttestation(data.attestation)}</dd>
-          </div>
+          {data.attestation ? (
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-slate-500">Attestation</dt>
+              <dd className="text-sm text-slate-200">{formatAttestation(data.attestation)}</dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Time lock</dt>
             <dd className="text-sm text-slate-200">{formatTimeLock(data.timeLock)}</dd>

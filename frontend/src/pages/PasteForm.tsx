@@ -103,11 +103,14 @@ export const PasteFormPage = () => {
       if (pasteEncryption !== 'none' && pasteEncryptionKey.trim()) {
         url.searchParams.set('key', pasteEncryptionKey)
       }
+      if (retentionMinutes && retentionMinutes > 0) {
+        url.searchParams.set('ttl', retentionMinutes.toString())
+      }
       return url.toString()
     } catch {
       return `/p${shareUrl}`
     }
-  }, [shareUrl, pasteEncryption, pasteEncryptionKey])
+  }, [shareUrl, pasteEncryption, pasteEncryptionKey, retentionMinutes])
 
   const handleCopyShareUrl = async () => {
     const urlToCopy = shareLink || shareUrl
