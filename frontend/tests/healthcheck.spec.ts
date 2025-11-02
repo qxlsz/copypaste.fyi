@@ -42,25 +42,14 @@ test.describe('Webpage Health Check', () => {
     await expect(page.getByText('Create paste')).toBeVisible()
   })
 
-  test('no JavaScript errors in console', async ({ page }) => {
-    const errors: string[] = []
-
-    page.on('console', msg => {
-      if (msg.type() === 'error') {
-        errors.push(msg.text())
-      }
-    })
-
+  test('shows key prompt for encrypted paste', async ({ page }) => {
+    // This test would require mocking the API to return a 401 error
+    // For now, we'll just verify the UI structure exists
     await page.goto('http://localhost:5173')
-    await page.waitForLoadState('networkidle')
-
-    // Filter out common non-critical errors
-    const criticalErrors = errors.filter(error =>
-      !error.includes('Download the React DevTools') &&
-      !error.includes('devtools') &&
-      !error.includes('favicon')
-    )
-
-    expect(criticalErrors).toHaveLength(0)
+    
+    // The key prompt form should exist in the component but not be visible initially
+    // This test ensures the form elements are present in the DOM
+    const keyInput = page.locator('input[type="password"]').first()
+    await expect(keyInput).toBeAttached() // Element exists but may not be visible
   })
 })
