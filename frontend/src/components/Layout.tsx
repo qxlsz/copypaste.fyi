@@ -58,7 +58,7 @@ export const Layout = () => {
       <header className="border-b border-slate-200/80 bg-surface/95 backdrop-blur dark:border-slate-800">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4">
           <div className="flex flex-col items-start justify-between gap-2 md:flex-row md:items-center">
-            <NavLink to="/" className="text-lg font-semibold text-primary">
+            <NavLink to="/" className="text-sm font-semibold uppercase tracking-[0.32em] text-slate-700 transition hover:text-primary dark:text-slate-200 dark:hover:text-primary">
               copypaste.fyi
             </NavLink>
             <nav className="flex flex-wrap items-center gap-2 md:gap-3">

@@ -190,15 +190,25 @@ export const PasteFormPage = () => {
                 <p className="text-xs text-slate-500 dark:text-slate-400">Up to 90 days. "No expiry" requires extra permissions.</p>
               </div>
 
-              <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={burnAfterReading}
-                  onChange={(event) => setBurnAfterReading(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-700 bg-surface text-primary focus:ring-primary/30"
-                />
-                Burn after first view
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={burnAfterReading}
+                    onChange={(event) => setBurnAfterReading(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-700 bg-surface text-primary focus:ring-primary/30"
+                  />
+                  Burn after first view
+                </label>
+                <button
+                  type="button"
+                  className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-xs font-semibold text-slate-500 transition hover:border-primary hover:text-primary dark:border-slate-600 dark:text-slate-400 dark:hover:border-primary/80 dark:hover:text-primary/90"
+                  title="Toggle Burn after first view when you need a one-time link. Combine with end-to-end encryption for maximum privacy."
+                  aria-label="Burn after first view details"
+                >
+                  i
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -288,9 +298,6 @@ export const PasteFormPage = () => {
       )}
 
       <footer className="rounded-xl border border-slate-200 bg-background/80 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-background/60 dark:text-slate-300">
-        <p>
-          Toggle <span className="font-medium text-primary">Burn after first view</span> when you need a one-time link. Combine with end-to-end encryption for maximum privacy.
-        </p>
         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           Crafted by{' '}
           <a
