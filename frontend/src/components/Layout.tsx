@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
@@ -18,6 +18,8 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 export const Layout = () => {
   const navigate = useNavigate()
   const [isPaletteOpen, setPaletteOpen] = useState(false)
+  const location = useLocation()
+  const showHero = location.pathname === '/'
 
   const commandActions = useMemo(
     () => [
@@ -54,31 +56,38 @@ export const Layout = () => {
     <div className="min-h-screen bg-background text-slate-900 transition-colors duration-200 dark:text-slate-100">
       <CommandPalette actions={commandActions} isOpen={isPaletteOpen} onOpenChange={setPaletteOpen} />
       <header className="border-b border-slate-200/80 bg-surface/95 backdrop-blur dark:border-slate-800">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <NavLink to="/" className="text-lg font-semibold text-primary">
-            copypaste.fyi
-          </NavLink>
-          <nav className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={() => navigate('/')}>
-              New paste (⌘N)
-            </Button>
-            <NavLink to="/" className={navLinkClass} end>
-              Create Paste
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4">
+          <div className="flex flex-col items-start justify-between gap-2 md:flex-row md:items-center">
+            <NavLink to="/" className="text-lg font-semibold text-primary">
+              copypaste.fyi
             </NavLink>
-            <NavLink to="/dashboard" className={navLinkClass}>
-              Dashboard
-            </NavLink>
-            <NavLink to="/stats" className={navLinkClass}>
-              Stats
-            </NavLink>
-            <Button variant="ghost" size="sm" onClick={() => setPaletteOpen(true)}>
-              Command Menu
-            </Button>
-            <ThemeToggle />
-          </nav>
+            <nav className="flex flex-wrap items-center gap-2 md:gap-3">
+              <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={() => navigate('/')}> 
+                New paste (⌘N)
+              </Button>
+              <NavLink to="/" className={navLinkClass} end>
+                Create Paste
+              </NavLink>
+              <NavLink to="/dashboard" className={navLinkClass}>
+                Dashboard
+              </NavLink>
+              <NavLink to="/stats" className={navLinkClass}>
+                Stats
+              </NavLink>
+              <Button variant="ghost" size="sm" onClick={() => setPaletteOpen(true)}>
+                Command Menu
+              </Button>
+              <ThemeToggle />
+            </nav>
+          </div>
+          {showHero && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Secure paste — encrypt, time-limit, or burn after reading. Your keys stay in the browser.
+            </p>
+          )}
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-6xl px-6 py-6">
         <Outlet />
       </main>
     </div>
