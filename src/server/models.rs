@@ -6,6 +6,7 @@ use rocket::form::FromForm;
 use rocket::serde::{Deserialize, Serialize};
 
 use crate::server::attestation::AttestationRequest;
+use crate::server::blockchain::{AnchorManifest, AnchorReceipt};
 
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -20,6 +21,28 @@ pub struct CreatePasteResponse {
     pub id: String,
     pub path: String,
     pub shareable_url: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AnchorRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_class: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attestation_ref: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnchorResponse {
+    pub paste_id: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_class: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attestation_ref: Option<String>,
+    pub manifest: AnchorManifest,
+    pub receipt: AnchorReceipt,
 }
 
 #[derive(Serialize, Deserialize)]

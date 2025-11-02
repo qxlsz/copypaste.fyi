@@ -33,10 +33,10 @@ elif [[ $# -gt 0 ]]; then
   exit 1
 fi
 
-echo "[1/8] Ensuring coverage directory exists"
+echo "[1/9] Ensuring coverage directory exists"
 mkdir -p coverage
 
-echo "[2/8] Installing frontend dependencies"
+echo "[2/9] Installing frontend dependencies"
 if [[ -f "frontend/package-lock.json" ]]; then
   npm_install_cmd=(npm ci)
 else
@@ -47,27 +47,41 @@ fi
   "${npm_install_cmd[@]}"
 )
 
-echo "[3/8] Running cargo fmt --check"
+if [[ -d "blockchain" ]]; then
+  echo "[3/9] Installing blockchain dependencies"
+  (
+    cd blockchain
+    if [[ -f package-lock.json ]]; then
+      npm ci
+    else
+      npm install
+    fi
+  )
+else
+  echo "[3/9] Skipping blockchain dependencies (directory missing)"
+fi
+
+echo "[4/9] Running cargo fmt --check"
 cargo fmt --all -- --check
 
-echo "[4/8] Running cargo clippy"
+echo "[5/9] Running cargo clippy"
 cargo clippy --all-targets --all-features -- -D warnings
 
-echo "[5/8] Building release binaries"
+echo "[6/9] Building release binaries"
 cargo build --release --all-targets
 
-echo "[6/8] Running cargo nextest"
+echo "[7/9] Running cargo nextest"
 cargo nextest run --workspace --all-features
 
 if [[ "$SKIP_COVERAGE" == false ]]; then
-  echo "[7/8] Generating coverage report"
+  echo "[8/9] Generating coverage report"
   cargo llvm-cov nextest --workspace --all-features --fail-under-lines 75 --lcov --output-path coverage/lcov.info
   echo "Coverage report written to coverage/lcov.info"
 else
-  echo "[7/8] Skipping coverage (--skip-coverage provided)"
+  echo "[8/9] Skipping coverage (--skip-coverage provided)"
 fi
 
-echo "[8/8] Running frontend lint/test/build"
+echo "[9/9] Running frontend lint/test/build"
 (
   cd frontend
   npm run lint

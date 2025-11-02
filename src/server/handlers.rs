@@ -12,12 +12,17 @@ use rocket::serde::json::Json;
 use rocket::{get, post, routes, Build, Rocket, State};
 
 use super::attestation::{self, AttestationVerdict};
+use super::blockchain::{
+    default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
+    AnchorManifest, AnchorPayload, SharedAnchorRelayer,
+};
 use super::bundles::build_bundle_overview;
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo, PasteEncryptionInfo,
-    PastePersistenceInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse, PasteWebhookInfo,
-    PersistenceRequest, StatsSummaryResponse, TimeLockRequest, WebhookRequest,
+    AnchorRequest, AnchorResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
+    PasteEncryptionInfo, PastePersistenceInfo, PasteTimeLockInfo, PasteViewQuery,
+    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, TimeLockRequest,
+    WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -29,6 +34,7 @@ use super::webhook::{trigger_webhook, WebhookEvent};
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     rocket::build()
         .manage(store)
+        .manage(default_anchor_relayer())
         .mount(
             "/",
             routes![
@@ -36,6 +42,7 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 spa_fallback,
                 create,
                 create_api,
+                anchor_api,
                 show,
                 show_api,
                 show_raw,
@@ -49,6 +56,61 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
 async fn stats_summary_api(store: &State<SharedPasteStore>) -> Json<StatsSummaryResponse> {
     let stats = store.stats().await;
     Json(stats.into())
+}
+
+#[post("/api/pastes/<id>/anchor", data = "<body>")]
+async fn anchor_api(
+    store: &State<SharedPasteStore>,
+    relayer: &State<SharedAnchorRelayer>,
+    id: String,
+    body: Option<Json<AnchorRequest>>,
+) -> Result<Json<AnchorResponse>, (Status, String)> {
+    let request = body.map(|json| json.into_inner()).unwrap_or_default();
+
+    let paste = match store.get_paste(&id).await {
+        Ok(paste) => paste,
+        Err(PasteError::NotFound(_)) => return Err((Status::NotFound, "Paste not found".into())),
+        Err(PasteError::Expired(_)) => return Err((Status::Gone, "Paste expired".into())),
+    };
+
+    let manifest = AnchorManifest::from_paste(id.clone(), &paste);
+    let hash = manifest_hash(&manifest).map_err(|error| {
+        (
+            Status::InternalServerError,
+            format!("Failed to hash manifest: {error}"),
+        )
+    })?;
+
+    let retention_class = request
+        .retention_class
+        .or_else(|| infer_retention_class(&manifest));
+    let attestation_ref = request
+        .attestation_ref
+        .or_else(|| infer_attestation_ref(&manifest.metadata));
+
+    let payload = AnchorPayload::new(
+        manifest.clone(),
+        hash.clone(),
+        retention_class,
+        attestation_ref.clone(),
+    );
+
+    let relayer = relayer.inner().clone();
+    let receipt = relayer
+        .submit(payload)
+        .await
+        .map_err(|error| (Status::BadGateway, format!("Relayer error: {error}")))?;
+
+    let response = AnchorResponse {
+        paste_id: id,
+        hash,
+        retention_class,
+        attestation_ref,
+        manifest,
+        receipt,
+    };
+
+    Ok(Json(response))
 }
 
 #[get("/api/pastes/<id>?<query..>")]
