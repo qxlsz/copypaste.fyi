@@ -10,21 +10,24 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:watch": "vitest --watch",
+    "test:load": "npm test App.test.tsx -- --run",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed",
+    "test:health": "playwright test tests/healthcheck.spec.ts --headed=false",
     "format": "prettier --check .",
     "prepare": "playwright install --with-deps"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
     "@tanstack/react-query": "^5.62.2",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
     "date-fns": "^4.1.0",
+    "monaco-editor": "^0.52.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.0.2",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.7",
+    "zustand": "^4.5.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
@@ -39,6 +42,8 @@
     "@vitejs/plugin-react": "^5.0.4",
     "@vitejs/plugin-react-swc": "^4.2.0",
     "autoprefixer": "^10.4.21",
+    "@tailwindcss/forms": "^0.5.9",
+    "@tailwindcss/typography": "^0.5.15",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",

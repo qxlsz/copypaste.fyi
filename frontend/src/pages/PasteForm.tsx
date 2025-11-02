@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import clsx from 'clsx'
 
 import { createPaste } from '../api/client'
 import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat } from '../api/types'
@@ -32,29 +31,21 @@ const PASS_SUFFIXES = ['42', '9000', '1337', '7g', 'mk2', 'ix', 'hyperlane', 'vo
 export const PasteFormPage = () => {
   const [content, setContent] = useState('')
   const [format, setFormat] = useState<PasteFormat>('plain_text')
-  const retentionOptions = [
-    { label: 'No expiry', value: 0 },
-    { label: '30 minutes', value: 30 },
-    { label: '1 hour', value: 60 },
-    { label: '1 day', value: 60 * 24 },
-    { label: '7 days', value: 60 * 24 * 7 },
-    { label: '30 days', value: 60 * 24 * 30 },
-  ]
-
-  const [selectedRetention, setSelectedRetention] = useState<number>(retentionOptions[0].value)
-  const [customRetention, setCustomRetention] = useState<string>('')
+  const [retentionMinutes, setRetentionMinutes] = useState<number>(0)
   const [encryption, setEncryption] = useState<EncryptionAlgorithm>('none')
   const [encryptionKey, setEncryptionKey] = useState('')
   const [burnAfterReading, setBurnAfterReading] = useState(false)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [isCopying, setIsCopying] = useState(false)
+  const [pasteEncryption, setPasteEncryption] = useState<EncryptionAlgorithm>('none')
+  const [pasteEncryptionKey, setPasteEncryptionKey] = useState('')
 
   const mutation = useMutation({
     mutationFn: async () => {
       const payload: CreatePastePayload = {
         content,
         format,
-        retention_minutes: effectiveRetention || undefined,
+        retention_minutes: retentionMinutes || undefined,
         burn_after_reading: burnAfterReading || undefined,
       }
 
@@ -71,6 +62,9 @@ export const PasteFormPage = () => {
       toast.success('Paste created', {
         description: result.shareableUrl,
       })
+      // Store the encryption settings used for this paste
+      setPasteEncryption(encryption)
+      setPasteEncryptionKey(encryptionKey)
       setContent('')
       setShareUrl(result.shareableUrl)
     },
@@ -87,14 +81,6 @@ export const PasteFormPage = () => {
   }
 
   const requiresKey = encryption !== 'none'
-
-  const effectiveRetention = useMemo(() => {
-    if (selectedRetention >= 0) {
-      return selectedRetention
-    }
-    const minutes = Number.parseInt(customRetention, 10)
-    return Number.isFinite(minutes) && minutes >= 0 ? minutes : 0
-  }, [selectedRetention, customRetention])
 
   const generatePassphrase = () => {
     const randomElement = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)]
@@ -114,20 +100,21 @@ export const PasteFormPage = () => {
     try {
       const path = `/p${shareUrl}`
       const url = new URL(path, window.location.origin)
-      if (encryption !== 'none' && encryptionKey.trim()) {
-        url.searchParams.set('key', encryptionKey)
+      if (pasteEncryption !== 'none' && pasteEncryptionKey.trim()) {
+        url.searchParams.set('key', pasteEncryptionKey)
       }
       return url.toString()
     } catch {
       return `/p${shareUrl}`
     }
-  }, [shareUrl, encryption, encryptionKey])
+  }, [shareUrl, pasteEncryption, pasteEncryptionKey])
 
   const handleCopyShareUrl = async () => {
-    if (!shareLink) return
+    const urlToCopy = shareLink || shareUrl
+    if (!urlToCopy) return
     try {
       setIsCopying(true)
-      await navigator.clipboard.writeText(shareLink)
+      await navigator.clipboard.writeText(urlToCopy)
       toast.success('Link copied to clipboard')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -183,51 +170,14 @@ export const PasteFormPage = () => {
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="retention">
                 Retention (minutes)
               </label>
-              <div className="grid gap-2 text-xs text-slate-600 dark:text-slate-300">
-                <div className="flex flex-wrap gap-2">
-                  {retentionOptions.map((option) => (
-                    <button
-                      type="button"
-                      key={option.value}
-                      onClick={() => {
-                        setSelectedRetention(option.value)
-                        setCustomRetention('')
-                      }}
-                      className={clsx(
-                        'rounded-full border px-3 py-1 font-medium transition',
-                        selectedRetention === option.value
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-slate-300 text-slate-600 hover:border-primary/60 hover:text-primary'
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRetention(-1)}
-                    className={clsx(
-                      'rounded-full border px-3 py-1 font-medium transition',
-                      selectedRetention < 0
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-slate-300 text-slate-600 hover:border-primary/60 hover:text-primary'
-                    )}
-                  >
-                    Custom…
-                  </button>
-                </div>
-                {selectedRetention < 0 && (
-                  <input
-                    id="retention"
-                    type="number"
-                    min={0}
-                    value={customRetention}
-                    placeholder="Minutes"
-                    onChange={(event) => setCustomRetention(event.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
-                  />
-                )}
-              </div>
+              <input
+                id="retention"
+                type="number"
+                min={0}
+                value={retentionMinutes}
+                onChange={(event) => setRetentionMinutes(Number(event.target.value))}
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
+              />
             </div>
           </div>
 
@@ -301,17 +251,24 @@ export const PasteFormPage = () => {
             Combine with end-to-end encryption for maximum privacy.
           </p>
         </div>
-        {shareLink && (
+        {shareUrl && (
           <div className="space-y-3 rounded-xl border border-slate-200 bg-background/80 p-4 dark:border-slate-700 dark:bg-background/60">
+            
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Shareable link</p>
-            <a
-              href={shareLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block break-all rounded-md bg-surface px-3 py-2 text-xs font-medium text-primary underline-offset-2 hover:underline dark:bg-surface/60"
-            >
-              {shareLink}
-            </a>
+            {shareLink ? (
+              <a
+                href={shareLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block break-all rounded-md bg-surface px-3 py-2 text-xs font-medium text-primary underline-offset-2 hover:underline dark:bg-surface/60"
+              >
+                {shareLink}
+              </a>
+            ) : (
+              <code className="block break-all rounded-md bg-surface px-3 py-2 text-xs text-slate-700 dark:bg-surface/60 dark:text-slate-200">
+                {shareUrl}
+              </code>
+            )}
             <button
               type="button"
               onClick={handleCopyShareUrl}

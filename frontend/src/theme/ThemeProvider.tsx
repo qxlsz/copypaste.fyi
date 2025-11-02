@@ -15,6 +15,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     } else {
       root.classList.remove('dark')
     }
+    root.dataset.theme = theme
     window.localStorage.setItem(STORAGE_KEY, theme)
   }, [theme])
 

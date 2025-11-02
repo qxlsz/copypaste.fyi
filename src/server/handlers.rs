@@ -17,7 +17,7 @@ use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
     CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo, PasteEncryptionInfo,
     PastePersistenceInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse, PasteWebhookInfo,
-    PersistenceRequest, TimeLockRequest, WebhookRequest,
+    PersistenceRequest, StatsSummaryResponse, TimeLockRequest, WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -38,10 +38,17 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 create_api,
                 show,
                 show_api,
-                show_raw
+                show_raw,
+                stats_summary_api
             ],
         )
         .mount("/static", FileServer::from("static"))
+}
+
+#[get("/api/stats/summary")]
+async fn stats_summary_api(store: &State<SharedPasteStore>) -> Json<StatsSummaryResponse> {
+    let stats = store.stats().await;
+    Json(stats.into())
 }
 
 #[get("/api/pastes/<id>?<query..>")]
@@ -712,5 +719,40 @@ mod tests {
         // Fetch the paste to ensure it was stored.
         let get_response = client.get(&parsed.path).dispatch();
         assert_eq!(get_response.status(), Status::Ok);
+    }
+
+    #[test]
+    fn stats_summary_endpoint_returns_counts() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(Arc::clone(&store));
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "diagnostic entry",
+            "format": "markdown",
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "secret-key"
+            }
+        });
+
+        let create_response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+
+        assert_eq!(create_response.status(), Status::Ok);
+
+        let response = client.get("/api/stats/summary").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().expect("body");
+        let stats: StatsSummaryResponse = serde_json::from_str(&body).expect("stats payload");
+
+        assert!(stats.total_pastes >= 1);
+        assert!(stats.active_pastes >= 1);
+        assert!(!stats.formats.is_empty());
+        assert!(!stats.encryption_usage.is_empty());
     }
 }

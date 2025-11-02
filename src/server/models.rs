@@ -1,4 +1,7 @@
-use copypaste::{BundleMetadata, EncryptionAlgorithm, PasteFormat, WebhookProvider};
+use copypaste::{
+    BundleMetadata, DailyCount, EncryptionAlgorithm, FormatUsage, PasteFormat, StoreStats,
+    WebhookProvider,
+};
 use rocket::form::FromForm;
 use rocket::serde::{Deserialize, Serialize};
 
@@ -77,6 +80,72 @@ pub struct PastePersistenceInfo {
 pub struct PasteWebhookInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<WebhookProvider>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsSummaryResponse {
+    pub total_pastes: usize,
+    pub active_pastes: usize,
+    pub expired_pastes: usize,
+    pub burn_after_reading_count: usize,
+    pub time_locked_count: usize,
+    pub formats: Vec<FormatUsageResponse>,
+    pub encryption_usage: Vec<EncryptionUsageResponse>,
+    pub created_by_day: Vec<DailyCountResponse>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatUsageResponse {
+    pub format: PasteFormat,
+    pub count: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncryptionUsageResponse {
+    pub algorithm: EncryptionAlgorithm,
+    pub count: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyCountResponse {
+    pub date: String,
+    pub count: usize,
+}
+
+impl From<StoreStats> for StatsSummaryResponse {
+    fn from(stats: StoreStats) -> Self {
+        Self {
+            total_pastes: stats.total_pastes,
+            active_pastes: stats.active_pastes,
+            expired_pastes: stats.expired_pastes,
+            burn_after_reading_count: stats.burn_after_reading_count,
+            time_locked_count: stats.time_locked_count,
+            formats: stats
+                .formats
+                .into_iter()
+                .map(|FormatUsage { format, count }| FormatUsageResponse { format, count })
+                .collect(),
+            encryption_usage: stats
+                .encryption_usage
+                .into_iter()
+                .map(
+                    |copypaste::EncryptionUsage { algorithm, count }| EncryptionUsageResponse {
+                        algorithm,
+                        count,
+                    },
+                )
+                .collect(),
+            created_by_day: stats
+                .created_by_day
+                .into_iter()
+                .map(|DailyCount { date, count }| DailyCountResponse { date, count })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Deserialize, Default, Clone)]

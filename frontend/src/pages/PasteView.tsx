@@ -117,10 +117,23 @@ export const PasteViewPage = () => {
 
   if (isError || !data) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+    const isBackendDown = message.includes('timed out') || message.includes('Failed to fetch')
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-semibold text-danger">Unable to load paste</h1>
-        <p className="text-slate-400">{message}</p>
+        <h1 className="text-2xl font-semibold text-danger">
+          {isBackendDown ? 'Backend unavailable' : 'Unable to load paste'}
+        </h1>
+        <p className="text-slate-400">
+          {isBackendDown
+            ? 'The paste service is currently unavailable. Please try again later or contact support if the issue persists.'
+            : message
+          }
+        </p>
+        {isBackendDown && (
+          <p className="text-sm text-slate-500">
+            Make sure the backend server is running on port 8000.
+          </p>
+        )}
       </div>
     )
   }

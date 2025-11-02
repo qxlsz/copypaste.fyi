@@ -6,6 +6,7 @@ import { Layout } from './components/Layout'
 import { PasteFormPage } from './pages/PasteForm'
 import { PasteViewPage } from './pages/PasteView'
 import { StatsPage } from './pages/Stats'
+import { DashboardPage } from './pages/Dashboard'
 import { ThemeProvider } from './theme/ThemeProvider'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
             <Route path="/" element={<Layout />}>
               <Route index element={<PasteFormPage />} />
               <Route path="p/:id" element={<PasteViewPage />} />
+              <Route path="dashboard" element={<DashboardPage />} />
               <Route path="stats" element={<StatsPage />} />
             </Route>
           </Routes>
