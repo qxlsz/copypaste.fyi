@@ -1,13 +1,13 @@
-# fly.toml app configuration file generated for copypaste-fyi-black-butterfly-9703 on 2025-11-02T20:58:16-08:00
+# fly.toml app configuration file generated for copypaste-fyi-empty-rain-915 on 2025-11-02T21:03:30-08:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'copypaste-fyi-black-butterfly-9703'
+app = 'copypaste-fyi-empty-rain-915'
 primary_region = 'iad'
 
 [build]
-  dockerfile = 'Dockerfile'
+  dockerfile = 'Dockerfile.backend'
 
 [env]
   ROCKET_ADDRESS = '0.0.0.0'

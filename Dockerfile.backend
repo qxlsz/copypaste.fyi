@@ -1,0 +1,37 @@
+# Backend-only Dockerfile for Fly.io deployments
+
+FROM rust:1.84 AS builder
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+RUN cargo fetch --locked
+
+COPY src ./src
+COPY static ./static
+COPY docs ./docs
+COPY README.md ./
+COPY blockchain ./blockchain
+
+RUN cargo build --release --locked --bin copypaste
+
+FROM debian:bookworm-slim AS runtime
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/copypaste /usr/local/bin/copypaste
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/docs ./docs
+COPY --from=builder /app/blockchain ./blockchain
+
+ENV ROCKET_ADDRESS=0.0.0.0
+ENV ROCKET_PORT=8000
+EXPOSE 8000
+
+CMD ["copypaste"]
