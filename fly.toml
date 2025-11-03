@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for copypaste-fyi-empty-rain-915 on 2025-11-02T21:03:30-08:00
+# fly.toml app configuration file generated for copypaste-fyi-withered-darkness-575 on 2025-11-02T21:10:19-08:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'copypaste-fyi-empty-rain-915'
+app = 'copypaste-fyi-withered-darkness-575'
 primary_region = 'iad'
 
 [build]
@@ -24,4 +24,3 @@ primary_region = 'iad'
 
 [[vm]]
   size = 'shared-cpu-1x'
-  memory_mb = 256
