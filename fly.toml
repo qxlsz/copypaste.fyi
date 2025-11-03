@@ -1,22 +1,27 @@
-app = "copypaste-fyi"
-primary_region = "iad"
+# fly.toml app configuration file generated for copypaste-fyi-black-butterfly-9703 on 2025-11-02T20:58:16-08:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'copypaste-fyi-black-butterfly-9703'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  ROCKET_ADDRESS = "0.0.0.0"
-  ROCKET_PORT = "8000"
-  RUST_LOG = "info"
+  ROCKET_ADDRESS = '0.0.0.0'
+  ROCKET_PORT = '8000'
+  RUST_LOG = 'info'
 
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ["app"]
+  processes = ['app']
 
 [[vm]]
-  size = "shared-cpu-1x"
+  size = 'shared-cpu-1x'
   memory_mb = 256

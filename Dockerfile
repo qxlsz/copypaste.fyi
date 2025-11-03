@@ -5,7 +5,7 @@ FROM node:20 AS blockchain-builder
 WORKDIR /app/blockchain
 
 COPY blockchain/package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY blockchain ./
 RUN npm run build
@@ -15,7 +15,7 @@ FROM node:20 AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY frontend ./
 RUN npm run build
@@ -23,6 +23,10 @@ RUN npm run build
 # 3) Build backend binary with Rust
 FROM rust:1.84 AS builder
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Pre-fetch dependencies to benefit from caching when the source changes infrequently
 COPY Cargo.toml Cargo.lock ./
