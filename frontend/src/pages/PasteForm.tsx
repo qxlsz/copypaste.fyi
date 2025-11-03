@@ -175,19 +175,14 @@ export const PasteFormPage = () => {
                   onChange={(event) => setRetentionMinutes(Number(event.target.value))}
                   className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
                 >
-                  <option value={0}>No expiry</option>
-                  <option value={5}>5 minutes</option>
+                  <option value={1}>1 minute</option>
                   <option value={10}>10 minutes</option>
-                  <option value={30}>30 minutes</option>
                   <option value={60}>1 hour</option>
+                  <option value={180}>3 hours</option>
                   <option value={1440}>1 day</option>
-                  <option value={4320}>3 days</option>
                   <option value={10080}>7 days</option>
-                  <option value={20160}>14 days</option>
                   <option value={43200}>30 days</option>
-                  <option value={86400}>90 days</option>
                 </select>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Up to 90 days. "No expiry" requires extra permissions.</p>
               </div>
 
               <div className="flex items-center gap-2">
