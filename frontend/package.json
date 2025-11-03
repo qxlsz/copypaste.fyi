@@ -14,7 +14,7 @@
     "test:e2e": "playwright test",
     "test:health": "playwright test tests/healthcheck.spec.ts --headed=false",
     "format": "prettier --check .",
-    "prepare": "playwright install --with-deps"
+    "prepare": "node ./scripts/install_playwright.js"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
