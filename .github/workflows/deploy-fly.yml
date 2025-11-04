@@ -27,6 +27,14 @@ jobs:
       - name: Set up Flyctl
         uses: superfly/flyctl-actions/setup-flyctl@v1
 
+      - name: Ensure Fly token is present
+        run: |
+          if [[ -z "${FLY_API_TOKEN:-}" ]]; then
+            echo "FLY_API_TOKEN is unset" >&2
+            exit 1
+          fi
+          echo "FLY_API_TOKEN detected (value masked)"
+
       - name: Check Fly auth
         run: flyctl auth whoami
 
