@@ -17,6 +17,7 @@ use super::blockchain::{
     AnchorManifest, AnchorPayload, SharedAnchorRelayer,
 };
 use super::bundles::build_bundle_overview;
+use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
     AnchorRequest, AnchorResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
@@ -35,9 +36,11 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     rocket::build()
         .manage(store)
         .manage(default_anchor_relayer())
+        .attach(Cors)
         .mount(
             "/",
             routes![
+                api_preflight,
                 index,
                 spa_fallback,
                 create,
