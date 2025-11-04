@@ -62,7 +62,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ "${c}" == "true" ]]; then
+if [[ "${USE_LOCAL_REDIS}" == "true" ]]; then
   if command -v docker &>/dev/null; then
     if docker ps -aq -f name="^${REDIS_CONTAINER_NAME}$" >/dev/null; then
       docker rm -f "${REDIS_CONTAINER_NAME}" >/dev/null 2>&1 || true
