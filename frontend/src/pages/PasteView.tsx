@@ -141,6 +141,13 @@ export const PasteViewPage = () => {
     queryFn: () => fetchPaste(id!, key),
   })
 
+  const editorHeight = useMemo(() => {
+    const lines = data?.content?.split('\n') ?? []
+    const lineCount = lines.length > 0 ? lines.length : 12
+    const clamped = Math.min(Math.max(lineCount, 12), 60)
+    return `${clamped * 20}px`
+  }, [data?.content])
+
   if (!id) {
     return (
       <div className="mx-auto max-w-3xl space-y-4 text-center">
@@ -229,12 +236,6 @@ export const PasteViewPage = () => {
       </div>
     )
   }
-
-  const editorHeight = useMemo(() => {
-    const lineCount = data.content.split('\n').length
-    const clamped = Math.min(Math.max(lineCount, 12), 60)
-    return `${clamped * 20}px`
-  }, [data.content])
 
   return (
     <div className="space-y-6">

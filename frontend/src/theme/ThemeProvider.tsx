@@ -9,6 +9,9 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme())
 
   useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
     const root = document.documentElement
     if (theme === 'dark') {
       root.classList.add('dark')
@@ -16,10 +19,16 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       root.classList.remove('dark')
     }
     root.dataset.theme = theme
-    window.localStorage.setItem(STORAGE_KEY, theme)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(STORAGE_KEY, theme)
+    }
   }, [theme])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return
+    }
+
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = (event: MediaQueryListEvent) => {
       const stored = window.localStorage.getItem(STORAGE_KEY)
@@ -28,8 +37,20 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       }
       setTheme(event.matches ? 'dark' : 'light')
     }
-    mediaQuery.addEventListener('change', handler)
-    return () => mediaQuery.removeEventListener('change', handler)
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handler)
+    } else if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(handler)
+    }
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === 'function') {
+        mediaQuery.removeEventListener('change', handler)
+      } else if (typeof mediaQuery.removeListener === 'function') {
+        mediaQuery.removeListener(handler)
+      }
+    }
   }, [])
 
   const value = useMemo(
