@@ -240,7 +240,6 @@ export const PasteViewPage = () => {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <h1 className="text-3xl font-semibold text-slate-100">Shared paste</h1>
         <p className="text-slate-400">
           Format: <span className="font-medium text-primary">{formatLabel(data.format)}</span>
         </p>
