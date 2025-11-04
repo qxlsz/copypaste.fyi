@@ -5,10 +5,23 @@ export interface PasteViewResponse {
     | 'markdown'
     | 'code'
     | 'json'
+    | 'javascript'
+    | 'typescript'
+    | 'python'
+    | 'rust'
     | 'go'
     | 'cpp'
     | 'kotlin'
     | 'java'
+    | 'csharp'
+    | 'php'
+    | 'ruby'
+    | 'bash'
+    | 'yaml'
+    | 'sql'
+    | 'swift'
+    | 'html'
+    | 'css'
   content: string
   createdAt: number
   expiresAt?: number | null
