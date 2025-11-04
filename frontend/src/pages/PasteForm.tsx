@@ -307,15 +307,13 @@ export const PasteFormPage = () => {
                     className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 pr-24 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-surface/40 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
                     required={requiresKey}
                   />
-                  {requiresKey && (
-                    <button
-                      type="button"
-                      onClick={generatePassphrase}
-                      className="absolute inset-y-1 right-1 inline-flex items-center justify-center rounded-md border border-primary/40 bg-primary/10 px-4 text-xs font-semibold text-primary transition hover:bg-primary/20 focus:outline-none focus:ring focus:ring-primary/30"
-                    >
-                      Generate
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={generatePassphrase}
+                    className="absolute inset-y-1 right-1 inline-flex items-center justify-center rounded-md border border-primary/40 bg-primary/10 px-4 text-xs font-semibold text-primary transition hover:bg-primary/20 focus:outline-none focus:ring focus:ring-primary/30"
+                  >
+                    Generate
+                  </button>
                 </div>
               </div>
 

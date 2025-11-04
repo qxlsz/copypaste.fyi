@@ -238,10 +238,12 @@ export const PasteViewPage = () => {
               <dd className="text-sm text-slate-200">{formatAttestation(data.attestation)}</dd>
             </div>
           ) : null}
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Time lock</dt>
-            <dd className="text-sm text-slate-200">{formatTimeLock(data.timeLock)}</dd>
-          </div>
+          {data.timeLock ? (
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-slate-500">Time lock</dt>
+              <dd className="text-sm text-slate-200">{formatTimeLock(data.timeLock)}</dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Persistence</dt>
             <dd className="text-sm text-slate-200">{formatPersistence(data.persistence)}</dd>
