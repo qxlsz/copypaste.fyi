@@ -5,16 +5,30 @@ import { toast } from 'sonner'
 
 import { createPaste } from '../api/client'
 import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat } from '../api/types'
+import { MonacoEditor } from '../components/editor/MonacoEditor'
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
   { label: 'Plain text', value: 'plain_text' },
   { label: 'Markdown', value: 'markdown' },
-  { label: 'Code', value: 'code' },
+  { label: 'Generic code', value: 'code' },
   { label: 'JSON', value: 'json' },
+  { label: 'JavaScript', value: 'javascript' },
+  { label: 'TypeScript', value: 'typescript' },
+  { label: 'Python', value: 'python' },
+  { label: 'Rust', value: 'rust' },
   { label: 'Go', value: 'go' },
   { label: 'C++', value: 'cpp' },
   { label: 'Kotlin', value: 'kotlin' },
   { label: 'Java', value: 'java' },
+  { label: 'C#', value: 'csharp' },
+  { label: 'PHP', value: 'php' },
+  { label: 'Ruby', value: 'ruby' },
+  { label: 'Bash', value: 'bash' },
+  { label: 'YAML', value: 'yaml' },
+  { label: 'SQL', value: 'sql' },
+  { label: 'Swift', value: 'swift' },
+  { label: 'HTML', value: 'html' },
+  { label: 'CSS', value: 'css' },
 ]
 
 const encryptionOptions: Array<{ label: string; value: EncryptionAlgorithm }> = [
@@ -74,6 +88,10 @@ export const PasteFormPage = () => {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!content.trim()) {
+      toast.error('Content is required')
+      return
+    }
     setShareUrl(null)
     mutation.mutate()
   }
@@ -183,13 +201,12 @@ export const PasteFormPage = () => {
               Your text
             </label>
             <div className="relative">
-              <textarea
-                id="content"
+              <MonacoEditor
                 value={content}
-                onChange={(event) => setContent(event.target.value)}
-                placeholder="Paste or type your content here..."
-                className="min-h-[34rem] w-full rounded-2xl border border-slate-200 bg-surface p-5 pr-36 font-mono text-base text-slate-900 transition focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
-                required
+                onChange={setContent}
+                format={format}
+                height="34rem"
+                className="min-h-[34rem] w-full rounded-2xl border border-slate-200 bg-surface pr-36 text-base transition focus-within:border-primary focus-within:outline-none focus-within:ring focus-within:ring-primary/20 dark:border-slate-700 dark:bg-surface"
               />
               <label className="sr-only" htmlFor="format">
                 Format
