@@ -1,5 +1,6 @@
-import Editor, { type Monaco } from '@monaco-editor/react'
-import { useCallback, useMemo } from 'react'
+import type { Monaco } from '@monaco-editor/react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import clsx from 'clsx'
 
 import type { PasteFormat } from '../../api/types'
 import { useTheme } from '../../theme/ThemeContext'
@@ -61,6 +62,8 @@ const formatToLanguage = (format: PasteFormat): string => {
   }
 }
 
+type EditorModule = typeof import('@monaco-editor/react')
+
 export const MonacoEditor = ({
   value,
   onChange,
@@ -70,6 +73,23 @@ export const MonacoEditor = ({
   className,
 }: MonacoEditorProps) => {
   const { theme } = useTheme()
+  const [editorModule, setEditorModule] = useState<EditorModule | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    import('@monaco-editor/react')
+      .then((module) => {
+        if (!cancelled) {
+          setEditorModule(module)
+        }
+      })
+      .catch(() => {
+        setEditorModule(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const language = useMemo(() => formatToLanguage(format), [format])
   const editorTheme = useMemo(() => (theme === 'dark' ? 'copypaste-dark' : 'copypaste-light'), [theme])
@@ -85,9 +105,9 @@ export const MonacoEditor = ({
       inherit: true,
       rules: [],
       colors: {
-        'editor.background': 'rgba(0, 0, 0, 0)',
-        'editorGutter.background': 'rgba(0, 0, 0, 0)',
-        'minimap.background': 'rgba(0, 0, 0, 0)',
+        'editor.background': '#00000000',
+        'editorGutter.background': '#00000000',
+        'minimap.background': '#00000000',
       },
     })
     monaco.editor.defineTheme('copypaste-light', {
@@ -95,15 +115,51 @@ export const MonacoEditor = ({
       inherit: true,
       rules: [],
       colors: {
-        'editor.background': 'rgba(255, 255, 255, 0)',
-        'editorGutter.background': 'rgba(255, 255, 255, 0)',
-        'minimap.background': 'rgba(255, 255, 255, 0)',
+        'editor.background': '#FFFFFF00',
+        'editorGutter.background': '#FFFFFF00',
+        'minimap.background': '#FFFFFF00',
       },
     })
   }, [])
 
+  if (!editorModule) {
+    if (readOnly) {
+      return (
+        <pre
+          className={clsx(
+            'overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm',
+            theme === 'dark'
+              ? 'rounded-xl border border-slate-700 bg-surface/80 p-4 text-slate-100'
+              : 'rounded-xl border border-slate-200 bg-white p-4 text-slate-800',
+            className,
+          )}
+          style={{ minHeight: height }}
+        >
+          {value}
+        </pre>
+      )
+    }
+
+    return (
+      <textarea
+        value={value}
+        onChange={(event) => onChange?.(event.target.value)}
+        className={clsx(
+          'w-full rounded-2xl border p-4 font-mono text-sm transition focus:border-primary focus:outline-none focus:ring focus:ring-primary/20',
+          theme === 'dark'
+            ? 'border-slate-700 bg-surface text-slate-100'
+            : 'border-slate-200 bg-white text-slate-900',
+          className,
+        )}
+        style={{ minHeight: height }}
+      />
+    )
+  }
+
+  const EditorComponent = editorModule.default
+
   return (
-    <Editor
+    <EditorComponent
       className={className}
       height={height}
       defaultLanguage="plaintext"
