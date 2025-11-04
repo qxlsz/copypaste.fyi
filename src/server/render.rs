@@ -1,4 +1,4 @@
-use copypaste::{
+use crate::{
     AttestationRequirement, EncryptionAlgorithm, PasteFormat, PasteMetadata, PersistenceLocator,
     StoredContent, WebhookProvider,
 };

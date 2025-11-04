@@ -1,4 +1,4 @@
-use copypaste::WebhookConfig;
+use crate::{WebhookConfig, WebhookProvider};
 
 #[derive(Clone, Copy)]
 pub enum WebhookEvent {
@@ -29,10 +29,10 @@ async fn send_webhook(
     let client = reqwest::Client::new();
     let message = resolve_webhook_message(&config, event, &paste_id, bundle_label.as_deref());
     let payload = match config.provider {
-        Some(copypaste::WebhookProvider::Slack)
-        | Some(copypaste::WebhookProvider::Generic)
-        | None => serde_json::json!({ "text": message }),
-        Some(copypaste::WebhookProvider::Teams) => serde_json::json!({ "text": message }),
+        Some(WebhookProvider::Slack) | Some(WebhookProvider::Generic) | None => {
+            serde_json::json!({ "text": message })
+        }
+        Some(WebhookProvider::Teams) => serde_json::json!({ "text": message }),
     };
 
     client

@@ -1,6 +1,6 @@
-use copypaste::{
-    BundleMetadata, DailyCount, EncryptionAlgorithm, FormatUsage, PasteFormat, StoreStats,
-    WebhookProvider,
+use crate::{
+    BundleMetadata, DailyCount, EncryptionAlgorithm, EncryptionUsage, FormatUsage, PasteFormat,
+    StoreStats, WebhookProvider,
 };
 use rocket::form::FromForm;
 use rocket::serde::{Deserialize, Serialize};
@@ -156,7 +156,7 @@ impl From<StoreStats> for StatsSummaryResponse {
                 .encryption_usage
                 .into_iter()
                 .map(
-                    |copypaste::EncryptionUsage { algorithm, count }| EncryptionUsageResponse {
+                    |EncryptionUsage { algorithm, count }| EncryptionUsageResponse {
                         algorithm,
                         count,
                     },

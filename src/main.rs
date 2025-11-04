@@ -1,6 +1,4 @@
-mod server;
-
-use server::handlers;
+use copypaste::server::handlers;
 
 #[rocket::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,9 +7,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use base64::engine::general_purpose;
     use base64::Engine;
+    use copypaste::server::crypto::{decrypt_content, encrypt_content, DecryptError};
+    use copypaste::server::handlers::build_rocket;
+    use copypaste::server::render::format_json;
+    use copypaste::server::time::current_timestamp;
     use copypaste::{
         create_paste_store, AttestationRequirement, EncryptionAlgorithm, MemoryPasteStore,
         PasteFormat, PasteMetadata, SharedPasteStore, StoredContent, StoredPaste,
@@ -19,10 +20,6 @@ mod tests {
     use rocket::http::{ContentType, Status};
     use rocket::local::asynchronous::Client;
     use serde_json::json;
-    use server::crypto::{decrypt_content, encrypt_content, DecryptError};
-    use server::handlers::build_rocket;
-    use server::render::format_json;
-    use server::time::current_timestamp;
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
     use urlencoding::encode;
@@ -110,13 +107,21 @@ mod tests {
         )
         .expect("encryption successful");
 
+        let metadata = PasteMetadata::default();
         let paste = StoredPaste {
             content: encrypted,
             format: PasteFormat::PlainText,
             created_at: current_timestamp(),
             expires_at: None,
             burn_after_reading: false,
-            metadata: PasteMetadata::default(),
+            bundle: metadata.bundle.clone(),
+            bundle_parent: metadata.bundle_parent.clone(),
+            bundle_label: metadata.bundle_label.clone(),
+            not_before: metadata.not_before,
+            not_after: metadata.not_after,
+            persistence: metadata.persistence.clone(),
+            webhook: metadata.webhook.clone(),
+            metadata,
         };
 
         let id = store.create_paste(paste).await;
@@ -162,6 +167,13 @@ mod tests {
             created_at: current_timestamp(),
             expires_at: None,
             burn_after_reading: false,
+            bundle: metadata.bundle.clone(),
+            bundle_parent: metadata.bundle_parent.clone(),
+            bundle_label: metadata.bundle_label.clone(),
+            not_before: metadata.not_before,
+            not_after: metadata.not_after,
+            persistence: metadata.persistence.clone(),
+            webhook: metadata.webhook.clone(),
             metadata,
         };
 
@@ -253,6 +265,13 @@ mod tests {
             created_at: current_timestamp(),
             expires_at: None,
             burn_after_reading: false,
+            bundle: metadata.bundle.clone(),
+            bundle_parent: metadata.bundle_parent.clone(),
+            bundle_label: metadata.bundle_label.clone(),
+            not_before: metadata.not_before,
+            not_after: metadata.not_after,
+            persistence: metadata.persistence.clone(),
+            webhook: metadata.webhook.clone(),
             metadata,
         };
 

@@ -5,7 +5,7 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaNonce, XChaCha20Poly1305, X
 use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
 
-use copypaste::{EncryptionAlgorithm, StoredContent};
+use crate::{EncryptionAlgorithm, StoredContent};
 
 #[derive(Debug)]
 pub enum DecryptError {

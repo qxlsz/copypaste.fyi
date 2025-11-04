@@ -31,6 +31,13 @@ cargo fetch --locked >/dev/null
 
 FRONTEND_PORT=5173
 FRONTEND_URL="http://127.0.0.1:${FRONTEND_PORT}"
+REDIS_TCP_PORT=${REDIS_TCP_PORT:-6380}
+REDIS_HTTP_PORT=${REDIS_HTTP_PORT:-8787}
+REDIS_CONTAINER_NAME=${REDIS_CONTAINER_NAME:-copypaste-redis-dev}
+USE_LOCAL_REDIS=${USE_LOCAL_REDIS:-true}
+
+REDIS_CONTAINER_STARTED=false
+REDIS_PROXY_PID=""
 
 # Start Vite in the background
 (
@@ -42,8 +49,56 @@ VITE_PID=$!
 cleanup() {
   echo "\nStopping frontend dev server (PID ${VITE_PID}) ..."
   kill ${VITE_PID} >/dev/null 2>&1 || true
+
+  if [[ -n "${REDIS_PROXY_PID}" ]]; then
+    echo "Stopping Redis REST proxy (PID ${REDIS_PROXY_PID}) ..."
+    kill ${REDIS_PROXY_PID} >/dev/null 2>&1 || true
+  fi
+
+  if [[ "${REDIS_CONTAINER_STARTED}" == "true" ]]; then
+    echo "Stopping Redis dev container (${REDIS_CONTAINER_NAME}) ..."
+    docker stop "${REDIS_CONTAINER_NAME}" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
+
+if [[ "${c}" == "true" ]]; then
+  if command -v docker &>/dev/null; then
+    if docker ps -aq -f name="^${REDIS_CONTAINER_NAME}$" >/dev/null; then
+      docker rm -f "${REDIS_CONTAINER_NAME}" >/dev/null 2>&1 || true
+    fi
+
+    echo "Starting Redis dev container (${REDIS_CONTAINER_NAME}) on port ${REDIS_TCP_PORT} ..."
+    if docker run --rm -d --name "${REDIS_CONTAINER_NAME}" -p "${REDIS_TCP_PORT}:6379" redis:7-alpine >/dev/null 2>&1; then
+      REDIS_CONTAINER_STARTED=true
+    else
+      echo "Warning: Failed to start Redis dev container. Falling back to in-memory persistence." >&2
+    fi
+  else
+    echo "Docker not found. Skipping Redis dev container. Ensure Redis is running on redis://127.0.0.1:${REDIS_TCP_PORT} if you want persistence." >&2
+  fi
+
+  if [[ "${REDIS_CONTAINER_STARTED}" == "true" ]] || nc -z 127.0.0.1 "${REDIS_TCP_PORT}" >/dev/null 2>&1; then
+    echo "Starting Redis REST proxy on http://127.0.0.1:${REDIS_HTTP_PORT}"
+    REDIS_TCP_URL="redis://127.0.0.1:${REDIS_TCP_PORT}" REDIS_HTTP_PORT="${REDIS_HTTP_PORT}" node "${PROJECT_ROOT}/scripts/redis_proxy.js" &
+    REDIS_PROXY_PID=$!
+    sleep 1
+
+    if kill -0 ${REDIS_PROXY_PID} >/dev/null 2>&1; then
+      export COPYPASTE_PERSISTENCE_BACKEND=redis
+      export UPSTASH_REDIS_REST_URL="http://127.0.0.1:${REDIS_HTTP_PORT}"
+      export UPSTASH_REDIS_REST_TOKEN="local-dev-token"
+      echo "Redis persistence enabled for local development."
+    else
+      echo "Warning: Redis proxy failed to start. Falling back to in-memory persistence." >&2
+      REDIS_PROXY_PID=""
+      if [[ "${REDIS_CONTAINER_STARTED}" == "true" ]]; then
+        docker stop "${REDIS_CONTAINER_NAME}" >/dev/null 2>&1 || true
+        REDIS_CONTAINER_STARTED=false
+      fi
+    fi
+  fi
+fi
 
 echo "Frontend dev server running at ${FRONTEND_URL}"
 echo "Starting Rocket backend on http://127.0.0.1:8000"

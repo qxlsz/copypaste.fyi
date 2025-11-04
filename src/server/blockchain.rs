@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use copypaste::{AttestationRequirement, PasteFormat, PasteMetadata, StoredContent, StoredPaste};
+use crate::{AttestationRequirement, PasteFormat, PasteMetadata, StoredContent, StoredPaste};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -200,6 +200,7 @@ mod tests {
 
     #[test]
     fn manifest_hash_is_stable() {
+        let metadata = PasteMetadata::default();
         let paste = StoredPaste {
             content: StoredContent::Plain {
                 text: "hello world".into(),
@@ -208,7 +209,14 @@ mod tests {
             created_at: 42,
             expires_at: Some(84),
             burn_after_reading: false,
-            metadata: PasteMetadata::default(),
+            bundle: metadata.bundle.clone(),
+            bundle_parent: metadata.bundle_parent.clone(),
+            bundle_label: metadata.bundle_label.clone(),
+            not_before: metadata.not_before,
+            not_after: metadata.not_after,
+            persistence: metadata.persistence.clone(),
+            webhook: metadata.webhook.clone(),
+            metadata,
         };
         let manifest = AnchorManifest::from_paste("abc123", &paste);
         let hash = manifest_hash(&manifest).expect("hash");

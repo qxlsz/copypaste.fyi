@@ -1,5 +1,5 @@
+use crate::AttestationRequirement;
 use base64::Engine;
-use copypaste::AttestationRequirement;
 use data_encoding::BASE32;
 use hmac::{Hmac, Mac};
 use rocket::serde::Deserialize;

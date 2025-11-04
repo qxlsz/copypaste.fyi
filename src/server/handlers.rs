@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use copypaste::{
+use crate::{
     create_paste_store, AttestationRequirement, BundleMetadata, BundlePointer, EncryptionAlgorithm,
     PasteError, PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent,
     StoredPaste, WebhookConfig,
@@ -361,6 +361,15 @@ async fn create_paste_internal(
                 let mut child_metadata = metadata.clone();
                 child_metadata.bundle = None;
                 child_metadata.bundle_label = child.label.clone();
+
+                let child_bundle = child_metadata.bundle.clone();
+                let child_bundle_parent = child_metadata.bundle_parent.clone();
+                let child_bundle_label = child_metadata.bundle_label.clone();
+                let child_not_before = child_metadata.not_before;
+                let child_not_after = child_metadata.not_after;
+                let child_persistence = child_metadata.persistence.clone();
+                let child_webhook = child_metadata.webhook.clone();
+
                 let child_paste = StoredPaste {
                     content: encrypted_child,
                     format: child.format.unwrap_or(format),
@@ -368,6 +377,13 @@ async fn create_paste_internal(
                     expires_at,
                     burn_after_reading: true,
                     metadata: child_metadata,
+                    bundle: child_bundle,
+                    bundle_parent: child_bundle_parent,
+                    bundle_label: child_bundle_label,
+                    not_before: child_not_before,
+                    not_after: child_not_after,
+                    persistence: child_persistence,
+                    webhook: child_webhook,
                 };
                 let child_id = store.create_paste(child_paste).await;
                 bundle_children.push(BundlePointer {
@@ -384,6 +400,14 @@ async fn create_paste_internal(
         });
     }
 
+    let bundle = metadata.bundle.clone();
+    let bundle_parent = metadata.bundle_parent.clone();
+    let bundle_label = metadata.bundle_label.clone();
+    let not_before = metadata.not_before;
+    let not_after = metadata.not_after;
+    let persistence = metadata.persistence.clone();
+    let webhook = metadata.webhook.clone();
+
     let paste = StoredPaste {
         content,
         format,
@@ -391,6 +415,13 @@ async fn create_paste_internal(
         expires_at,
         burn_after_reading,
         metadata,
+        bundle,
+        bundle_parent,
+        bundle_label,
+        not_before,
+        not_after,
+        persistence,
+        webhook,
     };
 
     let id = store.create_paste(paste).await;
@@ -661,7 +692,7 @@ fn resolve_content(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use copypaste::MemoryPasteStore;
+    use crate::MemoryPasteStore;
     use rocket::http::ContentType;
     use rocket::local::blocking::Client;
     use serde_json::json;

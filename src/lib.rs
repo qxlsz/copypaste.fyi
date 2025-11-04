@@ -6,9 +6,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nanoid::nanoid;
+use rand::seq::SliceRandom;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
+
+pub mod server;
+
+use crate::server::redis::RedisPersistenceAdapter;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -62,6 +68,13 @@ pub struct StoredPaste {
     pub burn_after_reading: bool,
     #[serde(default)]
     pub metadata: PasteMetadata,
+    pub bundle: Option<BundleMetadata>,
+    pub bundle_parent: Option<String>,
+    pub bundle_label: Option<String>,
+    pub not_before: Option<i64>,
+    pub not_after: Option<i64>,
+    pub persistence: Option<PersistenceLocator>,
+    pub webhook: Option<WebhookConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -264,11 +277,41 @@ fn is_expired(paste: &StoredPaste) -> bool {
     }
 }
 
+const PASTE_ID_ADJECTIVES: &[&str] = &[
+    "stellar", "quantum", "luminous", "neon", "orbital", "cosmic", "radiant", "sonic", "velvet",
+    "ember",
+];
+
+const PASTE_ID_NOUNS: &[&str] = &[
+    "otter", "phoenix", "nebula", "cipher", "comet", "matrix", "falcon", "vertex", "galaxy",
+    "aurora",
+];
+
+fn generate_paste_id(map: &HashMap<String, StoredPaste>) -> String {
+    let mut rng = rand::thread_rng();
+
+    for _ in 0..12 {
+        let adjective = PASTE_ID_ADJECTIVES
+            .choose(&mut rng)
+            .unwrap_or(&PASTE_ID_ADJECTIVES[0]);
+        let noun = PASTE_ID_NOUNS
+            .choose(&mut rng)
+            .unwrap_or(&PASTE_ID_NOUNS[0]);
+        let number: u16 = rng.gen_range(10..100);
+        let candidate = format!("{adjective}-{noun}-{number}");
+        if !map.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+
+    nanoid!(10)
+}
+
 #[async_trait]
 impl PasteStore for MemoryPasteStore {
     async fn create_paste(&self, paste: StoredPaste) -> String {
-        let id = nanoid!(8);
         let mut map = self.entries.write().await;
+        let id = generate_paste_id(&map);
         map.insert(id.clone(), paste.clone());
         if let Some(adapter) = &self.persistence {
             let _ = adapter.save(&id, &paste).await;
@@ -383,6 +426,12 @@ pub fn create_paste_store() -> SharedPasteStore {
     match env::var("COPYPASTE_PERSISTENCE_BACKEND") {
         Ok(value) if value.eq_ignore_ascii_case("vault") => {
             if let Ok(adapter) = vault::VaultPersistenceAdapter::from_env() {
+                return Arc::new(MemoryPasteStore::with_persistence(adapter));
+            }
+            Arc::new(MemoryPasteStore::new())
+        }
+        Ok(value) if value.eq_ignore_ascii_case("redis") => {
+            if let Ok(adapter) = RedisPersistenceAdapter::from_env() {
                 return Arc::new(MemoryPasteStore::with_persistence(adapter));
             }
             Arc::new(MemoryPasteStore::new())
@@ -566,6 +615,7 @@ mod tests {
     #[tokio::test]
     async fn creates_and_reads_plain_paste() {
         let store = MemoryPasteStore::default();
+        let metadata = PasteMetadata::default();
         let paste = StoredPaste {
             content: StoredContent::Plain {
                 text: "hello world".into(),
@@ -574,7 +624,14 @@ mod tests {
             created_at: 1234,
             expires_at: None,
             burn_after_reading: false,
-            metadata: Default::default(),
+            bundle: metadata.bundle.clone(),
+            bundle_parent: metadata.bundle_parent.clone(),
+            bundle_label: metadata.bundle_label.clone(),
+            not_before: metadata.not_before,
+            not_after: metadata.not_after,
+            persistence: metadata.persistence.clone(),
+            webhook: metadata.webhook.clone(),
+            metadata,
         };
 
         let id = store.create_paste(paste).await;
@@ -589,6 +646,7 @@ mod tests {
     #[tokio::test]
     async fn expired_paste_is_removed() {
         let store = MemoryPasteStore::default();
+        let metadata = PasteMetadata::default();
         let paste = StoredPaste {
             content: StoredContent::Plain {
                 text: "stale".into(),
@@ -597,7 +655,14 @@ mod tests {
             created_at: 100,
             expires_at: Some(50),
             burn_after_reading: false,
-            metadata: Default::default(),
+            bundle: metadata.bundle.clone(),
+            bundle_parent: metadata.bundle_parent.clone(),
+            bundle_label: metadata.bundle_label.clone(),
+            not_before: metadata.not_before,
+            not_after: metadata.not_after,
+            persistence: metadata.persistence.clone(),
+            webhook: metadata.webhook.clone(),
+            metadata,
         };
 
         let id = store.create_paste(paste).await;
@@ -613,6 +678,7 @@ mod tests {
     #[tokio::test]
     async fn stores_encrypted_content() {
         let store = MemoryPasteStore::default();
+        let metadata = PasteMetadata::default();
         let paste = StoredPaste {
             content: StoredContent::Encrypted {
                 algorithm: EncryptionAlgorithm::Aes256Gcm,
@@ -624,7 +690,14 @@ mod tests {
             created_at: 0,
             expires_at: None,
             burn_after_reading: false,
-            metadata: Default::default(),
+            bundle: metadata.bundle.clone(),
+            bundle_parent: metadata.bundle_parent.clone(),
+            bundle_label: metadata.bundle_label.clone(),
+            not_before: metadata.not_before,
+            not_after: metadata.not_after,
+            persistence: metadata.persistence.clone(),
+            webhook: metadata.webhook.clone(),
+            metadata,
         };
 
         let id = store.create_paste(paste).await;

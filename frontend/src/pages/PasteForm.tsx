@@ -59,9 +59,7 @@ export const PasteFormPage = () => {
       return createPaste(payload)
     },
     onSuccess: (result) => {
-      toast.success('Paste created', {
-        description: result.shareableUrl,
-      })
+      toast.success('Paste created')
       // Store the encryption settings used for this paste
       setPasteEncryption(encryption)
       setPasteEncryptionKey(encryptionKey)
@@ -130,7 +128,30 @@ export const PasteFormPage = () => {
   return (
     <div className="space-y-6">
       <section className="space-y-6">
-        <form className="space-y-6" onSubmit={handleSubmit}>
+        <form className="space-y-5" onSubmit={handleSubmit}>
+          {shareLink && (
+            <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4 text-sm text-primary">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <span className="font-semibold">Shareable link:</span>
+                <code className="flex-1 break-all rounded-lg bg-slate-900/70 px-3 py-2 text-xs text-slate-100">
+                  {shareLink}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopyShareUrl}
+                  className="inline-flex items-center justify-center rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30"
+                  disabled={isCopying}
+                >
+                  {isCopying ? 'Copying…' : 'Copy link'}
+                </button>
+              </div>
+              {pasteEncryption !== 'none' && pasteEncryptionKey && (
+                <p className="mt-2 text-xs text-primary/80">
+                  Remember to share the encryption key separately: <span className="font-semibold">{pasteEncryptionKey}</span>
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="content">
@@ -152,7 +173,7 @@ export const PasteFormPage = () => {
                 id="format"
                 value={format}
                 onChange={(event) => setFormat(event.target.value as PasteFormat)}
-                className="absolute top-4 right-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-primary/60 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-600 dark:bg-slate-900/80 dark:text-slate-200"
+                className="absolute top-4 right-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 pl-3 pr-8 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-primary/60 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-600 dark:bg-slate-900/80 dark:text-slate-200"
               >
                 {formatOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -163,59 +184,80 @@ export const PasteFormPage = () => {
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="retention">
-                  Retention
-                </label>
-                <select
-                  id="retention"
-                  value={retentionMinutes}
-                  onChange={(event) => setRetentionMinutes(Number(event.target.value))}
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
-                >
-                  <option value={1}>1 minute</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={60}>1 hour</option>
-                  <option value={180}>3 hours</option>
-                  <option value={1440}>1 day</option>
-                  <option value={10080}>7 days</option>
-                  <option value={43200}>30 days</option>
-                </select>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+              <div className="flex min-w-[220px] flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="retention">
+                    Retention
+                  </label>
+                  <span className="relative inline-flex group">
+                    <button
+                      type="button"
+                      className="cursor-help text-xs text-slate-500 transition hover:text-slate-300"
+                      aria-label="Retention info"
+                    >
+                      ⓘ
+                    </button>
+                    <span className="pointer-events-none absolute left-1/2 top-full z-10 hidden w-56 -translate-x-1/2 translate-y-1 rounded-md bg-slate-900 px-3 py-2 text-xs text-slate-100 shadow-lg group-hover:block">
+                      Paste expires after retention, or instantly after first view if burn after use is enabled.
+                    </span>
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <select
+                    id="retention"
+                    value={retentionMinutes}
+                    onChange={(event) => setRetentionMinutes(Number(event.target.value))}
+                    className="rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
+                  >
+                    <option value={1}>1 minute</option>
+                    <option value={10}>10 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={180}>3 hours</option>
+                    <option value={1440}>1 day</option>
+                    <option value={10080}>7 days</option>
+                    <option value={43200}>30 days</option>
+                  </select>
+
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={burnAfterReading}
+                      onChange={(event) => setBurnAfterReading(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-700 bg-surface text-primary focus:ring-primary/30"
+                    />
+                    <span className="inline-flex items-center gap-1">
+                      <span role="img" aria-label="fire">🔥</span>
+                      Burn after use
+                    </span>
+                  </label>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={burnAfterReading}
-                    onChange={(event) => setBurnAfterReading(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-700 bg-surface text-primary focus:ring-primary/30"
-                  />
-                  Burn after first view
-                </label>
-                <button
-                  type="button"
-                  className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-xs font-semibold text-slate-500 transition hover:border-primary hover:text-primary dark:border-slate-600 dark:text-slate-400 dark:hover:border-primary/80 dark:hover:text-primary/90"
-                  title="Toggle Burn after first view when you need a one-time link. Combine with end-to-end encryption for maximum privacy."
-                  aria-label="Burn after first view details"
-                >
-                  i
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="encryption">
-                  Encryption
-                </label>
+              <div className="flex min-w-[160px] flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="encryption">
+                    Encryption
+                  </label>
+                  <span className="relative inline-flex group">
+                    <button
+                      type="button"
+                      className="cursor-help text-xs text-slate-500 transition hover:text-slate-300"
+                      aria-label="Encryption info"
+                    >
+                      ⓘ
+                    </button>
+                    <span className="pointer-events-none absolute left-1/2 top-full z-10 hidden w-56 -translate-x-1/2 translate-y-1 rounded-md bg-slate-900 px-3 py-2 text-xs text-slate-100 shadow-lg group-hover:block">
+                      Keys stay client-side—share them out-of-band.
+                    </span>
+                  </span>
+                </div>
                 <select
                   id="encryption"
                   value={encryption}
                   onChange={(event) => setEncryption(event.target.value as EncryptionAlgorithm)}
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
+                  className="rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
                 >
                   {encryptionOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -225,40 +267,44 @@ export const PasteFormPage = () => {
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="encryptionKey">
-                    Encryption key {requiresKey && <span className="text-danger">(required)</span>}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={generatePassphrase}
-                    className="text-xs font-medium text-primary transition hover:text-primary/80"
-                  >
-                    Generate passphrase
-                  </button>
+              <div className="flex min-w-[220px] flex-col gap-1 lg:flex-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300" htmlFor="encryptionKey">
+                  Encryption key
+                </label>
+                <div className="relative lg:max-w-md">
+                  <input
+                    id="encryptionKey"
+                    type="text"
+                    value={encryptionKey}
+                    onChange={(event) => setEncryptionKey(event.target.value)}
+                    disabled={!requiresKey}
+                    placeholder={requiresKey ? 'Shared secret or passphrase' : 'Encryption disabled'}
+                    className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 pr-24 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-surface/40 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
+                    required={requiresKey}
+                  />
+                  {requiresKey && (
+                    <button
+                      type="button"
+                      onClick={generatePassphrase}
+                      className="absolute inset-y-1 right-1 inline-flex items-center justify-center rounded-md border border-primary/40 bg-primary/10 px-4 text-xs font-semibold text-primary transition hover:bg-primary/20 focus:outline-none focus:ring focus:ring-primary/30"
+                    >
+                      Generate
+                    </button>
+                  )}
                 </div>
-                <input
-                  id="encryptionKey"
-                  type="text"
-                  value={encryptionKey}
-                  onChange={(event) => setEncryptionKey(event.target.value)}
-                  disabled={!requiresKey}
-                  placeholder="Provide a shared secret or passphrase"
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-surface/40 dark:border-slate-700 dark:bg-surface dark:text-slate-100"
-                  required={requiresKey}
-                />
+              </div>
+
+              <div className="flex w-full justify-end lg:w-auto lg:justify-start">
+                <button
+                  type="submit"
+                  className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-primary px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30 lg:w-auto"
+                  disabled={mutation.isPending}
+                >
+                  {mutation.isPending ? 'Creating…' : 'CopyPaste'}
+                </button>
               </div>
             </div>
           </div>
-
-          <button
-            type="submit"
-            disabled={mutation.isPending}
-            className="inline-flex items-center justify-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-primary/40"
-          >
-            {mutation.isPending ? 'Creating…' : 'Create paste'}
-          </button>
         </form>
       </section>
       {shareUrl && (

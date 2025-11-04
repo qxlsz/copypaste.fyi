@@ -1,6 +1,6 @@
 use chrono::DateTime;
 
-use copypaste::PasteMetadata;
+use crate::PasteMetadata;
 
 #[derive(Copy, Clone)]
 pub enum TimeLockState {

@@ -5,6 +5,7 @@ pub mod cors;
 pub mod crypto;
 pub mod handlers;
 pub mod models;
+pub mod redis;
 pub mod render;
 pub mod time;
 pub mod webhook;
