@@ -27,5 +27,8 @@ jobs:
       - name: Set up Flyctl
         uses: superfly/flyctl-actions/setup-flyctl@v1
 
+      - name: Check Fly auth
+        run: flyctl auth whoami
+
       - name: Deploy app
         run: flyctl deploy --remote-only --strategy rolling --auto-confirm --dockerfile Dockerfile.backend
