@@ -307,37 +307,6 @@ export const PasteFormPage = () => {
           </div>
         </form>
       </section>
-      {shareUrl && (
-        <aside className="space-y-4">
-          <div className="space-y-3 rounded-xl border border-slate-200 bg-background/80 p-4 dark:border-slate-700 dark:bg-background/60">
-            
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Shareable link</p>
-            {shareLink ? (
-              <a
-                href={shareLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block break-all rounded-md bg-surface px-3 py-2 text-xs font-medium text-primary underline-offset-2 hover:underline dark:bg-surface/60"
-              >
-                {shareLink}
-              </a>
-            ) : (
-              <code className="block break-all rounded-md bg-surface px-3 py-2 text-xs text-slate-700 dark:bg-surface/60 dark:text-slate-200">
-                {shareUrl}
-              </code>
-            )}
-            <button
-              type="button"
-              onClick={handleCopyShareUrl}
-              disabled={isCopying}
-              className="inline-flex items-center justify-center rounded-full border border-primary bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20 focus:outline-none focus:ring focus:ring-primary/20 disabled:cursor-not-allowed"
-            >
-              {isCopying ? 'Copying…' : 'Copy link'}
-            </button>
-          </div>
-        </aside>
-      )}
-
       <footer className="rounded-xl border border-slate-200 bg-background/80 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-background/60 dark:text-slate-300">
         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           Crafted by{' '}
