@@ -1,0 +1,31 @@
+name: Deploy backend to Fly.io
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fly.toml'
+      - 'Dockerfile.backend'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'src/**'
+      - '.github/workflows/deploy-fly.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@v1
+
+      - name: Deploy app
+        run: flyctl deploy --remote-only --strategy rolling --auto-confirm --dockerfile Dockerfile.backend
