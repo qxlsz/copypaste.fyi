@@ -133,16 +133,41 @@ export const PasteFormPage = () => {
             <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4 text-sm text-primary">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <span className="font-semibold">Shareable link:</span>
-                <code className="flex-1 break-all rounded-lg bg-slate-900/70 px-3 py-2 text-xs text-slate-100">
+                <a
+                  href={shareLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 break-all rounded-lg bg-slate-900/70 px-3 py-2 text-xs font-semibold text-white underline-offset-2 transition hover:bg-slate-900/80 hover:underline"
+                >
                   {shareLink}
-                </code>
+                </a>
                 <button
                   type="button"
                   onClick={handleCopyShareUrl}
-                  className="inline-flex items-center justify-center rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30"
+                  className="inline-flex items-center justify-center rounded-full bg-primary p-2 text-white shadow-sm shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30"
                   disabled={isCopying}
                 >
-                  {isCopying ? 'Copying…' : 'Copy link'}
+                  <svg
+                    className="h-4 w-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth="1.5"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M8 16h8a2 2 0 002-2V6a2 2 0 00-2-2H8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16 8h2a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-2"
+                    />
+                  </svg>
+                  <span className="sr-only">{isCopying ? 'Copying link…' : 'Copy link'}</span>
                 </button>
               </div>
               {pasteEncryption !== 'none' && pasteEncryptionKey && (
