@@ -1,4 +1,5 @@
 import type { PasteViewResponse } from '../server/types'
+import { API_BASE } from './client'
 
 export const fetchPaste = async (id: string, key?: string): Promise<PasteViewResponse> => {
   const params = new URLSearchParams()
@@ -6,7 +7,9 @@ export const fetchPaste = async (id: string, key?: string): Promise<PasteViewRes
     params.set('key', key)
   }
   const query = params.toString()
-  const url = query ? `/api/pastes/${encodeURIComponent(id)}?${query}` : `/api/pastes/${encodeURIComponent(id)}`
+  const base = API_BASE.replace(/\/$/, '')
+  const path = `/pastes/${encodeURIComponent(id)}`
+  const url = `${base}${path}${query ? `?${query}` : ''}`
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout

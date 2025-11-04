@@ -1,6 +1,6 @@
 import type { CreatePastePayload, CreatePasteResponse, StatsSummary } from './types'
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
+export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
 const jsonFetch = async <T>(input: RequestInfo, init?: RequestInit): Promise<T> => {
   const controller = new AbortController()
