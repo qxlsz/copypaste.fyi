@@ -1,4 +1,4 @@
-import Editor from '@monaco-editor/react'
+import Editor, { type Monaco } from '@monaco-editor/react'
 import { useCallback, useMemo } from 'react'
 
 import type { PasteFormat } from '../../api/types'
@@ -72,12 +72,35 @@ export const MonacoEditor = ({
   const { theme } = useTheme()
 
   const language = useMemo(() => formatToLanguage(format), [format])
+  const editorTheme = useMemo(() => (theme === 'dark' ? 'copypaste-dark' : 'copypaste-light'), [theme])
   const handleChange = useCallback(
     (content: string | undefined) => {
       onChange?.(content ?? '')
     },
     [onChange],
   )
+  const handleBeforeMount = useCallback((monaco: Monaco) => {
+    monaco.editor.defineTheme('copypaste-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': 'rgba(0, 0, 0, 0)',
+        'editorGutter.background': 'rgba(0, 0, 0, 0)',
+        'minimap.background': 'rgba(0, 0, 0, 0)',
+      },
+    })
+    monaco.editor.defineTheme('copypaste-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': 'rgba(255, 255, 255, 0)',
+        'editorGutter.background': 'rgba(255, 255, 255, 0)',
+        'minimap.background': 'rgba(255, 255, 255, 0)',
+      },
+    })
+  }, [])
 
   return (
     <Editor
@@ -86,7 +109,7 @@ export const MonacoEditor = ({
       defaultLanguage="plaintext"
       language={language}
       value={value}
-      theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+      theme={editorTheme}
       options={{
         fontSize: 14,
         fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular',
@@ -100,6 +123,7 @@ export const MonacoEditor = ({
         readOnly,
         domReadOnly: readOnly,
       }}
+      beforeMount={handleBeforeMount}
       onChange={handleChange}
     />
   )

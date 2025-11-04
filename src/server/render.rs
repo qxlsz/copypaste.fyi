@@ -41,12 +41,25 @@ pub fn render_paste_view(
     let rendered_body = match paste.format {
         PasteFormat::PlainText => format_plain(text),
         PasteFormat::Markdown => format_markdown(text),
+        PasteFormat::Json => format_json(text),
         PasteFormat::Code
+        | PasteFormat::Javascript
+        | PasteFormat::Typescript
+        | PasteFormat::Python
+        | PasteFormat::Rust
         | PasteFormat::Go
         | PasteFormat::Cpp
         | PasteFormat::Kotlin
-        | PasteFormat::Java => format_code(text),
-        PasteFormat::Json => format_json(text),
+        | PasteFormat::Java
+        | PasteFormat::Csharp
+        | PasteFormat::Php
+        | PasteFormat::Ruby
+        | PasteFormat::Bash
+        | PasteFormat::Yaml
+        | PasteFormat::Sql
+        | PasteFormat::Swift
+        | PasteFormat::Html
+        | PasteFormat::Css => format_code(text),
     };
 
     let created = format_timestamp(paste.created_at);

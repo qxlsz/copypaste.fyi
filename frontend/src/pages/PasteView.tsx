@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { fetchPaste } from '../api/viewer'
 import type { PasteViewResponse } from '../server/types'
+import { MonacoEditor } from '../components/editor/MonacoEditor'
 
 const formatLabel = (format: string) => {
   switch (format) {
@@ -15,6 +16,14 @@ const formatLabel = (format: string) => {
       return 'Code'
     case 'json':
       return 'JSON'
+    case 'javascript':
+      return 'JavaScript'
+    case 'typescript':
+      return 'TypeScript'
+    case 'python':
+      return 'Python'
+    case 'rust':
+      return 'Rust'
     case 'go':
       return 'Go'
     case 'cpp':
@@ -23,6 +32,24 @@ const formatLabel = (format: string) => {
       return 'Kotlin'
     case 'java':
       return 'Java'
+    case 'csharp':
+      return 'C#'
+    case 'php':
+      return 'PHP'
+    case 'ruby':
+      return 'Ruby'
+    case 'bash':
+      return 'Bash'
+    case 'yaml':
+      return 'YAML'
+    case 'sql':
+      return 'SQL'
+    case 'swift':
+      return 'Swift'
+    case 'html':
+      return 'HTML'
+    case 'css':
+      return 'CSS'
     default:
       return format
   }
@@ -203,6 +230,12 @@ export const PasteViewPage = () => {
     )
   }
 
+  const editorHeight = useMemo(() => {
+    const lineCount = data.content.split('\n').length
+    const clamped = Math.min(Math.max(lineCount, 12), 60)
+    return `${clamped * 20}px`
+  }, [data.content])
+
   return (
     <div className="space-y-6">
       <header className="space-y-2">
@@ -218,9 +251,13 @@ export const PasteViewPage = () => {
       </header>
 
       <section className="rounded-2xl border border-slate-800 bg-surface/80 p-6">
-        <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm text-slate-100">
-          {data.content}
-        </pre>
+        <MonacoEditor
+          value={data.content}
+          format={data.format}
+          readOnly
+          height={editorHeight}
+          className="rounded-xl border border-slate-700"
+        />
       </section>
 
       <section className="rounded-2xl border border-slate-800 bg-surface/80 p-6">

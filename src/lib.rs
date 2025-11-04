@@ -24,12 +24,33 @@ pub enum PasteFormat {
     Markdown,
     Code,
     Json,
+    #[serde(rename = "javascript")]
+    Javascript,
+    #[serde(rename = "typescript")]
+    Typescript,
+    Python,
+    Rust,
     #[serde(rename = "go")]
     Go,
     #[serde(rename = "cpp")]
     Cpp,
     Kotlin,
     Java,
+    #[serde(rename = "csharp")]
+    Csharp,
+    #[serde(rename = "php")]
+    Php,
+    #[serde(rename = "ruby")]
+    Ruby,
+    #[serde(rename = "bash")]
+    Bash,
+    #[serde(rename = "yaml")]
+    Yaml,
+    #[serde(rename = "sql")]
+    Sql,
+    Swift,
+    Html,
+    Css,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
