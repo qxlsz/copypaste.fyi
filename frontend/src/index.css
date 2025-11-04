@@ -4,46 +4,46 @@
 
 @layer base {
   :root {
-    --gray-50: #f5f5f7;
-    --gray-100: #ebecef;
-    --gray-200: #dcdde2;
-    --gray-300: #c8cad2;
-    --gray-400: #b4b6c0;
-    --gray-500: #8f92a1;
-    --gray-600: #6b6d7a;
-    --gray-700: #52535d;
-    --gray-800: #393a42;
-    --gray-900: #1f2025;
-    --gray-950: #111116;
+    --gray-50: #fdfbf7;
+    --gray-100: #f4f1ec;
+    --gray-200: #e7e2db;
+    --gray-300: #d8d2c9;
+    --gray-400: #c6beb5;
+    --gray-500: #a79f96;
+    --gray-600: #8a837a;
+    --gray-700: #6f6860;
+    --gray-800: #4e4842;
+    --gray-900: #2f2b27;
+    --gray-950: #1b1916;
 
-    --brand-50: #e0f0ff;
-    --brand-100: #c7e2ff;
-    --brand-200: #9bcaff;
-    --brand-300: #6eb0ff;
-    --brand-400: #3f97ff;
-    --brand-500: #0a84ff;
-    --brand-600: #0066cc;
-    --brand-700: #004b99;
-    --brand-800: #003a7a;
-    --brand-900: #002856;
+    --brand-50: #eef2ff;
+    --brand-100: #e0e7ff;
+    --brand-200: #c7d2fe;
+    --brand-300: #a5b4fc;
+    --brand-400: #818cf8;
+    --brand-500: #6366f1;
+    --brand-600: #4f46e5;
+    --brand-700: #4338ca;
+    --brand-800: #3730a3;
+    --brand-900: #312e81;
 
-    --accent-50: #f2f1ff;
-    --accent-500: #7f7bff;
-    --accent-700: #5c58d6;
+    --accent-50: #ecfdf5;
+    --accent-500: #14b8a6;
+    --accent-700: #0f766e;
 
-    --success: #2ec27e;
-    --warning: #f5a623;
-    --danger: #ff3b30;
-    --info: #0a84ff;
+    --success: #2ecc6f;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
 
-    --shadow-soft: 0 18px 40px -22px rgba(0, 102, 204, 0.45);
-    --shadow-strong: 0 32px 60px -28px rgba(15, 31, 53, 0.55);
+    --shadow-soft: 0 22px 45px -24px rgba(79, 70, 229, 0.3);
+    --shadow-strong: 0 36px 70px -30px rgba(28, 25, 23, 0.4);
 
-    --color-background: #f8f9fb;
+    --color-background: #faf9f6;
     --color-surface: #ffffff;
     --color-primary: var(--brand-500);
     --color-accent: var(--accent-500);
-    --color-muted: rgba(17, 24, 39, 0.06);
+    --color-muted: rgba(15, 23, 42, 0.05);
     --color-muted-foreground: var(--gray-500);
     --color-success: var(--success);
     --color-warning: var(--warning);

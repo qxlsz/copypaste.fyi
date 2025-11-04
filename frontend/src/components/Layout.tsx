@@ -31,20 +31,6 @@ export const Layout = () => {
         group: 'Primary',
         handler: () => navigate('/'),
       },
-      {
-        id: 'dashboard',
-        label: 'Open dashboard',
-        description: 'Review key metrics, quick actions, and recent workspace activity.',
-        group: 'Navigation',
-        handler: () => navigate('/dashboard'),
-      },
-      {
-        id: 'view-stats',
-        label: 'View stats',
-        description: 'Deep-dive into format, encryption, and retention analytics.',
-        group: 'Navigation',
-        handler: () => navigate('/stats'),
-      },
     ],
     [navigate]
   )
@@ -67,12 +53,6 @@ export const Layout = () => {
               </Button>
               <NavLink to="/" className={navLinkClass} end>
                 Create Paste
-              </NavLink>
-              <NavLink to="/dashboard" className={navLinkClass}>
-                Dashboard
-              </NavLink>
-              <NavLink to="/stats" className={navLinkClass}>
-                Stats
               </NavLink>
               <Button variant="ghost" size="sm" onClick={() => setPaletteOpen(true)}>
                 Command Menu
