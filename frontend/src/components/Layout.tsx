@@ -39,9 +39,9 @@ export const Layout = () => {
   useHotkeys({ shortcut: 'ctrl+n', handler: () => navigate('/') })
 
   return (
-    <div className="min-h-screen bg-background text-slate-900 transition-colors duration-200 dark:text-slate-100">
+    <div className="min-h-screen bg-background text-slate-900 transition-colors duration-300 dark:text-slate-100">
       <CommandPalette actions={commandActions} isOpen={isPaletteOpen} onOpenChange={setPaletteOpen} />
-      <header className="border-b border-slate-200/80 bg-surface/95 backdrop-blur dark:border-slate-800">
+      <header className="border-b border-white/40 bg-surface/90 shadow-[0_20px_45px_-32px_rgba(0,25,80,0.35)] backdrop-blur-sm transition-colors dark:border-slate-800/60 dark:bg-slate-900/70 dark:shadow-none">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4">
           <div className="flex flex-col items-start justify-between gap-2 md:flex-row md:items-center">
             <NavLink to="/" className="text-sm font-semibold uppercase tracking-[0.32em] text-slate-700 transition hover:text-primary dark:text-slate-200 dark:hover:text-primary">
@@ -67,7 +67,7 @@ export const Layout = () => {
           )}
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-6">
+      <main className="mx-auto max-w-6xl px-6 py-10">
         <Outlet />
       </main>
     </div>
