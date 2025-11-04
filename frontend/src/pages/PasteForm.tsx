@@ -73,12 +73,18 @@ export const PasteFormPage = () => {
       return createPaste(payload)
     },
     onSuccess: (result) => {
+      const usedEncryption = encryption
+      const usedEncryptionKey = encryptionKey
       toast.success('Paste created')
       // Store the encryption settings used for this paste
-      setPasteEncryption(encryption)
-      setPasteEncryptionKey(encryptionKey)
+      setPasteEncryption(usedEncryption)
+      setPasteEncryptionKey(usedEncryptionKey)
       setContent('')
       setShareUrl(result.shareableUrl)
+      setEncryptionKey('')
+      if (usedEncryption !== 'none') {
+        setEncryption('none')
+      }
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : 'Unknown error'
