@@ -167,7 +167,7 @@ export const MonacoEditor = ({
       return (
         <pre
           className={clsx(
-            'overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words font-mono text-sm',
+            'overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words font-mono text-base md:text-sm',
             theme === 'dark'
               ? 'rounded-xl border border-slate-700 bg-surface/80 p-4 text-slate-100'
               : 'rounded-xl border border-slate-200 bg-white p-4 text-slate-800',
@@ -185,7 +185,7 @@ export const MonacoEditor = ({
         value={value}
         onChange={(event) => onChange?.(event.target.value)}
         className={clsx(
-          'w-full rounded-2xl border p-4 font-mono text-sm transition focus:border-primary focus:outline-none focus:ring focus:ring-primary/20',
+          'w-full rounded-2xl border p-4 font-mono text-base md:text-sm transition focus:border-primary focus:outline-none focus:ring focus:ring-primary/20',
           theme === 'dark'
             ? 'border-slate-700 bg-surface text-slate-100'
             : 'border-slate-200 bg-white text-slate-900',
@@ -207,7 +207,7 @@ export const MonacoEditor = ({
       value={value}
       theme={editorTheme}
       options={{
-        fontSize: 14,
+        fontSize: isMobile ? 16 : 14,
         fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular',
         minimap: { enabled: false },
         lineNumbers: 'off',

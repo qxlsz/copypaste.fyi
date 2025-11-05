@@ -83,4 +83,20 @@
   #root {
     @apply min-h-screen bg-background text-inherit transition-colors duration-200 dark:bg-background;
   }
+
+  @media (max-width: 768px) {
+    :root {
+      font-size: 16px;
+    }
+
+    textarea,
+    input,
+    pre {
+      font-size: 1rem;
+    }
+
+    body {
+      -webkit-text-size-adjust: 100%;
+    }
+  }
 }
