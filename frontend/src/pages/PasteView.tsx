@@ -297,6 +297,21 @@ export const PasteViewPage = () => {
           ) : null}
         </dl>
       </section>
+
+      <footer className="rounded-xl border border-slate-200 bg-background/80 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-background/60 dark:text-slate-300">
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Crafted by{' '}
+          <a
+            href="https://x.com/qxlsz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-primary underline-offset-2 hover:underline"
+          >
+            @qxlsz
+          </a>{' '}
+          © 2025 · copypaste.fyi
+        </p>
+      </footer>
     </div>
   )
 }
