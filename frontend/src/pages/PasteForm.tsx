@@ -211,8 +211,8 @@ export const PasteFormPage = () => {
                 value={content}
                 onChange={setContent}
                 format={format}
-                height="34rem"
-                className="min-h-[34rem] w-full rounded-2xl border border-slate-200 bg-surface pr-36 text-base transition focus-within:border-primary focus-within:outline-none focus-within:ring focus-within:ring-primary/20 dark:border-slate-700 dark:bg-surface"
+                height="min(75vh, 52rem)"
+                className="w-full rounded-2xl border border-slate-200 bg-surface pr-36 text-base transition focus-within:border-primary focus-within:outline-none focus-within:ring focus-within:ring-primary/20 dark:border-slate-700 dark:bg-surface md:min-h-[60vh] min-h-[45vh]"
               />
               <label className="sr-only" htmlFor="format">
                 Format

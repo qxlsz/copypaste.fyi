@@ -74,8 +74,42 @@ export const MonacoEditor = ({
 }: MonacoEditorProps) => {
   const { theme } = useTheme()
   const [editorModule, setEditorModule] = useState<EditorModule | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return
+    }
+
+    const mediaQuery = window.matchMedia('(max-width: 768px)')
+
+    const updateMobile = (event: MediaQueryList | MediaQueryListEvent) => {
+      setIsMobile(event.matches)
+    }
+
+    updateMobile(mediaQuery)
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateMobile)
+    } else if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(updateMobile)
+    }
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === 'function') {
+        mediaQuery.removeEventListener('change', updateMobile)
+      } else if (typeof mediaQuery.removeListener === 'function') {
+        mediaQuery.removeListener(updateMobile)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isMobile) {
+      setEditorModule(null)
+      return
+    }
+
     let cancelled = false
     import('@monaco-editor/react')
       .then((module) => {
@@ -89,7 +123,7 @@ export const MonacoEditor = ({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isMobile])
 
   const language = useMemo(() => formatToLanguage(format), [format])
   const editorTheme = useMemo(() => (theme === 'dark' ? 'copypaste-dark' : 'copypaste-light'), [theme])
@@ -99,6 +133,12 @@ export const MonacoEditor = ({
     },
     [onChange],
   )
+  const resolvedHeight = useMemo(() => {
+    if (isMobile) {
+      return '45vh'
+    }
+    return height
+  }, [height, isMobile])
   const handleBeforeMount = useCallback((monaco: Monaco) => {
     monaco.editor.defineTheme('copypaste-dark', {
       base: 'vs-dark',
@@ -127,13 +167,13 @@ export const MonacoEditor = ({
       return (
         <pre
           className={clsx(
-            'overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm',
+            'overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words font-mono text-sm',
             theme === 'dark'
               ? 'rounded-xl border border-slate-700 bg-surface/80 p-4 text-slate-100'
               : 'rounded-xl border border-slate-200 bg-white p-4 text-slate-800',
             className,
           )}
-          style={{ minHeight: height }}
+          style={{ minHeight: resolvedHeight, maxHeight: resolvedHeight, height: resolvedHeight }}
         >
           {value}
         </pre>
@@ -151,7 +191,7 @@ export const MonacoEditor = ({
             : 'border-slate-200 bg-white text-slate-900',
           className,
         )}
-        style={{ minHeight: height }}
+        style={{ minHeight: resolvedHeight, height: resolvedHeight }}
       />
     )
   }
@@ -161,7 +201,7 @@ export const MonacoEditor = ({
   return (
     <EditorComponent
       className={className}
-      height={height}
+      height={resolvedHeight}
       defaultLanguage="plaintext"
       language={language}
       value={value}
