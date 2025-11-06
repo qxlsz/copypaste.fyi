@@ -7,11 +7,13 @@ import { PasteFormPage } from './pages/PasteForm'
 import { PasteViewPage } from './pages/PasteView'
 import { StatsPage } from './pages/Stats'
 import { DashboardPage } from './pages/Dashboard'
+import { LoginPage } from './pages/Login'
 import { ThemeProvider } from './theme/ThemeProvider'
 
 export function App() {
   return (
     <Routes>
+      <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<Layout />}>
         <Route index element={<PasteFormPage />} />
         <Route path="p/:id" element={<PasteViewPage />} />

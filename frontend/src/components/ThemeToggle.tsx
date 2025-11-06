@@ -36,14 +36,13 @@ export const ThemeToggle = () => {
       type="button"
       onClick={toggleTheme}
       className={clsx(
-        'inline-flex h-9 items-center gap-2 rounded-full border border-slate-300 bg-surface px-3 text-xs font-medium shadow-sm transition',
+        'inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-surface text-xs font-medium shadow-sm transition',
         'hover:border-primary hover:text-primary focus:outline-none focus:ring focus:ring-primary/30 dark:border-slate-700 dark:hover:border-accent'
       )}
       aria-label={label}
       title={label}
     >
       {icon}
-      <span className="capitalize text-slate-700 dark:text-slate-200">{theme}</span>
     </button>
   )
 }

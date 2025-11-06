@@ -263,8 +263,21 @@ async fn show_api(
                         }
                     }
 
-                    let metadata = &paste.metadata;
-                    let encryption = match &paste.content {
+                    // Freemium enforcement: 100 views per paste for owned pastes
+                    if let Some(_owner) = &paste.metadata.owner_pubkey_hash {
+                        if paste.metadata.access_count >= 100 {
+                            return Err((Status::TooManyRequests, "Freemium limit exceeded: 100 views per paste. Upgrade for unlimited access.".to_string()));
+                        }
+                    }
+
+                    // Increment access count
+                    let mut updated_paste = paste.clone();
+                    updated_paste.metadata.access_count += 1;
+                    // TODO: Update in persistent store
+                    // For now, access counts are ephemeral
+                    // Use updated_paste for response
+                    let metadata = &updated_paste.metadata;
+                    let encryption = match &updated_paste.content {
                         StoredContent::Plain { .. } => PasteEncryptionInfo {
                             algorithm: EncryptionAlgorithm::None,
                             requires_key: false,
@@ -330,7 +343,7 @@ async fn show_api(
                         provider: config.provider.clone(),
                     });
 
-                    let stego = match &paste.content {
+                    let stego = match &updated_paste.content {
                         StoredContent::Stego {
                             carrier_mime,
                             carrier_image,
@@ -346,14 +359,14 @@ async fn show_api(
 
                     let response = PasteViewResponse {
                         id,
-                        format: paste.format,
+                        format: updated_paste.format,
                         content: text,
-                        created_at: paste.created_at,
-                        expires_at: paste.expires_at,
-                        burn_after_reading: paste.burn_after_reading,
+                        created_at: updated_paste.created_at,
+                        expires_at: updated_paste.expires_at,
+                        burn_after_reading: updated_paste.burn_after_reading,
                         bundle: metadata.bundle.clone(),
                         encryption,
-                        tor_access_only: paste.metadata.tor_access_only,
+                        tor_access_only: updated_paste.metadata.tor_access_only,
                         stego,
                         time_lock,
                         attestation,

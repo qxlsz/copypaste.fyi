@@ -1,149 +1,129 @@
-import { Button } from '../components/ui/Button'
-import { Card } from '../components/ui/Card'
-
-const headlineMetrics = [
-  {
-    label: 'Total pastes',
-    value: '2,847',
-    delta: '+12.5%',
-    tone: 'text-primary',
-  },
-  {
-    label: 'Encrypted pastes',
-    value: '1,126',
-    delta: '+4.2%',
-    tone: 'text-success-foreground',
-  },
-  {
-    label: 'Burn-after-reading',
-    value: '384',
-    delta: '-1.9%',
-    tone: 'text-warning-foreground',
-  },
-  {
-    label: 'Webhook deliveries',
-    value: '96%',
-    delta: '+1.2%',
-    tone: 'text-info-foreground',
-  },
-]
-
-const quickActions = [
-  {
-    title: 'Create secure paste',
-    description: 'Start a new encrypted paste with retention defaults tailored for incident response.',
-    cta: { label: 'New paste', href: '/' },
-  },
-  {
-    title: 'Invite teammate',
-    description: 'Share copypaste.fyi with another engineer and collaborate on shared collections.',
-    cta: { label: 'Invite', href: '/settings/team' },
-  },
-  {
-    title: 'View API tokens',
-    description: 'Manage personal access tokens and webhook signing secrets.',
-    cta: { label: 'Manage tokens', href: '/settings/api' },
-  },
-]
-
-const recentActivity = [
-  {
-    title: 'Security runbook v7',
-    actor: 'avery@oxide.team',
-    timestamp: '5 minutes ago',
-    descriptor: 'Shared with Security workspace',
-  },
-  {
-    title: 'On-call notes / week 44',
-    actor: 'oncall@oxide.team',
-    timestamp: '2 hours ago',
-    descriptor: 'Encrypted · Burn after reading',
-  },
-  {
-    title: 'Deploy checklist',
-    actor: 'deploy-ci',
-    timestamp: 'Yesterday',
-    descriptor: 'Webhook · Slack incident room',
-  },
-]
+import { useAuth } from '../stores/auth'
 
 export const DashboardPage = () => {
-  return (
-    <div className="space-y-10">
-      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-semibold text-slate-900 dark:text-slate-100">Welcome back</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Monitor recent paste activity, encryption adoption, and quick actions for your workspace.
-          </p>
+  const { user, logout } = useAuth()
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+          <h2 className="text-3xl font-extrabold text-gray-900">Access Denied</h2>
+          <p className="mt-2 text-gray-600">Please log in to view your dashboard.</p>
+          <a
+            href="/login"
+            className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            Go to Login
+          </a>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => (window.location.href = '/')}>New paste</Button>
-          <Button variant="outline" onClick={() => (window.location.href = '/stats')}>
-            View detailed stats
-          </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Your Dashboard</h1>
+              <p className="mt-1 text-sm text-gray-500">Manage your pastes and account</p>
+            </div>
+            <button
+              onClick={logout}
+              className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {headlineMetrics.map((metric) => (
-          <Card key={metric.label} padding="lg" className="relative overflow-hidden">
-            <div className="space-y-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{metric.label}</p>
-              <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">{metric.value}</p>
-              <p className="text-sm font-medium text-success">{metric.delta}</p>
-            </div>
-          </Card>
-        ))}
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-3">
-        <Card padding="lg" className="lg:col-span-2">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Recent activity</h2>
-              <p className="text-sm text-muted-foreground">The latest pastes created across your workspace.</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => (window.location.href = '/pastes')}>
-              View all
-            </Button>
-          </div>
-          <div className="space-y-4">
-            {recentActivity.map((item) => (
-              <div key={item.title} className="flex items-start justify-between gap-4 rounded-xl bg-background/70 px-4 py-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{item.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.actor} · {item.descriptor}
-                  </p>
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div className="px-4 py-6 sm:px-0">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="bg-white overflow-hidden shadow rounded-lg">
+              <div className="p-5">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m0 0a2 2 0 012 2m-2-2a2 2 0 00-2-2m0 0a2 2 0 00-2 2m2-2v6m0 0a2 2 0 002 2m-2-2a2 2 0 00-2 2m0 0V7" />
+                    </svg>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">Your Pastes</dt>
+                      <dd className="text-lg font-medium text-gray-900">Coming Soon</dd>
+                    </dl>
+                  </div>
                 </div>
-                <span className="text-xs text-muted-foreground">{item.timestamp}</span>
               </div>
-            ))}
-          </div>
-        </Card>
-        <Card padding="lg">
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Quick actions</h2>
-            <div className="space-y-4">
-              {quickActions.map((action) => (
-                <div key={action.title} className="rounded-xl border border-muted/60 bg-background/70 p-4">
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{action.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{action.description}</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="mt-3"
-                    onClick={() => (window.location.href = action.cta.href)}
-                  >
-                    {action.cta.label}
-                  </Button>
+            </div>
+
+            <div className="bg-white overflow-hidden shadow rounded-lg">
+              <div className="p-5">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">Views This Month</dt>
+                      <dd className="text-lg font-medium text-gray-900">0</dd>
+                    </dl>
+                  </div>
                 </div>
-              ))}
+              </div>
+            </div>
+
+            <div className="bg-white overflow-hidden shadow rounded-lg">
+              <div className="p-5">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <svg className="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">Account Status</dt>
+                      <dd className="text-lg font-medium text-green-600">Active</dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </Card>
-      </section>
+
+          <div className="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+            <div className="px-4 py-5 sm:px-6">
+              <h3 className="text-lg leading-6 font-medium text-gray-900">Account Information</h3>
+              <p className="mt-1 max-w-2xl text-sm text-gray-500">Your privacy-focused account details.</p>
+            </div>
+            <div className="border-t border-gray-200 px-4 py-5 sm:p-0">
+              <dl className="sm:divide-y sm:divide-gray-200">
+                <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                  <dt className="text-sm font-medium text-gray-500">Public Key Hash</dt>
+                  <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{user.pubkeyHash}</dd>
+                </div>
+                <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                  <dt className="text-sm font-medium text-gray-500">Public Key</dt>
+                  <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2 font-mono break-all">{user.pubkey}</dd>
+                </div>
+                <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                  <dt className="text-sm font-medium text-gray-500">Private Key</dt>
+                  <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                    <span className="font-mono break-all">{user.privkey.slice(0, 20)}...</span>
+                    <span className="text-xs text-gray-500 ml-2">(stored locally)</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   )
 }
