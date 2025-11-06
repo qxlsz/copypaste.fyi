@@ -152,6 +152,8 @@ pub struct PasteMetadata {
     pub attestation: Option<AttestationRequirement>,
     pub persistence: Option<PersistenceLocator>,
     pub webhook: Option<WebhookConfig>,
+    #[serde(skip_serializing_if = "crate::bool_is_false")]
+    pub tor_access_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -305,6 +307,10 @@ fn is_expired(paste: &StoredPaste) -> bool {
     } else {
         false
     }
+}
+
+pub(crate) fn bool_is_false(value: &bool) -> bool {
+    !*value
 }
 
 const PASTE_ID_ADJECTIVES: &[&str] = &[

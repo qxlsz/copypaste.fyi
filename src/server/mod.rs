@@ -9,4 +9,5 @@ pub mod redis;
 pub mod render;
 pub mod stego;
 pub mod time;
+pub mod tor;
 pub mod webhook;

@@ -42,6 +42,10 @@ const BUILTIN_STEGO_CARRIERS: Array<{ id: string; name: string; description: str
   { id: 'aurora', name: 'Aurora', description: 'Cool gradients with soft lighting.' },
   { id: 'horizon', name: 'Horizon', description: 'Sunset-inspired blues and ambers.' },
   { id: 'prism', name: 'Prism', description: 'Abstract neon waves (default).' },
+  { id: 'nebula', name: 'Nebula', description: 'Cosmic purples flecked with speckled stardust.' },
+  { id: 'solstice', name: 'Solstice', description: 'Warm sunrise oranges fading into sky blues.' },
+  { id: 'midnight', name: 'Midnight', description: 'City-lights palette with cool blues and amber sparks.' },
+  { id: 'cinder', name: 'Cinder', description: 'Charcoal base with ember highlights for high contrast.' },
 ]
 
 const PASS_ADJECTIVES = ['stellar', 'quantum', 'radiant', 'luminous', 'hyper', 'galactic', 'neon', 'cosmic', 'orbital', 'sonic']
@@ -244,16 +248,8 @@ export const PasteFormPage = () => {
                     stroke="currentColor"
                     aria-hidden="true"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M8 16h8a2 2 0 002-2V6a2 2 0 00-2-2H8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M16 8h2a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-2"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16h8a2 2 0 002-2V6a2 2 0 00-2-2H8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 8h2a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-2" />
                   </svg>
                   <span className="sr-only">{isCopying ? 'Copying link…' : 'Copy link'}</span>
                 </button>

@@ -56,6 +56,8 @@ pub struct PasteViewResponse {
     pub burn_after_reading: bool,
     pub bundle: Option<BundleMetadata>,
     pub encryption: PasteEncryptionInfo,
+    #[serde(default)]
+    pub tor_access_only: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_lock: Option<PasteTimeLockInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -225,6 +227,8 @@ pub struct CreatePasteRequest {
     pub webhook: Option<WebhookRequest>,
     #[serde(default)]
     pub stego: Option<StegoRequest>,
+    #[serde(default)]
+    pub tor_access_only: bool,
 }
 
 #[derive(Deserialize, Default)]

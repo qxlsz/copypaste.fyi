@@ -3,7 +3,7 @@ use base64::Engine;
 use image::codecs::png::PngEncoder;
 use image::load_from_memory;
 use image::{ImageBuffer, ImageEncoder, Rgba, RgbaImage};
-use std::io::Cursor;
+use std::{f32::consts::PI, io::Cursor};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StegoError {
@@ -142,6 +142,77 @@ fn generate_builtin(identifier: &str) -> (RgbaImage, String) {
                 255,
             ])
         }),
+        "nebula" => generate_gradient(|x, y, width, height| {
+            let fx = x as f32 / width as f32;
+            let fy = y as f32 / height as f32;
+            let swirl = ((fx * 7.0).sin() + (fy * 5.5).cos()) * 0.5 + 0.5;
+            let band = ((fx - fy) * 8.0).sin() * 0.5 + 0.5;
+            Rgba([
+                clamp_to_byte(140.0 + 80.0 * swirl),
+                clamp_to_byte(60.0 + 45.0 * band),
+                clamp_to_byte(200.0 + 55.0 * swirl),
+                255,
+            ])
+        }),
+        "solstice" => generate_gradient(|x, y, width, height| {
+            let fx = x as f32 / width as f32;
+            let fy = y as f32 / height as f32;
+            let sunset_intensity = ((1.0 - fy).powf(1.4) * 255.0).min(255.0) / 255.0;
+            let sky_wave = (fx * PI).cos().abs();
+            Rgba([
+                clamp_to_byte(180.0 + 65.0 * sunset_intensity + 25.0 * sky_wave),
+                clamp_to_byte(120.0 + 55.0 * sunset_intensity + 30.0 * sky_wave),
+                clamp_to_byte(110.0 + 100.0 * fy.powf(1.2)),
+                255,
+            ])
+        }),
+        "midnight" => generate_gradient(|x, y, width, height| {
+            let fx = x as f32 / width as f32;
+            let fy = y as f32 / height as f32;
+            let mut r = clamp_to_byte(18.0 + 60.0 * (1.0 - fy).powf(1.4));
+            let mut g = clamp_to_byte(24.0 + 80.0 * (1.0 - fy).powf(1.6));
+            let mut b = clamp_to_byte(80.0 + 140.0 * (1.0 - fy));
+
+            if fy > 0.62 {
+                let depth = ((fy - 0.62) / 0.38).min(1.0);
+                let shade = 1.0 - depth * 0.7;
+                r = clamp_to_byte(f32::from(r) * shade);
+                g = clamp_to_byte(f32::from(g) * shade);
+                b = clamp_to_byte(f32::from(b) * shade);
+
+                let skyline_tint = (fx * PI * 4.0).sin().abs();
+                r = clamp_to_byte(f32::from(r) + 40.0 * skyline_tint * (1.0 - depth));
+                g = clamp_to_byte(f32::from(g) + 25.0 * skyline_tint * (1.0 - depth));
+
+                if pseudo_random(x, y) > 0.96 {
+                    r = clamp_to_byte(210.0 + 40.0 * pseudo_random(y, x));
+                    g = clamp_to_byte(140.0 + 80.0 * pseudo_random(x + 11, y + 7));
+                    b = clamp_to_byte(70.0 + 50.0 * pseudo_random(x + 19, y + 3));
+                }
+            } else if pseudo_random(x, y) > 0.995 {
+                let sparkle = 200.0 + 55.0 * pseudo_random(y + 13, x + 17);
+                r = clamp_to_byte(sparkle);
+                g = clamp_to_byte(sparkle);
+                b = clamp_to_byte(240.0);
+            }
+
+            Rgba([r, g, b, 255])
+        }),
+        "cinder" => generate_gradient(|x, y, _width, height| {
+            let fy = y as f32 / height as f32;
+            let mut r = clamp_to_byte(40.0 + 70.0 * (1.0 - fy).powf(1.5));
+            let mut g = clamp_to_byte(28.0 + 35.0 * (1.0 - fy));
+            let mut b = clamp_to_byte(22.0 + 40.0 * (1.0 - fy));
+
+            if pseudo_random(x, y) > 0.985 {
+                let ember = 210.0 + 40.0 * pseudo_random(x + 23, y + 9);
+                r = clamp_to_byte(ember);
+                g = clamp_to_byte(90.0 + 60.0 * pseudo_random(x + 5, y + 29));
+                b = clamp_to_byte(60.0 + 40.0 * pseudo_random(y + 17, x + 3));
+            }
+
+            Rgba([r, g, b, 255])
+        }),
         _ => generate_gradient(|x, y, width, height| {
             let fx = x as f32 / width as f32;
             let fy = y as f32 / height as f32;
@@ -173,4 +244,13 @@ where
     }
 
     (buffer, "image/png".to_string())
+}
+
+fn pseudo_random(x: u32, y: u32) -> f32 {
+    let mut value = x
+        .wrapping_mul(374_761_393)
+        .wrapping_add(y.wrapping_mul(668_265_263));
+    value = (value ^ (value >> 13)).wrapping_mul(1_274_126_177);
+    let masked = value ^ (value >> 16);
+    ((masked & 0x00FF_FFFF) as f32) / 0x00FF_FFFF as f32
 }

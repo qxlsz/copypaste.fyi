@@ -34,12 +34,16 @@ use super::render::{
 };
 use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
 use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp};
+use super::tor::{OnionAccess, TorConfig};
 use super::webhook::{trigger_webhook, WebhookEvent};
 
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
+    let tor_config = TorConfig::from_env();
+
     rocket::build()
         .manage(store)
         .manage(default_anchor_relayer())
+        .manage(tor_config)
         .attach(Cors)
         .mount(
             "/",
@@ -60,7 +64,13 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
 }
 
 #[get("/api/stats/summary")]
-async fn stats_summary_api(store: &State<SharedPasteStore>) -> Json<StatsSummaryResponse> {
+async fn stats_summary_api(
+    store: &State<SharedPasteStore>,
+    onion: OnionAccess,
+) -> Json<StatsSummaryResponse> {
+    if onion.suppress_logs() {
+        rocket::info!("stats_summary accessed via onion host");
+    }
     let stats = store.stats().await;
     Json(stats.into())
 }
@@ -71,6 +81,7 @@ async fn anchor_api(
     relayer: &State<SharedAnchorRelayer>,
     id: String,
     body: Option<Json<AnchorRequest>>,
+    onion: OnionAccess,
 ) -> Result<Json<AnchorResponse>, (Status, String)> {
     let request = body.map(|json| json.into_inner()).unwrap_or_default();
 
@@ -79,6 +90,13 @@ async fn anchor_api(
         Err(PasteError::NotFound(_)) => return Err((Status::NotFound, "Paste not found".into())),
         Err(PasteError::Expired(_)) => return Err((Status::Gone, "Paste expired".into())),
     };
+
+    if paste.metadata.tor_access_only && !onion.is_onion() {
+        return Err((
+            Status::Forbidden,
+            "This paste can only be accessed via the Tor hidden service".into(),
+        ));
+    }
 
     let manifest = AnchorManifest::from_paste(id.clone(), &paste);
     let hash = manifest_hash(&manifest).map_err(|error| {
@@ -125,9 +143,17 @@ async fn show_api(
     store: &State<SharedPasteStore>,
     id: String,
     query: PasteViewQuery,
+    onion: OnionAccess,
 ) -> Result<Json<PasteViewResponse>, (Status, String)> {
     match store.get_paste(&id).await {
         Ok(paste) => {
+            if paste.metadata.tor_access_only && !onion.is_onion() {
+                return Err((
+                    Status::Forbidden,
+                    "This paste can only be accessed via the Tor hidden service".into(),
+                ));
+            }
+
             let now = current_timestamp();
             if evaluate_time_lock(&paste.metadata, now).is_some() {
                 return Err((Status::Locked, "Paste is time-locked".into()));
@@ -262,6 +288,7 @@ async fn show_api(
                         burn_after_reading: paste.burn_after_reading,
                         bundle: metadata.bundle.clone(),
                         encryption,
+                        tor_access_only: paste.metadata.tor_access_only,
                         stego,
                         time_lock,
                         attestation,
@@ -320,6 +347,7 @@ struct CreatedPaste {
 async fn create_paste_internal(
     store: &SharedPasteStore,
     body: CreatePasteRequest,
+    onion: &OnionAccess,
 ) -> Result<CreatedPaste, (Status, String)> {
     let now = current_timestamp();
     let format = body.format.unwrap_or_default();
@@ -329,7 +357,17 @@ async fn create_paste_internal(
     });
     let burn_after_reading = body.burn_after_reading;
 
-    let mut metadata = PasteMetadata::default();
+    let mut metadata = PasteMetadata {
+        tor_access_only: body.tor_access_only,
+        ..PasteMetadata::default()
+    };
+
+    if metadata.tor_access_only && !onion.is_onion() {
+        return Err((
+            Status::Forbidden,
+            "Tor-access-only pastes must be created via the onion service".to_string(),
+        ));
+    }
 
     if let Some(lock) = body.time_lock.as_ref() {
         apply_time_lock(lock, &mut metadata)?;
@@ -508,9 +546,10 @@ async fn create_paste_internal(
 async fn create(
     store: &State<SharedPasteStore>,
     body: Json<CreatePasteRequest>,
+    onion: OnionAccess,
 ) -> Result<String, (Status, String)> {
     let body = body.into_inner();
-    let created = create_paste_internal(store.inner(), body).await?;
+    let created = create_paste_internal(store.inner(), body, &onion).await?;
     Ok(created.path)
 }
 
@@ -518,9 +557,10 @@ async fn create(
 async fn create_api(
     store: &State<SharedPasteStore>,
     body: Json<CreatePasteRequest>,
+    onion: OnionAccess,
 ) -> Result<Json<CreatePasteResponse>, (Status, String)> {
     let body = body.into_inner();
-    let created = create_paste_internal(store.inner(), body).await?;
+    let created = create_paste_internal(store.inner(), body, &onion).await?;
     let response = CreatePasteResponse {
         id: created.id,
         path: created.path.clone(),
@@ -534,9 +574,14 @@ async fn show(
     store: &State<SharedPasteStore>,
     id: String,
     query: PasteViewQuery,
+    onion: OnionAccess,
 ) -> Result<content::RawHtml<String>, Status> {
     match store.get_paste(&id).await {
         Ok(paste) => {
+            if paste.metadata.tor_access_only && !onion.is_onion() {
+                return Err(Status::Forbidden);
+            }
+
             let now = current_timestamp();
             if let Some(lock_state) = evaluate_time_lock(&paste.metadata, now) {
                 return Ok(content::RawHtml(render_time_locked(lock_state)));
@@ -620,9 +665,14 @@ async fn show_raw(
     store: &State<SharedPasteStore>,
     id: String,
     query: PasteViewQuery,
+    onion: OnionAccess,
 ) -> Result<content::RawText<String>, Status> {
     match store.get_paste(&id).await {
         Ok(paste) => {
+            if paste.metadata.tor_access_only && !onion.is_onion() {
+                return Err(Status::Forbidden);
+            }
+
             let now = current_timestamp();
             if evaluate_time_lock(&paste.metadata, now).is_some() {
                 return Err(Status::Locked);
