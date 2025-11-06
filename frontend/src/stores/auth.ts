@@ -27,6 +27,7 @@ export const useAuth = create<AuthState>()(
       isLoading: false,
 
       generateKeys: async () => {
+        await (ed25519 as any).init?.()
         const privkey = ed25519.utils.randomPrivateKey()
         const pubkey = await ed25519.getPublicKey(privkey)
 
@@ -39,6 +40,7 @@ export const useAuth = create<AuthState>()(
       login: async (privkey) => {
         set({ isLoading: true })
         try {
+          await (ed25519 as any).init?.()
           const privkeyBytes = privkey
             ? new Uint8Array(atob(privkey).split('').map((c) => c.charCodeAt(0)))
             : ed25519.utils.randomPrivateKey()
@@ -50,7 +52,8 @@ export const useAuth = create<AuthState>()(
           const { challenge } = await fetchAuthChallenge()
 
           // Sign challenge
-          const signatureBytes = await ed25519.sign(challenge, privkeyBytes)
+          const challengeBytes = new TextEncoder().encode(challenge)
+          const signatureBytes = await ed25519.sign(challengeBytes, privkeyBytes)
           const signature = btoa(String.fromCharCode(...signatureBytes))
 
           // Login
