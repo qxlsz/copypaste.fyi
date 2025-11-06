@@ -14,6 +14,9 @@ use rocket::serde::json::Json;
 use rocket::{get, post, routes, Build, Rocket, State};
 use sha2::{Digest, Sha256};
 
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use rand::Rng;
+
 use super::attestation::{self, AttestationVerdict};
 use super::blockchain::{
     default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
@@ -23,10 +26,11 @@ use super::bundles::build_bundle_overview;
 use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    AnchorRequest, AnchorResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
-    PasteEncryptionInfo, PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery,
-    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, StegoRequest,
-    TimeLockRequest, WebhookRequest,
+    AnchorRequest, AnchorResponse, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse,
+    CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo, PasteEncryptionInfo,
+    PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse,
+    PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+    WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -57,7 +61,9 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 show,
                 show_api,
                 show_raw,
-                stats_summary_api
+                stats_summary_api,
+                auth_challenge_api,
+                auth_login_api
             ],
         )
         .mount("/static", FileServer::from("static"))
@@ -73,6 +79,65 @@ async fn stats_summary_api(
     }
     let stats = store.stats().await;
     Json(stats.into())
+}
+
+#[get("/api/auth/challenge")]
+async fn auth_challenge_api() -> Json<AuthChallengeResponse> {
+    let challenge = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect::<String>();
+    Json(AuthChallengeResponse { challenge })
+}
+
+#[post("/api/auth/login", data = "<body>")]
+async fn auth_login_api(
+    body: Json<AuthLoginRequest>,
+) -> Result<Json<AuthLoginResponse>, (Status, String)> {
+    let body = body.into_inner();
+
+    // Decode pubkey and signature
+    let pubkey_bytes: [u8; 32] = BASE64_STANDARD
+        .decode(&body.pubkey)
+        .map_err(|_| (Status::BadRequest, "Invalid pubkey encoding".to_string()))?
+        .try_into()
+        .map_err(|_| (Status::BadRequest, "Invalid pubkey length".to_string()))?;
+    let pubkey = VerifyingKey::from_bytes(&pubkey_bytes)
+        .map_err(|_| (Status::BadRequest, "Invalid pubkey".to_string()))?;
+
+    let signature_bytes: [u8; 64] = BASE64_STANDARD
+        .decode(&body.signature)
+        .map_err(|_| (Status::BadRequest, "Invalid signature encoding".to_string()))?
+        .try_into()
+        .map_err(|_| (Status::BadRequest, "Invalid signature length".to_string()))?;
+    let signature = Signature::from_bytes(&signature_bytes);
+
+    // Verify signature
+    pubkey
+        .verify(body.challenge.as_bytes(), &signature)
+        .map_err(|_| {
+            (
+                Status::Unauthorized,
+                "Signature verification failed".to_string(),
+            )
+        })?;
+
+    // Compute pubkey hash
+    let mut hasher = Sha256::new();
+    hasher.update(pubkey_bytes);
+    let pubkey_hash = format!("{:x}", hasher.finalize());
+
+    // Generate session token (simple random for now)
+    let token = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect::<String>();
+
+    // TODO: Store token with pubkey_hash for session validation
+
+    Ok(Json(AuthLoginResponse { token, pubkey_hash }))
 }
 
 #[post("/api/pastes/<id>/anchor", data = "<body>")]
@@ -359,6 +424,8 @@ async fn create_paste_internal(
 
     let mut metadata = PasteMetadata {
         tor_access_only: body.tor_access_only,
+        owner_pubkey_hash: body.owner_pubkey_hash.clone(),
+        access_count: 0,
         ..PasteMetadata::default()
     };
 

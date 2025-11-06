@@ -154,6 +154,8 @@ pub struct PasteMetadata {
     pub webhook: Option<WebhookConfig>,
     #[serde(skip_serializing_if = "crate::bool_is_false")]
     pub tor_access_only: bool,
+    pub owner_pubkey_hash: Option<String>,
+    pub access_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

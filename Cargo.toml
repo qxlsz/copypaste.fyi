@@ -27,6 +27,7 @@ data-encoding = "2.4"
 hmac = "0.12"
 sha1 = "0.10"
 hex = "0.4"
+ed25519-dalek = { version = "2.0", features = ["serde"] }
 
 [dev-dependencies]
 httpmock = "0.7"

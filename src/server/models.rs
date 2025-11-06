@@ -229,6 +229,7 @@ pub struct CreatePasteRequest {
     pub stego: Option<StegoRequest>,
     #[serde(default)]
     pub tor_access_only: bool,
+    pub owner_pubkey_hash: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -260,6 +261,27 @@ pub struct WebhookRequest {
 pub enum StegoRequest {
     Builtin { carrier: String },
     Uploaded { data_uri: String },
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthChallengeResponse {
+    pub challenge: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLoginRequest {
+    pub challenge: String,
+    pub signature: String,
+    pub pubkey: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLoginResponse {
+    pub token: String,
+    pub pubkey_hash: String,
 }
 
 #[derive(FromForm, Default)]
