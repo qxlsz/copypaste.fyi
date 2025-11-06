@@ -174,7 +174,8 @@ async fn show_api(
                             algorithm: EncryptionAlgorithm::None,
                             requires_key: false,
                         },
-                        StoredContent::Encrypted { algorithm, .. } => PasteEncryptionInfo {
+                        StoredContent::Encrypted { algorithm, .. }
+                        | StoredContent::Stego { algorithm, .. } => PasteEncryptionInfo {
                             algorithm: *algorithm,
                             requires_key: true,
                         },

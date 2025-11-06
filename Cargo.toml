@@ -19,6 +19,7 @@ aes-gcm = { version = "0.10", features = ["aes"] }
 chacha20poly1305 = "0.10"
 sha2 = "0.10"
 base64 = "0.21"
+image = { version = "0.24", default-features = false, features = ["png", "bmp"] }
 pulldown-cmark = "0.10"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 urlencoding = "2.1"

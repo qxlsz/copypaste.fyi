@@ -77,6 +77,15 @@ pub enum StoredContent {
         nonce: String,
         salt: String,
     },
+    Stego {
+        algorithm: EncryptionAlgorithm,
+        ciphertext: String,
+        nonce: String,
+        salt: String,
+        carrier_mime: String,
+        carrier_image: String,
+        payload_digest: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -409,7 +418,8 @@ impl PasteStore for MemoryPasteStore {
 
             let algorithm = match &paste.content {
                 StoredContent::Plain { .. } => EncryptionAlgorithm::None,
-                StoredContent::Encrypted { algorithm, .. } => *algorithm,
+                StoredContent::Encrypted { algorithm, .. }
+                | StoredContent::Stego { algorithm, .. } => *algorithm,
             };
             *encryption_counts.entry(algorithm).or_default() += 1;
 
