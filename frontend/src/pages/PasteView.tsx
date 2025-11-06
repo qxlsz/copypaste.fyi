@@ -141,6 +141,11 @@ export const PasteViewPage = () => {
     queryFn: () => fetchPaste(id!, key),
   })
 
+  const stegoDataUrl = useMemo(() => {
+    if (!data?.stego) return null
+    return `data:${data.stego.carrierMime};base64,${data.stego.carrierImage}`
+  }, [data?.stego])
+
   const editorHeight = useMemo(() => {
     const lines = data?.content?.split('\n') ?? []
     const lineCount = lines.length > 0 ? lines.length : 12
@@ -297,6 +302,44 @@ export const PasteViewPage = () => {
           ) : null}
         </dl>
       </section>
+
+      {data.stego ? (
+        <section className="rounded-2xl border border-emerald-700/40 bg-emerald-900/30 p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <h2 className="text-lg font-semibold text-emerald-200">Steganographic carrier</h2>
+              <p className="text-sm text-emerald-100/70">
+                The encrypted payload is embedded in the carrier image below. Share this cover along with the encryption key to allow
+                recipients to extract and decrypt the paste locally.
+              </p>
+              <dl className="mt-3 space-y-2 text-xs text-emerald-100/70">
+                <div>
+                  <dt className="font-semibold uppercase tracking-wide text-emerald-300">Mime type</dt>
+                  <dd className="text-emerald-100">{data.stego.carrierMime}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold uppercase tracking-wide text-emerald-300">Payload digest (SHA-256)</dt>
+                  <dd className="font-mono text-emerald-100 break-all">{data.stego.payloadDigest}</dd>
+                </div>
+              </dl>
+              {stegoDataUrl ? (
+                <a
+                  href={stegoDataUrl}
+                  download={`copypaste-stego-${data.id}.png`}
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-500/80 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm shadow-emerald-500/20 transition hover:bg-emerald-400 focus:outline-none focus:ring focus:ring-emerald-400/40"
+                >
+                  Download carrier image
+                </a>
+              ) : null}
+            </div>
+            {stegoDataUrl ? (
+              <div className="overflow-hidden rounded-xl border border-emerald-600/40 bg-black/20">
+                <img src={stegoDataUrl} alt="Steganographic carrier" className="max-h-64 w-full object-contain" />
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <footer className="rounded-xl border border-slate-200 bg-background/80 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-background/60 dark:text-slate-300">
         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
