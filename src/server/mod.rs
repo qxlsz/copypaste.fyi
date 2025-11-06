@@ -7,5 +7,6 @@ pub mod handlers;
 pub mod models;
 pub mod redis;
 pub mod render;
+pub mod stego;
 pub mod time;
 pub mod webhook;

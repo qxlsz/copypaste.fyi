@@ -92,6 +92,13 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
             ciphertext,
             nonce,
             salt,
+        }
+        | StoredContent::Stego {
+            algorithm,
+            ciphertext,
+            nonce,
+            salt,
+            ..
         } => {
             let key = key.ok_or(DecryptError::MissingKey)?;
             let salt_bytes = general_purpose::STANDARD

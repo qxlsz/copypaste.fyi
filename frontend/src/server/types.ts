@@ -26,7 +26,7 @@ export interface PasteViewResponse {
   createdAt: number
   expiresAt?: number | null
   burnAfterReading: boolean
-  bundle?: {
+  bundle: {
     children: Array<{
       id: string
       label?: string | null
@@ -36,6 +36,11 @@ export interface PasteViewResponse {
     algorithm: 'none' | 'aes256_gcm' | 'chacha20_poly1305' | 'xchacha20_poly1305'
     requiresKey: boolean
   }
+  stego?: {
+    carrierMime: string
+    carrierImage: string
+    payloadDigest: string
+  } | null
   timeLock?: {
     notBefore?: number | null
     notAfter?: number | null

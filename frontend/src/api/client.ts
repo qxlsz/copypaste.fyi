@@ -1,4 +1,5 @@
 import type { CreatePastePayload, CreatePasteResponse, StatsSummary } from './types'
+import type { PasteViewResponse } from '../server/types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -47,4 +48,13 @@ export const createPaste = async (payload: CreatePastePayload): Promise<CreatePa
 export const fetchStatsSummary = async (): Promise<StatsSummary> => {
   const url = `${API_BASE}/stats/summary`
   return jsonFetch<StatsSummary>(url)
+}
+
+export const fetchPaste = async (id: string, key?: string): Promise<PasteViewResponse> => {
+  const params = new URLSearchParams()
+  if (key) {
+    params.set('key', key)
+  }
+  const url = `${API_BASE}/pastes/${encodeURIComponent(id)}${params.toString() ? `?${params.toString()}` : ''}`
+  return jsonFetch<PasteViewResponse>(url)
 }

@@ -70,7 +70,8 @@ pub fn render_paste_view(
 
     let encryption = match paste.content {
         StoredContent::Plain { .. } => "None".to_string(),
-        StoredContent::Encrypted { ref algorithm, .. } => match algorithm {
+        StoredContent::Encrypted { ref algorithm, .. }
+        | StoredContent::Stego { ref algorithm, .. } => match algorithm {
             EncryptionAlgorithm::None => "None".to_string(),
             EncryptionAlgorithm::Aes256Gcm => "AES-256-GCM".to_string(),
             EncryptionAlgorithm::ChaCha20Poly1305 => "ChaCha20-Poly1305".to_string(),

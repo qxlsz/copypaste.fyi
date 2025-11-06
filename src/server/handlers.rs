@@ -5,11 +5,14 @@ use crate::{
     PasteError, PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent,
     StoredPaste, WebhookConfig,
 };
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use rocket::fs::{FileServer, NamedFile};
 use rocket::http::Status;
 use rocket::response::content;
 use rocket::serde::json::Json;
 use rocket::{get, post, routes, Build, Rocket, State};
+use sha2::{Digest, Sha256};
 
 use super::attestation::{self, AttestationVerdict};
 use super::blockchain::{
@@ -21,14 +24,15 @@ use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
     AnchorRequest, AnchorResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
-    PasteEncryptionInfo, PastePersistenceInfo, PasteTimeLockInfo, PasteViewQuery,
-    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, TimeLockRequest,
-    WebhookRequest,
+    PasteEncryptionInfo, PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery,
+    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, StegoRequest,
+    TimeLockRequest, WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
     render_paste_view, render_time_locked, StoredPasteView,
 };
+use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
 use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp};
 use super::webhook::{trigger_webhook, WebhookEvent};
 
@@ -174,7 +178,8 @@ async fn show_api(
                             algorithm: EncryptionAlgorithm::None,
                             requires_key: false,
                         },
-                        StoredContent::Encrypted { algorithm, .. } => PasteEncryptionInfo {
+                        StoredContent::Encrypted { algorithm, .. }
+                        | StoredContent::Stego { algorithm, .. } => PasteEncryptionInfo {
                             algorithm: *algorithm,
                             requires_key: true,
                         },
@@ -234,6 +239,20 @@ async fn show_api(
                         provider: config.provider.clone(),
                     });
 
+                    let stego = match &paste.content {
+                        StoredContent::Stego {
+                            carrier_mime,
+                            carrier_image,
+                            payload_digest,
+                            ..
+                        } => Some(PasteStegoInfo {
+                            carrier_mime: carrier_mime.clone(),
+                            carrier_image: carrier_image.clone(),
+                            payload_digest: payload_digest.clone(),
+                        }),
+                        _ => None,
+                    };
+
                     let response = PasteViewResponse {
                         id,
                         format: paste.format,
@@ -243,6 +262,7 @@ async fn show_api(
                         burn_after_reading: paste.burn_after_reading,
                         bundle: metadata.bundle.clone(),
                         encryption,
+                        stego,
                         time_lock,
                         attestation,
                         persistence,
@@ -330,7 +350,7 @@ async fn create_paste_internal(
         metadata.webhook = Some(webhook_config_from_request(webhook)?);
     }
 
-    let content = resolve_content(&body, format)?;
+    let mut content = resolve_content(&body, format)?;
 
     let mut bundle_children: Vec<BundlePointer> = Vec::new();
 
@@ -398,6 +418,61 @@ async fn create_paste_internal(
         metadata.bundle = Some(BundleMetadata {
             children: bundle_children,
         });
+    }
+
+    if let Some(stego_request) = body.stego.as_ref() {
+        let (algorithm, ciphertext, nonce, salt) = match &content {
+            StoredContent::Encrypted {
+                algorithm,
+                ciphertext,
+                nonce,
+                salt,
+            } => (algorithm, ciphertext, nonce, salt),
+            StoredContent::Stego { .. } => {
+                return Err((
+                    Status::BadRequest,
+                    "Steganographic carrier already applied".to_string(),
+                ))
+            }
+            StoredContent::Plain { .. } => {
+                return Err((
+                    Status::BadRequest,
+                    "Steganographic carrier requires encryption".to_string(),
+                ))
+            }
+        };
+
+        let payload = BASE64_STANDARD.decode(ciphertext).map_err(|_| {
+            (
+                Status::BadRequest,
+                "Failed to decode ciphertext for steganographic embedding".to_string(),
+            )
+        })?;
+
+        let carrier_source = match stego_request {
+            StegoRequest::Builtin { carrier } => StegoCarrierSource::BuiltIn(carrier.clone()),
+            StegoRequest::Uploaded { data_uri } => {
+                let (mime, data) = parse_data_uri(data_uri)
+                    .map_err(|error| (Status::BadRequest, error.to_string()))?;
+                StegoCarrierSource::Uploaded { mime, data }
+            }
+        };
+
+        let embed = embed_payload(carrier_source, &payload)
+            .map_err(|error| (Status::BadRequest, error.to_string()))?;
+
+        let digest = Sha256::digest(&payload);
+        let payload_digest = hex::encode(digest);
+
+        content = StoredContent::Stego {
+            algorithm: *algorithm,
+            ciphertext: ciphertext.clone(),
+            nonce: nonce.clone(),
+            salt: salt.clone(),
+            carrier_mime: embed.mime,
+            carrier_image: BASE64_STANDARD.encode(embed.image_data),
+            payload_digest,
+        };
     }
 
     let bundle = metadata.bundle.clone();

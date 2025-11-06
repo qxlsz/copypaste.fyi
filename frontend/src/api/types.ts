@@ -35,6 +35,7 @@ export interface CreatePastePayload {
     algorithm: Exclude<EncryptionAlgorithm, 'none'>
     key: string
   }
+  stego?: StegoRequest
   burn_after_reading?: boolean
   bundle?: {
     children: Array<{
@@ -59,6 +60,10 @@ export interface CreatePasteResponse {
   path: string
   shareableUrl: string
 }
+
+export type StegoRequest =
+  | { mode: 'builtin'; carrier: string }
+  | { mode: 'uploaded'; data_uri: string }
 
 export interface StatsSummary {
   totalPastes: number
