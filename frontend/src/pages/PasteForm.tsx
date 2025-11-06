@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
-import type { FormEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 import { createPaste } from '../api/client'
-import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat } from '../api/types'
+import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat, StegoRequest } from '../api/types'
 import { MonacoEditor } from '../components/editor/MonacoEditor'
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -38,6 +38,12 @@ const encryptionOptions: Array<{ label: string; value: EncryptionAlgorithm }> = 
   { label: 'XChaCha20-Poly1305', value: 'xchacha20_poly1305' },
 ]
 
+const BUILTIN_STEGO_CARRIERS: Array<{ id: string; name: string; description: string }> = [
+  { id: 'aurora', name: 'Aurora', description: 'Cool gradients with soft lighting.' },
+  { id: 'horizon', name: 'Horizon', description: 'Sunset-inspired blues and ambers.' },
+  { id: 'prism', name: 'Prism', description: 'Abstract neon waves (default).' },
+]
+
 const PASS_ADJECTIVES = ['stellar', 'quantum', 'radiant', 'luminous', 'hyper', 'galactic', 'neon', 'cosmic', 'orbital', 'sonic']
 const PASS_NOUNS = ['otter', 'phoenix', 'nebula', 'flux', 'cipher', 'tachyon', 'comet', 'formula', 'byte', 'matrix']
 const PASS_SUFFIXES = ['42', '9000', '1337', '7g', 'mk2', 'ix', 'hyperlane', 'vortex']
@@ -53,6 +59,41 @@ export const PasteFormPage = () => {
   const [isCopying, setIsCopying] = useState(false)
   const [pasteEncryption, setPasteEncryption] = useState<EncryptionAlgorithm>('none')
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState('')
+  const [useStego, setUseStego] = useState(false)
+  const [stegoMode, setStegoMode] = useState<'builtin' | 'uploaded'>('builtin')
+  const [stegoCarrierId, setStegoCarrierId] = useState('prism')
+  const [stegoUploadName, setStegoUploadName] = useState<string | null>(null)
+  const [stegoUploadData, setStegoUploadData] = useState<string | null>(null)
+  const [stegoError, setStegoError] = useState<string | null>(null)
+
+  const handleStegoFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      setStegoUploadData(null)
+      setStegoUploadName(null)
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setStegoError('Please choose an image file for carrier embedding.')
+      setStegoUploadData(null)
+      setStegoUploadName(null)
+      return
+    }
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuffer)
+      const base64 = btoa(String.fromCharCode(...bytes))
+      const dataUri = `data:${file.type};base64,${base64}`
+      setStegoUploadData(dataUri)
+      setStegoUploadName(file.name)
+      setStegoError(null)
+    } catch (error) {
+      console.error(error)
+      setStegoError('Failed to read file. Please try again or pick a different image.')
+      setStegoUploadData(null)
+      setStegoUploadName(null)
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -67,6 +108,19 @@ export const PasteFormPage = () => {
         payload.encryption = {
           algorithm: encryption,
           key: encryptionKey,
+        }
+      }
+
+      if (useStego && encryption !== 'none') {
+        let stegoPayload: StegoRequest | undefined
+        if (stegoMode === 'builtin') {
+          stegoPayload = { mode: 'builtin', carrier: stegoCarrierId }
+        } else if (stegoMode === 'uploaded' && stegoUploadData) {
+          stegoPayload = { mode: 'uploaded', data_uri: stegoUploadData }
+        }
+
+        if (stegoPayload) {
+          payload.stego = stegoPayload
         }
       }
 
@@ -103,6 +157,12 @@ export const PasteFormPage = () => {
   }
 
   const requiresKey = encryption !== 'none'
+
+  useEffect(() => {
+    if (!requiresKey) {
+      setUseStego(false)
+    }
+  }, [requiresKey])
 
   const generatePassphrase = () => {
     const randomElement = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)]
@@ -338,6 +398,100 @@ export const PasteFormPage = () => {
                     Generate
                   </button>
                 </div>
+              </div>
+
+              <div className="flex w-full flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Steganographic cover</label>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Hide ciphertext inside an image</span>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-700 bg-surface text-primary focus:ring-primary/30"
+                      checked={useStego}
+                      onChange={(event) => setUseStego(event.target.checked)}
+                      disabled={!requiresKey}
+                    />
+                    Enable
+                  </label>
+                </div>
+                {useStego && (
+                  <div className="rounded-lg border border-slate-200 bg-surface/70 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      The encrypted payload will be embedded into a high-entropy image. Choose a bundled carrier or upload your own lossless PNG for maximum fidelity.
+                    </p>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                      <fieldset className="space-y-2">
+                        <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Carrier source
+                        </legend>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="stego-mode"
+                            value="builtin"
+                            checked={stegoMode === 'builtin'}
+                            onChange={() => setStegoMode('builtin')}
+                          />
+                          Bundled artwork
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="stego-mode"
+                            value="uploaded"
+                            checked={stegoMode === 'uploaded'}
+                            onChange={() => setStegoMode('uploaded')}
+                          />
+                          Upload my own image
+                        </label>
+                      </fieldset>
+
+                      {stegoMode === 'builtin' ? (
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" htmlFor="builtinCarrier">
+                            Select carrier
+                          </label>
+                          <select
+                            id="builtinCarrier"
+                            value={stegoCarrierId}
+                            onChange={(event) => setStegoCarrierId(event.target.value)}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                          >
+                            {BUILTIN_STEGO_CARRIERS.map((carrier) => (
+                              <option key={carrier.id} value={carrier.id}>
+                                {carrier.name} — {carrier.description}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" htmlFor="stegoUpload">
+                            Upload carrier image (PNG recommended)
+                          </label>
+                          <input
+                            id="stegoUpload"
+                            type="file"
+                            accept="image/png,image/bmp,image/jpeg,image/webp"
+                            onChange={handleStegoFileUpload}
+                            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-primary hover:file:bg-primary/20 dark:text-slate-200"
+                          />
+                          {stegoUploadName ? (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Selected: {stegoUploadName}</p>
+                          ) : (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Maximum size 1 MB. Lossless formats yield better hiding capacity.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {stegoError ? (
+                      <p className="mt-2 text-xs text-danger">{stegoError}</p>
+                    ) : null}
+                  </div>
+                )}
               </div>
 
               <div className="flex w-full justify-end lg:w-auto lg:justify-start">

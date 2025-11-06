@@ -64,6 +64,8 @@ pub struct PasteViewResponse {
     pub persistence: Option<PastePersistenceInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook: Option<PasteWebhookInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stego: Option<PasteStegoInfo>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -103,6 +105,14 @@ pub struct PastePersistenceInfo {
 pub struct PasteWebhookInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<WebhookProvider>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteStegoInfo {
+    pub carrier_mime: String,
+    pub carrier_image: String,
+    pub payload_digest: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -213,6 +223,8 @@ pub struct CreatePasteRequest {
     pub persistence: Option<PersistenceRequest>,
     #[serde(default)]
     pub webhook: Option<WebhookRequest>,
+    #[serde(default)]
+    pub stego: Option<StegoRequest>,
 }
 
 #[derive(Deserialize, Default)]
@@ -237,6 +249,13 @@ pub struct WebhookRequest {
     pub provider: Option<WebhookProvider>,
     pub view_template: Option<String>,
     pub burn_template: Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum StegoRequest {
+    Builtin { carrier: String },
+    Uploaded { data_uri: String },
 }
 
 #[derive(FromForm, Default)]
