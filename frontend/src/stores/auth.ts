@@ -88,7 +88,7 @@ export const useAuth = create<AuthState>()(
             case 'base64': {
               try {
                 privkeyBytes = new Uint8Array(atob(keyData).split('').map(c => c.charCodeAt(0)))
-              } catch (_error) {
+              } catch {
                 throw new Error('Invalid base64 format')
               }
               break
@@ -109,7 +109,7 @@ export const useAuth = create<AuthState>()(
                 } else {
                   throw new Error('PEM key too short')
                 }
-              } catch (_error) {
+              } catch {
                 throw new Error('Failed to decode PEM body')
               }
               break
@@ -119,7 +119,7 @@ export const useAuth = create<AuthState>()(
               // Raw binary data as base64
               try {
                 privkeyBytes = new Uint8Array(atob(keyData).split('').map(c => c.charCodeAt(0)))
-              } catch (_error) {
+              } catch {
                 throw new Error('Invalid raw key format')
               }
               break
@@ -143,7 +143,7 @@ export const useAuth = create<AuthState>()(
               pubkey: btoa(String.fromCharCode(...pubkey)),
               privkey: btoa(String.fromCharCode(...privkeyBytes)),
             }
-          } catch (_error) {
+          } catch {
             throw new Error('Invalid Ed25519 private key')
           }
           
