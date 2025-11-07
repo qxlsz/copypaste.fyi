@@ -224,17 +224,17 @@ export const AboutPage = () => {
             ))}
           </section>
 
-          <section className="grid items-start gap-12 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Architecture overview</h2>
-                <p className="mt-3 text-base text-slate-600 dark:text-slate-300/90">
-                  A Vite-compiled React SPA runs entirely client-side crypto. Users authenticate with Ed25519 signatures while payloads are sealed with
-                  XChaCha20-Poly1305 before any network hop. Rocket enforces policies, persists ciphertext with RocksDB, and streams through Fly.io and
-                  Tor without observing plaintext. Each cryptographic operation receives dual verification: primary validation from the Rust crypto engine
-                  and secondary confirmation from an independent OCaml service using mirage-crypto.
-                </p>
-              </div>
+          <section className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Architecture overview</h2>
+              <p className="mt-3 text-base text-slate-600 dark:text-slate-300/90">
+                A Vite-compiled React SPA runs entirely client-side crypto. Users authenticate with Ed25519 signatures while payloads are sealed with
+                XChaCha20-Poly1305 before any network hop. Rocket enforces policies, persists ciphertext with RocksDB, and streams through Fly.io and
+                Tor without observing plaintext. Each cryptographic operation receives dual verification: primary validation from the Rust crypto engine
+                and secondary confirmation from an independent OCaml service using mirage-crypto.
+              </p>
+            </div>
+            <div className="w-full">
               <MermaidDiagram
                 id="architecture-flow"
                 chart={architectureDiagram}
@@ -243,28 +243,6 @@ export const AboutPage = () => {
                 description="Trace how sealed payloads travel from the browser to edge POPs and the Rocket core before resting in persistence or relaying to asynchronous workers."
                 defaultOpen
               />
-            </div>
-
-            <div className="rounded-2xl border border-slate-200/60 bg-white/90 p-8 shadow-lg transition dark:border-white/10 dark:bg-white/5">
-              <h3 className="text-lg font-medium text-indigo-900 dark:text-indigo-100">Design commitments</h3>
-              <ul className="mt-4 space-y-4 text-sm text-slate-600 dark:text-slate-300/90">
-                <li>
-                  <strong className="font-semibold text-slate-900 dark:text-slate-100">Client-held secrets.</strong> No password resets and no recovery
-                  flow—losing the private key is equivalent to losing identity.
-                </li>
-                <li>
-                  <strong className="font-semibold text-slate-900 dark:text-slate-100">Provable integrity.</strong> All API requests are signed and
-                  replay-protected with monotonic nonces and timestamp validation.
-                </li>
-                <li>
-                  <strong className="font-semibold text-slate-900 dark:text-slate-100">Composable policies.</strong> Burn-after-reading, retention windows,
-                  webhook attestations, and Tor-only access can be layered without metadata leakage.
-                </li>
-                <li>
-                  <strong className="font-semibold text-slate-900 dark:text-slate-100">Observability without surveillance.</strong> Metrics focus on latency
-                  and success rates—no user-level analytics or IP logging.
-                </li>
-              </ul>
             </div>
           </section>
 
@@ -344,13 +322,13 @@ export const AboutPage = () => {
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-800/50">
                     <span className="text-lg">🔐</span>
                   </div>
-                  <h3 className="font-semibold text-indigo-900 dark:text-indigo-100">Post-Quantum Crypto</h3>
+                  <h3 className="font-semibold text-indigo-900 dark:text-indigo-100">Post-Quantum Hybrid</h3>
                 </div>
                 <p className="text-sm text-indigo-800 dark:text-indigo-200 mb-3">
-                  Kyber KEM and Dilithium signatures for quantum-resistant key exchange and authentication.
+                  Kyber KEM + AES-256-GCM hybrid encryption providing quantum-resistant key exchange with proven symmetric encryption.
                 </p>
                 <div className="text-xs text-indigo-700 dark:text-indigo-300">
-                  <strong>Benefits:</strong> Future-proof against quantum computing threats
+                  <strong>Status:</strong> Implemented - Ready for production use
                 </div>
               </div>
 

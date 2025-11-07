@@ -37,6 +37,7 @@ const encryptionOptions: Array<{ label: string; value: EncryptionAlgorithm }> = 
   { label: 'AES-256-GCM', value: 'aes256_gcm' },
   { label: 'ChaCha20-Poly1305', value: 'chacha20_poly1305' },
   { label: 'XChaCha20-Poly1305', value: 'xchacha20_poly1305' },
+  { label: 'Kyber Hybrid AES-256-GCM (Post-Quantum)', value: 'kyber_hybrid_aes256_gcm' },
 ]
 
 const BUILTIN_STEGO_CARRIERS: Array<{ id: string; name: string; description: string }> = [

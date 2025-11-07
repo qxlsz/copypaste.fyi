@@ -76,6 +76,7 @@ pub fn render_paste_view(
             EncryptionAlgorithm::Aes256Gcm => "AES-256-GCM".to_string(),
             EncryptionAlgorithm::ChaCha20Poly1305 => "ChaCha20-Poly1305".to_string(),
             EncryptionAlgorithm::XChaCha20Poly1305 => "XChaCha20-Poly1305".to_string(),
+            EncryptionAlgorithm::KyberHybridAes256Gcm => "Kyber Hybrid AES-256-GCM".to_string(),
         },
     };
 

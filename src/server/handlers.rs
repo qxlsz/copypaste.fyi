@@ -977,7 +977,8 @@ async fn resolve_content(
             }),
             EncryptionAlgorithm::Aes256Gcm
             | EncryptionAlgorithm::ChaCha20Poly1305
-            | EncryptionAlgorithm::XChaCha20Poly1305 => {
+            | EncryptionAlgorithm::XChaCha20Poly1305
+            | EncryptionAlgorithm::KyberHybridAes256Gcm => {
                 encrypt_content(&body.content, &enc.key, algorithm)
                     .await
                     .map_err(|e| (Status::BadRequest, e))

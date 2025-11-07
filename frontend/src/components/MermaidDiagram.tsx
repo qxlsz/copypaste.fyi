@@ -110,7 +110,7 @@ export const MermaidDiagram = ({
           id={id}
           role="img"
           aria-label={ariaLabel ?? title ?? 'Architecture diagram'}
-          className={`w-full overflow-x-auto rounded-2xl border border-indigo-100/80 bg-white/95 p-0 shadow-inner transition-all duration-300 dark:border-indigo-400/30 dark:bg-slate-950/40 ${hasRendered ? 'group-open:p-6 group-open:min-h-[360px]' : 'animate-pulse'}`}
+          className={`w-full overflow-x-auto rounded-2xl border border-indigo-100/80 bg-white/95 p-0 shadow-inner transition-all duration-300 dark:border-indigo-400/30 dark:bg-slate-950/40 ${hasRendered ? 'group-open:p-6 group-open:min-h-[600px]' : 'animate-pulse'}`}
         />
       </div>
     </details>

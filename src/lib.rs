@@ -63,6 +63,8 @@ pub enum EncryptionAlgorithm {
     ChaCha20Poly1305,
     #[serde(rename = "xchacha20_poly1305")]
     XChaCha20Poly1305,
+    #[serde(rename = "kyber_hybrid_aes256_gcm")]
+    KyberHybridAes256Gcm,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
