@@ -75,7 +75,7 @@ export const useAuth = create<AuthState>()(
           let privkeyBytes: Uint8Array
           
           switch (format) {
-            case 'hex':
+            case 'hex': {
               // Remove 0x prefix if present and validate hex
               const hexData = keyData.replace(/^0x/, '')
               if (!/^[0-9a-fA-F]{64}$/.test(hexData)) {
@@ -83,16 +83,18 @@ export const useAuth = create<AuthState>()(
               }
               privkeyBytes = new Uint8Array(hexData.match(/.{2}/g)!.map(byte => parseInt(byte, 16)))
               break
+            }
               
-            case 'base64':
+            case 'base64': {
               try {
                 privkeyBytes = new Uint8Array(atob(keyData).split('').map(c => c.charCodeAt(0)))
-              } catch (error) {
+              } catch (_error) {
                 throw new Error('Invalid base64 format')
               }
               break
+            }
               
-            case 'pem':
+            case 'pem': {
               // Basic PEM parsing for Ed25519 private keys
               const pemMatch = keyData.match(/-----BEGIN (?:.* )?PRIVATE KEY-----([\s\S]*?)-----END (?:.* )?PRIVATE KEY-----/)
               if (!pemMatch) {
@@ -107,19 +109,21 @@ export const useAuth = create<AuthState>()(
                 } else {
                   throw new Error('PEM key too short')
                 }
-              } catch (error) {
+              } catch (_error) {
                 throw new Error('Failed to decode PEM body')
               }
               break
+            }
               
-            case 'raw':
+            case 'raw': {
               // Raw binary data as base64
               try {
                 privkeyBytes = new Uint8Array(atob(keyData).split('').map(c => c.charCodeAt(0)))
-              } catch (error) {
+              } catch (_error) {
                 throw new Error('Invalid raw key format')
               }
               break
+            }
               
             default:
               throw new Error(`Unsupported key format: ${format}`)
@@ -139,7 +143,7 @@ export const useAuth = create<AuthState>()(
               pubkey: btoa(String.fromCharCode(...pubkey)),
               privkey: btoa(String.fromCharCode(...privkeyBytes)),
             }
-          } catch (error) {
+          } catch (_error) {
             throw new Error('Invalid Ed25519 private key')
           }
           
