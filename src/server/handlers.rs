@@ -12,6 +12,7 @@ use rocket::http::Status;
 use rocket::response::content;
 use rocket::serde::json::Json;
 use rocket::{get, post, routes, Build, Rocket, State};
+use serde_json;
 use sha2::{Digest, Sha256};
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -58,6 +59,9 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 create,
                 create_api,
                 anchor_api,
+                api_test,
+                api_echo,
+                show_api,
                 show,
                 show_raw,
                 stats_summary_api,
@@ -287,6 +291,72 @@ async fn anchor_api(
     };
 
     Ok(Json(response))
+}
+
+// Test API route
+#[get("/api/test", rank = 1)]
+async fn api_test() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"message": "API test successful"}))
+}
+
+// Test API route with parameter
+#[get("/api/echo/<id>", rank = 1)]
+async fn api_echo(id: String) -> Json<serde_json::Value> {
+    Json(serde_json::json!({"echo": id}))
+}
+
+// Simple JSON API for paste viewing
+#[get("/api/pastes/<id>?<query..>", rank = 1)]
+async fn show_api(
+    store: &State<SharedPasteStore>,
+    id: String,
+    query: PasteViewQuery,
+) -> Result<Json<serde_json::Value>, Status> {
+    rocket::info!(
+        "show_api called with id: {} and query.key: {:?}",
+        id,
+        query.key
+    );
+    match store.get_paste(&id).await {
+        Ok(paste) => {
+            rocket::info!("Paste found for id: {}", id);
+            match decrypt_content(&paste.content, query.key.as_deref()) {
+                Ok(text) => {
+                    rocket::info!(
+                        "Decryption successful for id: {}, content length: {}",
+                        id,
+                        text.len()
+                    );
+                    let response = serde_json::json!({
+                        "id": id,
+                        "content": text,
+                        "format": format!("{:?}", paste.format).to_lowercase(),
+                        "created_at": paste.created_at,
+                        "expires_at": paste.expires_at,
+                        "burn_after_reading": paste.burn_after_reading,
+                        "encryption": match &paste.content {
+                            StoredContent::Plain { .. } => serde_json::json!({"algorithm": "none", "requires_key": false}),
+                            StoredContent::Encrypted { algorithm, .. } | StoredContent::Stego { algorithm, .. } =>
+                                serde_json::json!({"algorithm": format!("{:?}", algorithm).to_lowercase(), "requires_key": true}),
+                        }
+                    });
+                    Ok(Json(response))
+                }
+                Err(DecryptError::MissingKey) => {
+                    rocket::info!("Missing key for encrypted paste: {}", id);
+                    Err(Status::Unauthorized)
+                }
+                Err(DecryptError::InvalidKey) => {
+                    rocket::error!("Invalid key for paste: {}", id);
+                    Err(Status::Forbidden)
+                }
+            }
+        }
+        Err(e) => {
+            rocket::error!("Paste not found for id: {}, error: {:?}", id, e);
+            Err(Status::NotFound)
+        }
+    }
 }
 
 pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {

@@ -208,6 +208,114 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
             ..
         } => {
             let extracted_key = key.ok_or(DecryptError::MissingKey)?;
+            log::info!("Starting decryption for algorithm: {:?}", algorithm);
+
+            // Handle Kyber algorithm first - it doesn't use base64 encoding for storage
+            if matches!(algorithm, EncryptionAlgorithm::KyberHybridAes256Gcm) {
+                // Kyber hybrid uses a different storage format, bypass normal decryption
+                let key_str = extracted_key;
+
+                log::info!(
+                    "Starting Kyber decryption for key length: {}",
+                    key_str.len()
+                );
+
+                // For Kyber, ciphertext is stored as the combined string directly (not base64 encoded)
+                // Parse hybrid ciphertext: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
+                let ciphertext_str = ciphertext; // Use the stored string directly
+                log::debug!("Ciphertext string length: {}", ciphertext_str.len());
+
+                let parts: Vec<&str> = ciphertext_str.split('|').collect();
+                log::debug!("Parsed {} parts from ciphertext", parts.len());
+
+                if parts.len() != 5 {
+                    log::error!("Expected 5 parts in Kyber ciphertext, got {}", parts.len());
+                    return Err(DecryptError::InvalidKey);
+                }
+
+                let _pq_ciphertext_b64 = parts[0]; // Not used in simulation
+                let _pq_public_key_b64 = parts[1]; // Not used in simulation
+                let aes_ciphertext_b64 = parts[2];
+                let aes_nonce_b64 = parts[3];
+                let pq_private_key_b64 = parts[4];
+
+                log::debug!("AES ciphertext b64 length: {}", aes_ciphertext_b64.len());
+                log::debug!("AES nonce b64 length: {}", aes_nonce_b64.len());
+                log::debug!("PQ private key b64 length: {}", pq_private_key_b64.len());
+
+                // Decode AES components
+                let aes_ciphertext = general_purpose::STANDARD
+                    .decode(aes_ciphertext_b64)
+                    .map_err(|e| {
+                        log::error!("Failed to decode AES ciphertext: {}", e);
+                        DecryptError::InvalidKey
+                    })?;
+                let aes_nonce_bytes =
+                    general_purpose::STANDARD
+                        .decode(aes_nonce_b64)
+                        .map_err(|e| {
+                            log::error!("Failed to decode AES nonce: {}", e);
+                            DecryptError::InvalidKey
+                        })?;
+                let pq_private_key = general_purpose::STANDARD
+                    .decode(pq_private_key_b64)
+                    .map_err(|e| {
+                        log::error!("Failed to decode PQ private key: {}", e);
+                        DecryptError::InvalidKey
+                    })?;
+
+                log::debug!("Decoded components - AES ciphertext: {} bytes, nonce: {} bytes, PQ private key: {} bytes",
+                          aes_ciphertext.len(), aes_nonce_bytes.len(), pq_private_key.len());
+
+                // Simulate PQ KEM decapsulation (in real PQ, this would use Kyber)
+                // Generate the same shared secret using the stored private key
+                let mut shared_secret = [0u8; 32];
+                let mut hasher = Sha256::new();
+                hasher.update(&pq_private_key);
+                hasher.update(&aes_nonce_bytes); // Use nonce as additional entropy
+                shared_secret.copy_from_slice(&hasher.finalize());
+
+                log::debug!("Generated shared secret");
+
+                // Recreate the AES key (same as encryption)
+                let mut key_hasher = Sha256::new();
+                key_hasher.update(shared_secret);
+                key_hasher.update(key_str.as_bytes());
+                let aes_key = key_hasher.finalize();
+
+                log::debug!("Generated AES key");
+
+                // Decrypt with AES-GCM
+                let cipher = Aes256Gcm::new_from_slice(&aes_key).map_err(|e| {
+                    log::error!("Failed to create AES cipher: {:?}", e);
+                    DecryptError::InvalidKey
+                })?;
+                let nonce_array: [u8; 12] = aes_nonce_bytes.clone().try_into().map_err(|_| {
+                    log::error!(
+                        "Invalid nonce length: {}, expected 12",
+                        aes_nonce_bytes.len()
+                    );
+                    DecryptError::InvalidKey
+                })?;
+                let nonce = AesNonce::from(nonce_array);
+
+                log::debug!("Starting AES decryption");
+
+                return cipher
+                    .decrypt(&nonce, aes_ciphertext.as_ref())
+                    .map_err(|e| {
+                        log::error!("AES decryption failed: {:?}", e);
+                        DecryptError::InvalidKey
+                    })
+                    .and_then(|bytes| {
+                        String::from_utf8(bytes).map_err(|e| {
+                            log::error!("UTF-8 conversion failed: {:?}", e);
+                            DecryptError::InvalidKey
+                        })
+                    });
+            }
+
+            // Normal algorithms that use base64 encoding
             let salt_bytes = general_purpose::STANDARD
                 .decode(salt)
                 .map_err(|_| DecryptError::InvalidKey)?;
@@ -270,62 +378,8 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         })
                 }
                 EncryptionAlgorithm::KyberHybridAes256Gcm => {
-                    // Kyber hybrid uses a different storage format, bypass normal decryption
-                    let key_str = extracted_key;
-
-                    // Parse hybrid ciphertext: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
-                    let ciphertext_str =
-                        std::str::from_utf8(&cipher_bytes).map_err(|_| DecryptError::InvalidKey)?;
-                    let parts: Vec<&str> = ciphertext_str.split('|').collect();
-                    if parts.len() != 5 {
-                        return Err(DecryptError::InvalidKey);
-                    }
-
-                    let _pq_ciphertext_b64 = parts[0]; // Not used in simulation
-                    let _pq_public_key_b64 = parts[1]; // Not used in simulation
-                    let aes_ciphertext_b64 = parts[2];
-                    let aes_nonce_b64 = parts[3];
-                    let pq_private_key_b64 = parts[4];
-
-                    // Decode AES components
-                    let aes_ciphertext = general_purpose::STANDARD
-                        .decode(aes_ciphertext_b64)
-                        .map_err(|_| DecryptError::InvalidKey)?;
-                    let aes_nonce_bytes = general_purpose::STANDARD
-                        .decode(aes_nonce_b64)
-                        .map_err(|_| DecryptError::InvalidKey)?;
-                    let pq_private_key = general_purpose::STANDARD
-                        .decode(pq_private_key_b64)
-                        .map_err(|_| DecryptError::InvalidKey)?;
-
-                    // Simulate PQ KEM decapsulation (in real PQ, this would use Kyber)
-                    // Generate the same shared secret using the stored private key
-                    let mut shared_secret = [0u8; 32];
-                    let mut hasher = Sha256::new();
-                    hasher.update(&pq_private_key);
-                    hasher.update(&aes_nonce_bytes); // Use nonce as additional entropy
-                    shared_secret.copy_from_slice(&hasher.finalize());
-
-                    // Recreate the AES key (same as encryption)
-                    let mut key_hasher = Sha256::new();
-                    key_hasher.update(shared_secret);
-                    key_hasher.update(key_str.as_bytes());
-                    let aes_key = key_hasher.finalize();
-
-                    // Decrypt with AES-GCM
-                    let cipher = Aes256Gcm::new_from_slice(&aes_key)
-                        .map_err(|_| DecryptError::InvalidKey)?;
-                    let nonce_array: [u8; 12] = aes_nonce_bytes
-                        .try_into()
-                        .map_err(|_| DecryptError::InvalidKey)?;
-                    let nonce = AesNonce::from(nonce_array);
-
-                    cipher
-                        .decrypt(&nonce, aes_ciphertext.as_ref())
-                        .map_err(|_| DecryptError::InvalidKey)
-                        .and_then(|bytes| {
-                            String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey)
-                        })
+                    // This should never be reached due to early return above
+                    Err(DecryptError::InvalidKey)
                 }
             }
         }
