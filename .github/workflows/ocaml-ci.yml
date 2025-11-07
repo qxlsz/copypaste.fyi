@@ -31,6 +31,7 @@ jobs:
         working-directory: ocaml-crypto-verifier
         run: |
           opam install . --deps-only --yes --with-test
+          opam install dune --yes
 
       - name: Build
         working-directory: ocaml-crypto-verifier
