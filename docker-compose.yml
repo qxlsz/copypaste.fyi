@@ -14,3 +14,17 @@ services:
     volumes:
       - ./static:/app/static
     restart: unless-stopped
+    depends_on:
+      - crypto-verifier
+
+  crypto-verifier:
+    build:
+      context: ./ocaml-crypto-verifier
+      dockerfile: Dockerfile
+    image: copypaste-crypto-verifier:latest
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - HOST=0.0.0.0
+    restart: unless-stopped

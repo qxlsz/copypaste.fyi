@@ -2,6 +2,7 @@ use copypaste::server::handlers;
 
 #[rocket::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
     handlers::launch().await
 }
 
@@ -105,6 +106,7 @@ mod tests {
             "super-secret",
             EncryptionAlgorithm::Aes256Gcm,
         )
+        .await
         .expect("encryption successful");
 
         let metadata = PasteMetadata::default();
@@ -199,40 +201,44 @@ mod tests {
         assert!(ok_html.contains("attested"));
     }
 
-    #[test]
-    fn encrypt_then_decrypt_roundtrip() {
+    #[rocket::async_test]
+    async fn encrypt_then_decrypt_roundtrip() {
         let key = "correct horse battery staple";
-        let stored =
-            encrypt_content("super secret", key, EncryptionAlgorithm::Aes256Gcm).expect("encrypt");
+        let stored = encrypt_content("super secret", key, EncryptionAlgorithm::Aes256Gcm)
+            .await
+            .expect("encrypt");
         let decrypted = decrypt_content(&stored, Some(key)).expect("decrypt");
         assert_eq!(decrypted, "super secret");
     }
 
-    #[test]
-    fn chacha_roundtrip() {
+    #[rocket::async_test]
+    async fn chacha_roundtrip() {
         let key = "tachyon-vector-2048";
         let stored = encrypt_content("ghost signal", key, EncryptionAlgorithm::ChaCha20Poly1305)
+            .await
             .expect("encrypt");
         let decrypted = decrypt_content(&stored, Some(key)).expect("decrypt");
         assert_eq!(decrypted, "ghost signal");
     }
 
-    #[test]
-    fn xchacha_roundtrip() {
+    #[rocket::async_test]
+    async fn xchacha_roundtrip() {
         let key = "tachyon-subroutine-7331";
         let stored = encrypt_content("link shell", key, EncryptionAlgorithm::XChaCha20Poly1305)
+            .await
             .expect("encrypt");
         let decrypted = decrypt_content(&stored, Some(key)).expect("decrypt");
         assert_eq!(decrypted, "link shell");
     }
 
-    #[test]
-    fn decrypt_requires_key_for_encrypted_content() {
+    #[rocket::async_test]
+    async fn decrypt_requires_key_for_encrypted_content() {
         let stored = encrypt_content(
             "classified",
             "moonbase",
             EncryptionAlgorithm::XChaCha20Poly1305,
         )
+        .await
         .expect("encrypt");
         match decrypt_content(&stored, None) {
             Err(DecryptError::MissingKey) => {}

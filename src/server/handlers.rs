@@ -556,7 +556,7 @@ async fn create_paste_internal(
         metadata.webhook = Some(webhook_config_from_request(webhook)?);
     }
 
-    let mut content = resolve_content(&body, format)?;
+    let mut content = resolve_content(&body, format).await?;
 
     let mut bundle_children: Vec<BundlePointer> = Vec::new();
 
@@ -578,6 +578,7 @@ async fn create_paste_internal(
 
             for child in &bundle.children {
                 let encrypted_child = encrypt_content(&child.content, &enc.key, enc.algorithm)
+                    .await
                     .map_err(|e| {
                         (
                             Status::BadRequest,
@@ -958,7 +959,7 @@ fn webhook_config_from_request(
     })
 }
 
-fn resolve_content(
+async fn resolve_content(
     body: &CreatePasteRequest,
     _base_format: PasteFormat,
 ) -> Result<StoredContent, (Status, String)> {
@@ -972,6 +973,7 @@ fn resolve_content(
             | EncryptionAlgorithm::ChaCha20Poly1305
             | EncryptionAlgorithm::XChaCha20Poly1305 => {
                 encrypt_content(&body.content, &enc.key, algorithm)
+                    .await
                     .map_err(|e| (Status::BadRequest, e))
             }
         }

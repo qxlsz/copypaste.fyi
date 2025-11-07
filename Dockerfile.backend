@@ -1,6 +1,7 @@
 # Backend-only Dockerfile for Fly.io deployments
+# Now includes both Rust backend and OCaml crypto verifier
 
-FROM rust:1.84 AS builder
+FROM rust:1.84 AS rust-builder
 WORKDIR /app
 
 RUN apt-get update \
@@ -18,6 +19,24 @@ COPY blockchain ./blockchain
 
 RUN cargo build --release --locked --bin copypaste
 
+# OCaml builder stage
+FROM ocaml/opam:debian-12-ocaml-5.2 AS ocaml-builder
+
+# Install system dependencies
+RUN sudo apt-get update && sudo apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && sudo rm -rf /var/lib/apt/lists/*
+
+# Copy OCaml source
+WORKDIR /app/ocaml-crypto-verifier
+COPY ocaml-crypto-verifier/ ./
+
+# Build the OCaml application
+RUN opam install . --deps-only --yes
+RUN opam exec -- dune build @install
+
+# Runtime stage
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
@@ -25,13 +44,36 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/copypaste /usr/local/bin/copypaste
-COPY --from=builder /app/static ./static
-COPY --from=builder /app/docs ./docs
-COPY --from=builder /app/blockchain ./blockchain
+# Copy Rust binary
+COPY --from=rust-builder /app/target/release/copypaste /usr/local/bin/copypaste
+
+# Copy OCaml binary
+COPY --from=ocaml-builder /app/ocaml-crypto-verifier/_build/install/default/bin/server /usr/local/bin/crypto-verifier
+
+# Copy static assets
+COPY --from=rust-builder /app/static ./static
+COPY --from=rust-builder /app/docs ./docs
+COPY --from=rust-builder /app/blockchain ./blockchain
+
+# Create a startup script to run both services
+RUN echo '#!/bin/bash\n\
+# Start OCaml crypto verifier in background\n\
+crypto-verifier &\n\
+CRYPTO_PID=$!\n\
+\n\
+# Start Rust backend in foreground\n\
+copypaste &\n\
+RUST_PID=$!\n\
+\n\
+# Wait for any process to exit\n\
+wait -n\n\
+\n\
+# Exit with the status of the process that exited first\n\
+exit $?\n\
+' > /usr/local/bin/start-services.sh && chmod +x /usr/local/bin/start-services.sh
 
 ENV ROCKET_ADDRESS=0.0.0.0
 ENV ROCKET_PORT=8000
-EXPOSE 8000
+EXPOSE 8000 8001
 
-CMD ["copypaste"]
+CMD ["/usr/local/bin/start-services.sh"]

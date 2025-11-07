@@ -13,6 +13,7 @@ primary_region = 'iad'
   ROCKET_ADDRESS = '0.0.0.0'
   ROCKET_PORT = '8000'
   RUST_LOG = 'info'
+  CRYPTO_VERIFIER_URL = 'http://localhost:8001'
 
 [http_service]
   internal_port = 8000
@@ -21,6 +22,18 @@ primary_region = 'iad'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
+
+[[http_service]]
+  internal_port = 8001
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['crypto-verifier']
+
+[processes]
+  app = 'copypaste'
+  crypto-verifier = 'crypto-verifier'
 
 [[vm]]
   size = 'shared-cpu-1x'
