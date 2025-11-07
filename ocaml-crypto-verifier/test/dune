@@ -2,5 +2,4 @@
  (name crypto_verifier_test)
  (libraries
    crypto_verifier
-   ounit2)
- (preprocess (pps ppx_deriving_yojson)))
+   ounit2))
