@@ -2,7 +2,7 @@ type verification_result = {
   valid: bool;
   details: string;
   timestamp: float;
-} [@@deriving yojson]
+}
 
 type encryption_verification = {
   algorithm: string;
@@ -11,14 +11,14 @@ type encryption_verification = {
   key: string;
   nonce: string option;
   aad: string option;
-} [@@deriving yojson]
+}
 
 type signature_verification = {
   algorithm: string;
   message: string;
   signature: string;
   public_key: string;
-} [@@deriving yojson]
+}
 
 exception Verification_error of string
 

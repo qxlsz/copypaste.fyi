@@ -3,6 +3,5 @@
  (public_name crypto_verifier.lib)
  (libraries
    mirage-crypto-rng
-   yojson
-   ppx_deriving_yojson)
- (preprocess (pps ppx_deriving_yojson)))
+   yojson)
+ )
