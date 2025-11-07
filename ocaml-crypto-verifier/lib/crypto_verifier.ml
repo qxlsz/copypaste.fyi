@@ -1,5 +1,3 @@
-open Mirage_crypto_rng
-
 type verification_result = {
   valid: bool;
   details: string;

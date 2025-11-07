@@ -134,14 +134,33 @@ pub async fn encrypt_content(
             // Generate a simulated PQ public/private keypair (32 bytes each)
             let mut pq_public_key = [0u8; 32];
             let mut pq_private_key = [0u8; 32];
-            OsRng.fill_bytes(&mut pq_public_key);
-            OsRng.fill_bytes(&mut pq_private_key);
+            // Use deterministic key generation based on the user key for testing
+            let mut key_hasher = Sha256::new();
+            key_hasher.update(b"pq_public_key");
+            key_hasher.update(key.as_bytes());
+            let hash = key_hasher.finalize();
+            pq_public_key.copy_from_slice(&hash[..32]);
 
-            // Simulate PQ KEM encapsulation
+            let mut key_hasher = Sha256::new();
+            key_hasher.update(b"pq_private_key");
+            key_hasher.update(key.as_bytes());
+            let hash = key_hasher.finalize();
+            pq_private_key.copy_from_slice(&hash[..32]);
+
+            // Simulate PQ KEM encapsulation - use deterministic values
             let mut kem_shared_secret = [0u8; 32];
             let mut kem_ciphertext = [0u8; 64];
-            OsRng.fill_bytes(&mut kem_shared_secret);
-            OsRng.fill_bytes(&mut kem_ciphertext);
+            let mut secret_hasher = Sha256::new();
+            secret_hasher.update(b"kem_shared_secret");
+            secret_hasher.update(key.as_bytes());
+            kem_shared_secret.copy_from_slice(&secret_hasher.finalize()[..32]);
+
+            let mut cipher_hasher = Sha256::new();
+            cipher_hasher.update(b"kem_ciphertext");
+            cipher_hasher.update(key.as_bytes());
+            let hash = cipher_hasher.finalize();
+            kem_ciphertext[..32].copy_from_slice(&hash);
+            kem_ciphertext[32..].copy_from_slice(&hash);
 
             // Generate AES nonce
             let mut nonce_bytes = [0u8; 12];
@@ -278,14 +297,14 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                 log::debug!("Decoded components - AES ciphertext: {} bytes, nonce: {} bytes, PQ private key: {} bytes",
                           aes_ciphertext.len(), aes_nonce.len(), pq_private_key.len());
 
-                // Simulate PQ KEM decapsulation (same as encryption simulation)
+                // Simulate PQ KEM decapsulation (same deterministic approach as encryption)
                 let mut shared_secret = [0u8; 32];
-                let mut hasher = Sha256::new();
-                hasher.update(&pq_private_key);
-                hasher.update(&aes_nonce);
-                shared_secret.copy_from_slice(&hasher.finalize());
+                let mut secret_hasher = Sha256::new();
+                secret_hasher.update(b"kem_shared_secret");
+                secret_hasher.update(key_str.as_bytes());
+                shared_secret.copy_from_slice(&secret_hasher.finalize()[..32]);
 
-                log::debug!("Generated shared secret");
+                log::debug!("Generated shared secret using deterministic simulation");
 
                 // Recreate the AES key (same as encryption)
                 let mut key_hasher = Sha256::new();

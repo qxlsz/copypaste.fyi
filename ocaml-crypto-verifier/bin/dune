@@ -7,6 +7,5 @@
    cohttp
    lwt
    yojson
-   logs.fmt
-   logs.lwt)
+   logs.fmt)
  (preprocess (pps ppx_deriving_yojson)))
