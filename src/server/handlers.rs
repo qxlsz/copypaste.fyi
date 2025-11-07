@@ -14,6 +14,9 @@ use rocket::serde::json::Json;
 use rocket::{get, post, routes, Build, Rocket, State};
 use sha2::{Digest, Sha256};
 
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use rand::Rng;
+
 use super::attestation::{self, AttestationVerdict};
 use super::blockchain::{
     default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
@@ -23,10 +26,12 @@ use super::bundles::build_bundle_overview;
 use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    AnchorRequest, AnchorResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
+    AnchorRequest, AnchorResponse, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse,
+    AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
     PasteEncryptionInfo, PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery,
     PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, StegoRequest,
-    TimeLockRequest, WebhookRequest,
+    TimeLockRequest, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
+    WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -57,7 +62,12 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 show,
                 show_api,
                 show_raw,
-                stats_summary_api
+                stats_summary_api,
+                auth_challenge_api,
+                auth_login_api,
+                auth_logout_api,
+                user_paste_count_api,
+                user_paste_list_api
             ],
         )
         .mount("/static", FileServer::from("static"))
@@ -73,6 +83,149 @@ async fn stats_summary_api(
     }
     let stats = store.stats().await;
     Json(stats.into())
+}
+
+#[get("/api/auth/challenge")]
+async fn auth_challenge_api() -> Json<AuthChallengeResponse> {
+    let challenge = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect::<String>();
+    Json(AuthChallengeResponse { challenge })
+}
+
+#[post("/api/auth/login", data = "<body>")]
+async fn auth_login_api(
+    body: Json<AuthLoginRequest>,
+) -> Result<Json<AuthLoginResponse>, (Status, String)> {
+    let body = body.into_inner();
+
+    // Decode pubkey and signature
+    let pubkey_bytes: [u8; 32] = BASE64_STANDARD
+        .decode(&body.pubkey)
+        .map_err(|_| (Status::BadRequest, "Invalid pubkey encoding".to_string()))?
+        .try_into()
+        .map_err(|_| (Status::BadRequest, "Invalid pubkey length".to_string()))?;
+    let pubkey = VerifyingKey::from_bytes(&pubkey_bytes)
+        .map_err(|_| (Status::BadRequest, "Invalid pubkey".to_string()))?;
+
+    let signature_bytes: [u8; 64] = BASE64_STANDARD
+        .decode(&body.signature)
+        .map_err(|_| (Status::BadRequest, "Invalid signature encoding".to_string()))?
+        .try_into()
+        .map_err(|_| (Status::BadRequest, "Invalid signature length".to_string()))?;
+    let signature = Signature::from_bytes(&signature_bytes);
+
+    // Verify signature
+    pubkey
+        .verify(body.challenge.as_bytes(), &signature)
+        .map_err(|_| {
+            (
+                Status::Unauthorized,
+                "Signature verification failed".to_string(),
+            )
+        })?;
+
+    // Compute pubkey hash
+    let mut hasher = Sha256::new();
+    hasher.update(pubkey_bytes);
+    let pubkey_hash = format!("{:x}", hasher.finalize());
+
+    // Generate session token (simple random for now)
+    let token = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect::<String>();
+
+    // TODO: Store token with pubkey_hash for session validation
+
+    Ok(Json(AuthLoginResponse { token, pubkey_hash }))
+}
+
+#[post("/api/auth/logout")]
+async fn auth_logout_api() -> Json<AuthLogoutResponse> {
+    // For now, logout is stateless - just return success
+    // In the future, this could invalidate server-side sessions if implemented
+    Json(AuthLogoutResponse { success: true })
+}
+
+#[get("/api/user/paste-count?<pubkey_hash>")]
+async fn user_paste_count_api(
+    store: &State<SharedPasteStore>,
+    pubkey_hash: String,
+    onion: OnionAccess,
+) -> Json<UserPasteCountResponse> {
+    if onion.suppress_logs() {
+        rocket::info!("user paste count accessed via onion host");
+    }
+
+    // Count pastes owned by this user
+    let all_pastes = store.get_all_paste_ids().await;
+    let mut count = 0;
+
+    for id in all_pastes {
+        if let Ok(paste) = store.get_paste(&id).await {
+            if let Some(owner_hash) = &paste.metadata.owner_pubkey_hash {
+                if owner_hash == &pubkey_hash {
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    Json(UserPasteCountResponse { paste_count: count })
+}
+
+#[get("/api/user/pastes?<pubkey_hash>")]
+async fn user_paste_list_api(
+    store: &State<SharedPasteStore>,
+    pubkey_hash: String,
+    onion: OnionAccess,
+) -> Json<UserPasteListResponse> {
+    if onion.suppress_logs() {
+        rocket::info!("user paste list accessed via onion host");
+    }
+
+    // Get all pastes owned by this user
+    let all_pastes = store.get_all_paste_ids().await;
+    let mut user_pastes = Vec::new();
+
+    for id in all_pastes {
+        if let Ok(paste) = store.get_paste(&id).await {
+            if let Some(owner_hash) = &paste.metadata.owner_pubkey_hash {
+                if owner_hash == &pubkey_hash {
+                    let retention_minutes = paste.expires_at.map(|exp| {
+                        let now = current_timestamp();
+                        if exp > now {
+                            (exp - now) / 60
+                        } else {
+                            0
+                        }
+                    });
+
+                    user_pastes.push(UserPasteListItem {
+                        id: id.clone(),
+                        url: format!("/{}", id),
+                        created_at: paste.created_at,
+                        expires_at: paste.expires_at,
+                        retention_minutes,
+                        burn_after_reading: paste.burn_after_reading,
+                        format: format!("{:?}", paste.format).to_lowercase(),
+                        access_count: paste.metadata.access_count,
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort by created_at descending (newest first)
+    user_pastes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    Json(UserPasteListResponse {
+        pastes: user_pastes,
+    })
 }
 
 #[post("/api/pastes/<id>/anchor", data = "<body>")]
@@ -198,8 +351,21 @@ async fn show_api(
                         }
                     }
 
-                    let metadata = &paste.metadata;
-                    let encryption = match &paste.content {
+                    // Freemium enforcement: 100 views per paste for owned pastes
+                    if let Some(_owner) = &paste.metadata.owner_pubkey_hash {
+                        if paste.metadata.access_count >= 100 {
+                            return Err((Status::TooManyRequests, "Freemium limit exceeded: 100 views per paste. Upgrade for unlimited access.".to_string()));
+                        }
+                    }
+
+                    // Increment access count
+                    let mut updated_paste = paste.clone();
+                    updated_paste.metadata.access_count += 1;
+                    // TODO: Update in persistent store
+                    // For now, access counts are ephemeral
+                    // Use updated_paste for response
+                    let metadata = &updated_paste.metadata;
+                    let encryption = match &updated_paste.content {
                         StoredContent::Plain { .. } => PasteEncryptionInfo {
                             algorithm: EncryptionAlgorithm::None,
                             requires_key: false,
@@ -265,7 +431,7 @@ async fn show_api(
                         provider: config.provider.clone(),
                     });
 
-                    let stego = match &paste.content {
+                    let stego = match &updated_paste.content {
                         StoredContent::Stego {
                             carrier_mime,
                             carrier_image,
@@ -281,14 +447,14 @@ async fn show_api(
 
                     let response = PasteViewResponse {
                         id,
-                        format: paste.format,
+                        format: updated_paste.format,
                         content: text,
-                        created_at: paste.created_at,
-                        expires_at: paste.expires_at,
-                        burn_after_reading: paste.burn_after_reading,
+                        created_at: updated_paste.created_at,
+                        expires_at: updated_paste.expires_at,
+                        burn_after_reading: updated_paste.burn_after_reading,
                         bundle: metadata.bundle.clone(),
                         encryption,
-                        tor_access_only: paste.metadata.tor_access_only,
+                        tor_access_only: updated_paste.metadata.tor_access_only,
                         stego,
                         time_lock,
                         attestation,
@@ -359,6 +525,8 @@ async fn create_paste_internal(
 
     let mut metadata = PasteMetadata {
         tor_access_only: body.tor_access_only,
+        owner_pubkey_hash: body.owner_pubkey_hash.clone(),
+        access_count: 0,
         ..PasteMetadata::default()
     };
 

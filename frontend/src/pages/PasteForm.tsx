@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { createPaste } from '../api/client'
 import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat, StegoRequest } from '../api/types'
 import { MonacoEditor } from '../components/editor/MonacoEditor'
+import { useAuth } from '../stores/auth'
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
   { label: 'Plain text', value: 'plain_text' },
@@ -53,6 +54,7 @@ const PASS_NOUNS = ['otter', 'phoenix', 'nebula', 'flux', 'cipher', 'tachyon', '
 const PASS_SUFFIXES = ['42', '9000', '1337', '7g', 'mk2', 'ix', 'hyperlane', 'vortex']
 
 export const PasteFormPage = () => {
+  const { user } = useAuth()
   const [content, setContent] = useState('')
   const [format, setFormat] = useState<PasteFormat>('plain_text')
   const [retentionMinutes, setRetentionMinutes] = useState<number>(0)
@@ -106,6 +108,7 @@ export const PasteFormPage = () => {
         format,
         retention_minutes: retentionMinutes || undefined,
         burn_after_reading: burnAfterReading || undefined,
+        owner_pubkey_hash: user?.pubkeyHash,
       }
 
       if (encryption !== 'none') {

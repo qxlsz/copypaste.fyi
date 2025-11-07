@@ -54,6 +54,7 @@ export interface CreatePastePayload {
     view_template?: string
     burn_template?: string
   }
+  owner_pubkey_hash?: string
 }
 
 export interface CreatePasteResponse {
@@ -64,6 +65,15 @@ export interface CreatePasteResponse {
 export type StegoRequest =
   | { mode: 'builtin'; carrier: string }
   | { mode: 'uploaded'; data_uri: string }
+
+export interface AuthChallengeResponse {
+  challenge: string
+}
+
+export interface AuthLoginResponse {
+  token: string
+  pubkeyHash: string
+}
 
 export interface StatsSummary {
   totalPastes: number

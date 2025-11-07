@@ -154,6 +154,8 @@ pub struct PasteMetadata {
     pub webhook: Option<WebhookConfig>,
     #[serde(skip_serializing_if = "crate::bool_is_false")]
     pub tor_access_only: bool,
+    pub owner_pubkey_hash: Option<String>,
+    pub access_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -233,6 +235,7 @@ pub trait PasteStore: Send + Sync + 'static {
     async fn create_paste(&self, paste: StoredPaste) -> String;
     async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError>;
     async fn delete_paste(&self, id: &str) -> bool;
+    async fn get_all_paste_ids(&self) -> Vec<String>;
     async fn stats(&self) -> StoreStats;
 }
 
@@ -454,6 +457,11 @@ impl PasteStore for MemoryPasteStore {
                 .map(|(date, count)| DailyCount { date, count })
                 .collect(),
         }
+    }
+
+    async fn get_all_paste_ids(&self) -> Vec<String> {
+        let map = self.entries.read().await;
+        map.keys().cloned().collect()
     }
 }
 

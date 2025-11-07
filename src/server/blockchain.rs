@@ -222,7 +222,7 @@ mod tests {
         let hash = manifest_hash(&manifest).expect("hash");
         assert_eq!(
             hash,
-            "8bfbab22eec3935ec83940c9192e763c2f4e344f2a3f90a1431be917981e620b"
+            "769b8a9ec87a378155e48cd77a8ed0815cc0fc5bc02d37f4e937110d2f74eaa5"
         );
 
         let same_hash = manifest_hash(&manifest).expect("hash");

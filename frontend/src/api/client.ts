@@ -1,4 +1,4 @@
-import type { CreatePastePayload, CreatePasteResponse, StatsSummary } from './types'
+import type { CreatePastePayload, CreatePasteResponse, StatsSummary, AuthChallengeResponse } from './types'
 import type { PasteViewResponse } from '../server/types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
@@ -57,4 +57,35 @@ export const fetchPaste = async (id: string, key?: string): Promise<PasteViewRes
   }
   const url = `${API_BASE}/pastes/${encodeURIComponent(id)}${params.toString() ? `?${params.toString()}` : ''}`
   return jsonFetch<PasteViewResponse>(url)
+}
+
+export const fetchAuthChallenge = async (): Promise<AuthChallengeResponse> => {
+  const url = `${API_BASE}/auth/challenge`
+  return jsonFetch<AuthChallengeResponse>(url)
+}
+
+export const fetchUserPasteCount = async (pubkeyHash: string): Promise<{ pasteCount: number }> => {
+  const url = `${API_BASE}/user/paste-count?pubkey_hash=${encodeURIComponent(pubkeyHash)}`
+  return jsonFetch<{ pasteCount: number }>(url)
+}
+
+export const fetchUserPastes = async (pubkeyHash: string): Promise<{ pastes: any[] }> => {
+  const url = `${API_BASE}/user/pastes?pubkey_hash=${encodeURIComponent(pubkeyHash)}`
+  return jsonFetch<{ pastes: any[] }>(url)
+}
+
+export const loginWithSignature = async (challenge: string, signature: string, pubkey: string): Promise<{ token: string, pubkeyHash: string }> => {
+  const url = `${API_BASE}/auth/login`
+  return jsonFetch<{ token: string, pubkeyHash: string }>(url, {
+    method: 'POST',
+    body: JSON.stringify({ challenge, signature, pubkey }),
+  })
+}
+
+export const logoutUser = async (): Promise<{ success: boolean }> => {
+  const url = `${API_BASE}/auth/logout`
+  return jsonFetch<{ success: boolean }>(url, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
 }
