@@ -6,6 +6,5 @@
    cohttp-lwt-unix
    cohttp
    lwt
-   yojson
-   logs.fmt)
+   yojson)
  (preprocess (pps ppx_deriving_yojson)))
