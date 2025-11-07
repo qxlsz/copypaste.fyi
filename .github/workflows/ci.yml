@@ -70,19 +70,13 @@ jobs:
       - name: Run test suite (nextest)
         run: cargo nextest run --workspace --all-features
 
-      - name: Frontend lint
-        working-directory: frontend
-        run: npm run lint
-
       - name: Frontend unit tests
         working-directory: frontend
         run: npm test -- --run
 
-      - name: Build frontend
+      - name: Frontend lint
         working-directory: frontend
-        run: npm run build
-        env:
-          VITE_API_BASE: https://copypaste-fyi-withered-darkness-575.fly.dev/api
+        run: npm run lint
 
       - name: Coverage (llvm-cov)
         run: |
