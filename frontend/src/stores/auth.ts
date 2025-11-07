@@ -8,6 +8,7 @@ export interface User {
   pubkeyHash: string
   pubkey: string
   privkey: string
+  createdAt: number
 }
 
 interface AuthState {
@@ -21,7 +22,7 @@ interface AuthState {
 
 export const useAuth = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       isLoading: false,
@@ -38,9 +39,12 @@ export const useAuth = create<AuthState>()(
           const pubkey = await ed25519.getPublicKey(privkey)
 
           console.log('✅ Key generation successful')
+          const createdAt = Date.now()
+
           return {
             pubkey: btoa(String.fromCharCode(...pubkey)),
             privkey: btoa(String.fromCharCode(...privkey)),
+            createdAt,
           }
         } catch (error) {
           console.error('❌ Key generation failed:', error)
@@ -80,10 +84,13 @@ export const useAuth = create<AuthState>()(
           const { token, pubkeyHash } = await loginWithSignature(challenge, signature, pubkey)
 
           console.log('✅ Login successful')
+          const existingCreatedAt = get().user?.createdAt
+          const createdAt = existingCreatedAt ?? Date.now()
           const user: User = {
             pubkeyHash,
             pubkey,
             privkey: btoa(String.fromCharCode(...privkeyBytes)),
+            createdAt,
           }
 
           set({ user, token, isLoading: false })

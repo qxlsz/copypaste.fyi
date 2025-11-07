@@ -14,7 +14,7 @@ export const DashboardPage = () => {
 
   // Generate cryptographic details from the user's keys
   const keyFingerprint = user ? btoa(user.pubkey).slice(0, 32).toUpperCase() : ''
-  const creationTimestamp = user ? new Date(Date.now() - Math.random() * 365 * 24 * 60 * 60 * 1000) : new Date()
+  const creationTimestamp = user ? new Date(user.createdAt) : null
   const keyAlgorithm = 'Ed25519 / Curve25519'
   const keyStrength = '256-bit elliptic curve'
   const gpgKeyId = user ? user.pubkeyHash.slice(0, 16).toUpperCase() : ''
@@ -197,7 +197,11 @@ export const DashboardPage = () => {
                   </div>
                   <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                     <dt className="text-sm font-medium text-gray-500 dark:text-slate-400">Creation Date</dt>
-                    <dd className="mt-1 text-sm text-gray-900 dark:text-white sm:mt-0 sm:col-span-2">{creationTimestamp.toLocaleDateString()} at {creationTimestamp.toLocaleTimeString()}</dd>
+                    <dd className="mt-1 text-sm text-gray-900 dark:text-white sm:mt-0 sm:col-span-2">
+                      {creationTimestamp
+                        ? `${creationTimestamp.toLocaleDateString()} at ${creationTimestamp.toLocaleTimeString()}`
+                        : 'Unknown'}
+                    </dd>
                   </div>
                 </dl>
               </div>

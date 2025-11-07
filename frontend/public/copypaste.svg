@@ -1,6 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect x="8" y="8" width="48" height="48" rx="12" fill="#2563EB"/>
-  <path d="M24 22h16a6 6 0 0 1 6 6v20a6 6 0 0 1-6 6H24a6 6 0 0 1-6-6V28a6 6 0 0 1 6-6z" fill="#0EA5E9"/>
-  <path d="M24 12h16a6 6 0 0 1 6 6v6H18v-6a6 6 0 0 1 6-6z" fill="#FFFFFF" opacity="0.85"/>
-  <path d="M26 32h12M26 40h8" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Copy Paste icon">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Back document -->
+  <rect x="22" y="16" width="30" height="36" rx="4" fill="url(#g1)" opacity="0.7" />
+  <rect x="26" y="24" width="18" height="2" rx="1" fill="#fff" opacity="0.4" />
+  <rect x="26" y="30" width="22" height="2" rx="1" fill="#fff" opacity="0.4" />
+  <rect x="26" y="36" width="16" height="2" rx="1" fill="#fff" opacity="0.4" />
+  
+  <!-- Front document -->
+  <rect x="12" y="12" width="30" height="36" rx="4" fill="url(#g2)" />
+  <rect x="16" y="20" width="18" height="2" rx="1" fill="#fff" opacity="0.8" />
+  <rect x="16" y="26" width="22" height="2" rx="1" fill="#fff" opacity="0.8" />
+  <rect x="16" y="32" width="16" height="2" rx="1" fill="#fff" opacity="0.8" />
+  <rect x="16" y="38" width="20" height="2" rx="1" fill="#fff" opacity="0.8" />
 </svg>
