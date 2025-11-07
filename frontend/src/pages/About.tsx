@@ -28,16 +28,54 @@ const securityPillars = [
 ]
 
 const architectureDiagram = `
-flowchart TD
-  Client[Client Layer<br/>React SPA + Crypto]
-  Edge[Edge Distribution<br/>CDN + Tor]
-  Backend[Backend Core<br/>API + Storage]
-  Workers[Async Workers<br/>Bundling & Webhooks]
+graph TD
+  %% Client Layer
+  A1[React SPA<br/>Vite + TypeScript]
+  A2[WebCrypto API<br/>Ed25519 Keys]
+  A3[IndexedDB Vault<br/>Key Storage]
 
-  Client --> Edge
-  Edge --> Backend
-  Backend --> Workers
-  Workers --> Backend
+  %% Edge Layer
+  B1[Vercel Edge CDN<br/>Global POPs]
+  B2[Tor Hidden Service<br/>.onion Gateway]
+
+  %% Backend Layer
+  C1[Rocket API<br/>Auth & Policy]
+  C2[RocksDB Storage<br/>Ciphertext Store]
+
+  %% Worker Layer
+  D1[Async Workers<br/>Bundle Assembly]
+  D2[Webhook Delivery<br/>Event Notifications]
+
+  %% Client connections
+  A1 --> A2
+  A2 --> A3
+  A3 --> A1
+
+  %% Edge connections
+  A1 -->|HTTPS + HSTS| B1
+  A1 -->|Direct Signed| C1
+  B1 -->|Load Balanced| C1
+  C1 -.->|Anonymous Access| B2
+
+  %% Backend connections
+  C1 -->|Store Ciphertext| C2
+  C1 -->|Dispatch Jobs| D1
+  C1 -->|Send Events| D2
+
+  %% Worker connections
+  D1 -->|Read/Write| C2
+  D2 -->|HTTP Callbacks| B1
+
+  %% Styling
+  classDef client fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e40af
+  classDef edge fill:#f3e8ff,stroke:#7c3aed,stroke-width:2px,color:#6b21a8
+  classDef backend fill:#fed7aa,stroke:#ea580c,stroke-width:2px,color:#9a3412
+  classDef worker fill:#ccfbf1,stroke:#0d9488,stroke-width:2px,color:#0f766e
+
+  class A1,A2,A3 client
+  class B1,B2 edge
+  class C1,C2 backend
+  class D1,D2 worker
 `
 
 const lifecycleDiagram = `
@@ -190,6 +228,7 @@ export const AboutPage = () => {
                 ariaLabel="System architecture"
                 title="Client, edge, and core services"
                 description="Trace how sealed payloads travel from the browser to edge POPs and the Rocket core before resting in persistence or relaying to asynchronous workers."
+                defaultOpen
               />
             </div>
 
