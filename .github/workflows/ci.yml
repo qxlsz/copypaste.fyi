@@ -81,6 +81,8 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+        env:
+          VITE_API_BASE: https://copypaste-fyi-withered-darkness-575.fly.dev/api
 
       - name: Coverage (llvm-cov)
         run: |
