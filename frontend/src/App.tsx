@@ -8,6 +8,7 @@ import { PasteViewPage } from './pages/PasteView'
 import { StatsPage } from './pages/Stats'
 import { DashboardPage } from './pages/Dashboard'
 import { LoginPage } from './pages/Login'
+import { AboutPage } from './pages/About'
 
 import { ThemeProvider } from './theme/ThemeProvider'
 
@@ -20,6 +21,7 @@ export function App() {
         <Route path="p/:id" element={<PasteViewPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="stats" element={<StatsPage />} />
+        <Route path="about" element={<AboutPage />} />
       </Route>
     </Routes>
   )

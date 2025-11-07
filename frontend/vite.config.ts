@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type UserConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import mkcert from 'vite-plugin-mkcert'
 
@@ -12,18 +12,23 @@ export default defineConfig(({ mode }) => {
     )
   }
 
-  return {
-    plugins: [react(), mkcert()],
-    server: {
+  const config: UserConfig = {
+    plugins: [react()],
+  }
+
+  if (mode === 'development') {
+    config.plugins?.push(mkcert())
+    config.server = {
       host: '127.0.0.1',
       port: 5173,
-      https: true,
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:8000',
           changeOrigin: true,
         },
       },
-    },
+    }
   }
+
+  return config
 })

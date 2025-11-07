@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
 import { CommandPalette } from './CommandPalette'
+import { FloatingAboutButton } from './FloatingAboutButton'
 import { useHotkeys } from '../hooks/useHotkeys'
 import { useAuth } from '../stores/auth'
 
@@ -105,6 +106,7 @@ export const Layout = () => {
       <main className="mx-auto max-w-6xl px-6 py-10">
         <Outlet />
       </main>
+      <FloatingAboutButton />
     </div>
   )
 }
