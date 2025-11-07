@@ -27,38 +27,59 @@ export const useAuth = create<AuthState>()(
       isLoading: false,
 
       generateKeys: async () => {
-        await (ed25519 as any).init?.()
-        const privkey = ed25519.utils.randomPrivateKey()
-        const pubkey = await ed25519.getPublicKey(privkey)
+        try {
+          console.log('🔐 Initializing Ed25519...')
+          await (ed25519 as any).init?.()
+          
+          console.log('🔑 Generating private key...')
+          const privkey = ed25519.utils.randomPrivateKey()
+          
+          console.log('🔓 Deriving public key...')
+          const pubkey = await ed25519.getPublicKey(privkey)
 
-        return {
-          pubkey: btoa(String.fromCharCode(...pubkey)),
-          privkey: btoa(String.fromCharCode(...privkey)),
+          console.log('✅ Key generation successful')
+          return {
+            pubkey: btoa(String.fromCharCode(...pubkey)),
+            privkey: btoa(String.fromCharCode(...privkey)),
+          }
+        } catch (error) {
+          console.error('❌ Key generation failed:', error)
+          throw new Error(`Key generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
         }
       },
 
       login: async (privkey) => {
         set({ isLoading: true })
         try {
+          // Check for HTTPS in production
+          if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            throw new Error('HTTPS is required for cryptographic operations')
+          }
+
+          console.log('🔐 Initializing Ed25519 for login...')
           await (ed25519 as any).init?.()
+          
+          console.log('🔑 Processing private key...')
           const privkeyBytes = privkey
             ? new Uint8Array(atob(privkey).split('').map((c) => c.charCodeAt(0)))
             : ed25519.utils.randomPrivateKey()
 
+          console.log('🔓 Deriving public key...')
           const pubkeyBytes = await ed25519.getPublicKey(privkeyBytes)
           const pubkey = btoa(String.fromCharCode(...pubkeyBytes))
 
-          // Get challenge
+          console.log('📡 Fetching auth challenge...')
           const { challenge } = await fetchAuthChallenge()
 
-          // Sign challenge
+          console.log('✍️  Signing challenge...')
           const challengeBytes = new TextEncoder().encode(challenge)
           const signatureBytes = await ed25519.sign(challengeBytes, privkeyBytes)
           const signature = btoa(String.fromCharCode(...signatureBytes))
 
-          // Login
+          console.log('🔐 Logging in with signature...')
           const { token, pubkeyHash } = await loginWithSignature(challenge, signature, pubkey)
 
+          console.log('✅ Login successful')
           const user: User = {
             pubkeyHash,
             pubkey,
@@ -68,8 +89,10 @@ export const useAuth = create<AuthState>()(
           set({ user, token, isLoading: false })
           toast.success('Logged in successfully')
         } catch (error) {
+          console.error('❌ Login failed:', error)
           set({ isLoading: false })
-          toast.error('Login failed', { description: error instanceof Error ? error.message : 'Unknown error' })
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+          toast.error('Login failed', { description: errorMessage })
           throw error
         }
       },
