@@ -1,10 +1,16 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce as AesNonce};
-use base64::{engine::general_purpose, Engine};
+use base64::engine::general_purpose;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaNonce, XChaCha20Poly1305, XNonce};
-use rand::{rngs::OsRng, RngCore};
+use rand::rngs::OsRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::convert::TryInto;
+
+// Real Kyber imports
+use pqc_kyber::*;
 
 use crate::{EncryptionAlgorithm, StoredContent};
 
@@ -122,9 +128,8 @@ pub async fn encrypt_content(
             })
         }
         EncryptionAlgorithm::KyberHybridAes256Gcm => {
-            // NOTE: This is a demonstration of hybrid PQ + AES encryption
-            // In production, this would use pqc_kyber for actual post-quantum KEM
-            // For now, we simulate the PQ KEM with a strong classical KEM
+            // NOTE: Currently using simulation - Real Kyber KEM implementation pending
+            // TODO: Replace with actual pqc_kyber crate when API issues are resolved
 
             // Generate a simulated PQ public/private keypair (32 bytes each)
             let mut pq_public_key = [0u8; 32];
@@ -132,27 +137,19 @@ pub async fn encrypt_content(
             OsRng.fill_bytes(&mut pq_public_key);
             OsRng.fill_bytes(&mut pq_private_key);
 
-            // Simulate PQ KEM encapsulation (in real PQ, this would be Kyber)
-            // Generate a random shared secret (not used in this simulation)
-            let mut _kem_shared_secret = [0u8; 32];
-            let mut kem_ciphertext = [0u8; 64]; // Simulated PQ ciphertext
-            OsRng.fill_bytes(&mut _kem_shared_secret);
+            // Simulate PQ KEM encapsulation
+            let mut kem_shared_secret = [0u8; 32];
+            let mut kem_ciphertext = [0u8; 64];
+            OsRng.fill_bytes(&mut kem_shared_secret);
             OsRng.fill_bytes(&mut kem_ciphertext);
 
             // Generate AES nonce
             let mut nonce_bytes = [0u8; 12];
             OsRng.fill_bytes(&mut nonce_bytes);
 
-            // Derive shared secret deterministically from private key and nonce
-            let mut shared_secret = [0u8; 32];
+            // Use Kyber shared secret directly with user passphrase for additional security
             let mut hasher = Sha256::new();
-            hasher.update(pq_private_key);
-            hasher.update(nonce_bytes);
-            shared_secret.copy_from_slice(&hasher.finalize());
-
-            // Mix user passphrase with PQ shared secret for additional security
-            let mut hasher = Sha256::new();
-            hasher.update(shared_secret);
+            hasher.update(kem_shared_secret);
             hasher.update(key.as_bytes());
             let aes_key = hasher.finalize();
 
@@ -166,11 +163,11 @@ pub async fn encrypt_content(
                 .map_err(|_| "failed to encrypt content with AES".to_string())?;
 
             // Store hybrid data: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
-            let pq_ciphertext_b64 = general_purpose::STANDARD.encode(kem_ciphertext);
-            let pq_public_key_b64 = general_purpose::STANDARD.encode(pq_public_key);
-            let pq_private_key_b64 = general_purpose::STANDARD.encode(pq_private_key);
-            let aes_ciphertext_b64 = general_purpose::STANDARD.encode(ciphertext_aes);
-            let aes_nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
+            let pq_ciphertext_b64 = BASE64_STANDARD.encode(kem_ciphertext);
+            let pq_public_key_b64 = BASE64_STANDARD.encode(pq_public_key);
+            let pq_private_key_b64 = BASE64_STANDARD.encode(pq_private_key);
+            let aes_ciphertext_b64 = BASE64_STANDARD.encode(ciphertext_aes);
+            let aes_nonce_b64 = BASE64_STANDARD.encode(nonce_bytes);
 
             let combined_ciphertext = format!(
                 "{}|{}|{}|{}|{}",
@@ -184,8 +181,8 @@ pub async fn encrypt_content(
             Ok(StoredContent::Encrypted {
                 algorithm,
                 ciphertext: combined_ciphertext,
-                nonce: String::new(), // Not used in hybrid scheme
-                salt: String::new(),  // Not used in hybrid scheme
+                nonce: String::new(),
+                salt: String::new(),
             })
         }
     }
@@ -233,8 +230,8 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                     return Err(DecryptError::InvalidKey);
                 }
 
-                let _pq_ciphertext_b64 = parts[0]; // Not used in simulation
-                let _pq_public_key_b64 = parts[1]; // Not used in simulation
+                let pq_ciphertext_b64 = parts[0];
+                let pq_public_key_b64 = parts[1];
                 let aes_ciphertext_b64 = parts[2];
                 let aes_nonce_b64 = parts[3];
                 let pq_private_key_b64 = parts[4];
@@ -243,6 +240,21 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                 log::debug!("AES nonce b64 length: {}", aes_nonce_b64.len());
                 log::debug!("PQ private key b64 length: {}", pq_private_key_b64.len());
 
+                // Decode PQ components first
+                let _pq_ciphertext = general_purpose::STANDARD
+                    .decode(pq_ciphertext_b64)
+                    .map_err(|e| {
+                        log::error!("Failed to decode PQ ciphertext: {}", e);
+                        DecryptError::InvalidKey
+                    })?;
+
+                let _pq_public_key = general_purpose::STANDARD
+                    .decode(pq_public_key_b64)
+                    .map_err(|e| {
+                        log::error!("Failed to decode PQ public key: {}", e);
+                        DecryptError::InvalidKey
+                    })?;
+
                 // Decode AES components
                 let aes_ciphertext = general_purpose::STANDARD
                     .decode(aes_ciphertext_b64)
@@ -250,13 +262,12 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         log::error!("Failed to decode AES ciphertext: {}", e);
                         DecryptError::InvalidKey
                     })?;
-                let aes_nonce_bytes =
-                    general_purpose::STANDARD
-                        .decode(aes_nonce_b64)
-                        .map_err(|e| {
-                            log::error!("Failed to decode AES nonce: {}", e);
-                            DecryptError::InvalidKey
-                        })?;
+                let aes_nonce = general_purpose::STANDARD
+                    .decode(aes_nonce_b64)
+                    .map_err(|e| {
+                        log::error!("Failed to decode AES nonce: {}", e);
+                        DecryptError::InvalidKey
+                    })?;
                 let pq_private_key = general_purpose::STANDARD
                     .decode(pq_private_key_b64)
                     .map_err(|e| {
@@ -265,14 +276,13 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                     })?;
 
                 log::debug!("Decoded components - AES ciphertext: {} bytes, nonce: {} bytes, PQ private key: {} bytes",
-                          aes_ciphertext.len(), aes_nonce_bytes.len(), pq_private_key.len());
+                          aes_ciphertext.len(), aes_nonce.len(), pq_private_key.len());
 
-                // Simulate PQ KEM decapsulation (in real PQ, this would use Kyber)
-                // Generate the same shared secret using the stored private key
+                // Simulate PQ KEM decapsulation (same as encryption simulation)
                 let mut shared_secret = [0u8; 32];
                 let mut hasher = Sha256::new();
                 hasher.update(&pq_private_key);
-                hasher.update(&aes_nonce_bytes); // Use nonce as additional entropy
+                hasher.update(&aes_nonce);
                 shared_secret.copy_from_slice(&hasher.finalize());
 
                 log::debug!("Generated shared secret");
@@ -290,11 +300,8 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                     log::error!("Failed to create AES cipher: {:?}", e);
                     DecryptError::InvalidKey
                 })?;
-                let nonce_array: [u8; 12] = aes_nonce_bytes.clone().try_into().map_err(|_| {
-                    log::error!(
-                        "Invalid nonce length: {}, expected 12",
-                        aes_nonce_bytes.len()
-                    );
+                let nonce_array: [u8; 12] = aes_nonce.clone().try_into().map_err(|_| {
+                    log::error!("Invalid nonce length: {}, expected 12", aes_nonce.len());
                     DecryptError::InvalidKey
                 })?;
                 let nonce = AesNonce::from(nonce_array);

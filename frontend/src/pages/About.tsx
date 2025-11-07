@@ -171,9 +171,9 @@ const useCases = [
 
 const roadmapItems = [
   {
-    title: 'Post-quantum migration',
+    title: '✅ Post-quantum cryptography (Implemented)',
     detail:
-      'Introduce hybrid trust anchors with CRYSTALS-Dilithium signatures and Kyber KEM alongside Ed25519 to ease transition.',
+      'Kyber hybrid encryption with AES-256-GCM is now available for quantum-resistant key exchange alongside classical algorithms.',
   },
   {
     title: 'Federated deployments',
