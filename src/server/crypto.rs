@@ -271,10 +271,13 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         })
                 }
                 EncryptionAlgorithm::KyberHybridAes256Gcm => {
+                    // Kyber hybrid uses a different storage format, bypass normal decryption
                     let key_str = extracted_key;
 
                     // Parse hybrid ciphertext: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
-                    let parts: Vec<&str> = ciphertext.split('|').collect();
+                    let ciphertext_str =
+                        std::str::from_utf8(&cipher_bytes).map_err(|_| DecryptError::InvalidKey)?;
+                    let parts: Vec<&str> = ciphertext_str.split('|').collect();
                     if parts.len() != 5 {
                         return Err(DecryptError::InvalidKey);
                     }
@@ -292,7 +295,7 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                     let aes_nonce_bytes = general_purpose::STANDARD
                         .decode(aes_nonce_b64)
                         .map_err(|_| DecryptError::InvalidKey)?;
-                    let _pq_private_key = general_purpose::STANDARD
+                    let pq_private_key = general_purpose::STANDARD
                         .decode(pq_private_key_b64)
                         .map_err(|_| DecryptError::InvalidKey)?;
 
@@ -300,7 +303,7 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                     // Generate the same shared secret using the stored private key
                     let mut shared_secret = [0u8; 32];
                     let mut hasher = Sha256::new();
-                    hasher.update(&_pq_private_key);
+                    hasher.update(&pq_private_key);
                     hasher.update(&aes_nonce_bytes); // Use nonce as additional entropy
                     shared_secret.copy_from_slice(&hasher.finalize());
 
