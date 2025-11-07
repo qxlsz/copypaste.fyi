@@ -2,15 +2,7 @@
  (name crypto_verifier)
  (public_name crypto_verifier.lib)
  (libraries
-   mirage-crypto
    mirage-crypto-rng
-   mirage-crypto-ec
    yojson
-   ppx_deriving_yojson
-   logs
-   fmt
-   base64
-   hex
-   cstruct
-   zarith)
+   ppx_deriving_yojson)
  (preprocess (pps ppx_deriving_yojson)))
