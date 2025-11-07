@@ -28,42 +28,16 @@ const securityPillars = [
 ]
 
 const architectureDiagram = `
-flowchart TB
-  classDef client fill:#dbeafe,stroke:#3b82f6,stroke-width:2.5px,color:#1e3a8a;
-  classDef edge fill:#e9d5ff,stroke:#a855f7,stroke-width:2.5px,color:#581c87;
-  classDef backend fill:#fed7aa,stroke:#f97316,stroke-width:2.5px,color:#7c2d12;
-  classDef service fill:#ccfbf1,stroke:#14b8a6,stroke-width:2.5px,color:#134e4a;
+flowchart TD
+  Client[Client Layer<br/>React SPA + Crypto]
+  Edge[Edge Distribution<br/>CDN + Tor]
+  Backend[Backend Core<br/>API + Storage]
+  Workers[Async Workers<br/>Bundling & Webhooks]
 
-  subgraph ClientLayer["🖥️ Client Workspace"]
-    direction LR
-    UI["React SPA<br/><small>Vite + TypeScript</small>"]:::client
-    Crypto["Cryptographic Engine<br/><small>WebCrypto + @noble/ed25519</small>"]:::client
-    Vault["Key Vault<br/><small>IndexedDB Storage</small>"]:::client
-  end
-
-  subgraph EdgeLayer["🌐 Delivery Edge"]
-    direction LR
-    CDN["Vercel Edge CDN<br/><small>Global Distribution</small>"]:::edge
-    Tor["Tor Hidden Service<br/><small>.onion Gateway</small>"]:::edge
-  end
-
-  subgraph CoreLayer["⚙️ Copypaste Core"]
-    direction LR
-    API["Rocket API<br/><small>Auth & Policy Engine</small>"]:::backend
-    Store["Persistence Layer<br/><small>RocksDB / Sled</small>"]:::backend
-    Jobs["Async Workers<br/><small>Bundling & Webhooks</small>"]:::service
-  end
-
-  UI -->|"1. HTTPS + HSTS"| CDN
-  UI <-->|"2. Seal/Unseal"| Crypto
-  Crypto <-->|"Key Material"| Vault
-  CDN -->|"3. Route Request"| API
-  UI -.->|"Direct (Signed)"| API
-  API -->|"4. Verify Signature"| Crypto
-  API <-->|"5. Persist/Retrieve"| Store
-  API -->|"6. Dispatch Jobs"| Jobs
-  Jobs -->|"Read/Write"| Store
-  API -.->|"Tor Routing"| Tor
+  Client --> Edge
+  Edge --> Backend
+  Backend --> Workers
+  Workers --> Backend
 `
 
 const lifecycleDiagram = `
