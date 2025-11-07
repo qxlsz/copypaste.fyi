@@ -6,5 +6,4 @@
    cohttp-lwt-unix
    cohttp
    lwt
-   yojson)
- (preprocess (pps ppx_deriving_yojson)))
+   yojson))
