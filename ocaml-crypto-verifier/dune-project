@@ -21,4 +21,4 @@
   (hex (>= 1.5.0))
   (cstruct (>= 6.0.0))
   (zarith (>= 1.12))
-  (ounit2 (>= 2.2.0) :with-test)))
+  (ounit2 (>= 2.2.0))))
