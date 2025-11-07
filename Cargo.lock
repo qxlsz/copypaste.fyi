@@ -628,6 +628,7 @@ dependencies = [
  "pqc_kyber",
  "pulldown-cmark",
  "rand",
+ "regex",
  "reqwest",
  "rocket",
  "serde",

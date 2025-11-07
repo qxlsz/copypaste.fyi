@@ -52,6 +52,8 @@ let test_ed25519_verification _ =
   let result = verify_signature sv in
   assert_bool "Should handle Ed25519 verification gracefully" (not result.valid || result.valid)
 
+;;
+
 let suite =
   "Crypto Verifier Tests" >::: [
     "test_health_check" >:: test_health_check;

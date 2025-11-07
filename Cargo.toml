@@ -34,6 +34,7 @@ ed25519-dalek = { version = "2.0", features = ["serde"] }
 
 [dev-dependencies]
 httpmock = "0.7"
+regex = "1.11"
 
 [lib]
 name = "copypaste"

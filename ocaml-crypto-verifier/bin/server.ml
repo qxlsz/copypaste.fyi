@@ -12,14 +12,7 @@ let respond_json status json =
   let body = Yojson.Safe.to_string json in
   Server.respond_string ~status ~headers:(Cohttp.Header.of_list [json_content_type]) ~body ()
 
-let respond_error status message =
-  let json = `Assoc [
-    ("error", `String message);
-    ("timestamp", `Float (Unix.gettimeofday ()))
-  ] in
-  respond_json status json
-
-let handle_health _req _body =
+let handle_health (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
   let result = health_check () in
   let json = `Assoc [
     ("status", `String "healthy");
@@ -31,7 +24,7 @@ let handle_health _req _body =
   ] in
   respond_json `OK json
 
-let handle_verify_encryption req body =
+let handle_verify_encryption (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
   let result = { valid = true; details = "Encryption verification placeholder"; timestamp = Unix.gettimeofday () } in
   let json = `Assoc [
     ("valid", `Bool result.valid);
@@ -40,7 +33,7 @@ let handle_verify_encryption req body =
   ] in
   respond_json `OK json
 
-let handle_verify_signature req body =
+let handle_verify_signature (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
   let result = { valid = true; details = "Signature verification placeholder"; timestamp = Unix.gettimeofday () } in
   let json = `Assoc [
     ("valid", `Bool result.valid);
