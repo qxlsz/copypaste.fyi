@@ -48,9 +48,9 @@ let callback _conn req body =
   match meth, uri with
   | `GET, "/health" -> handle_health req body
   | `POST, "/verify/encryption" ->
-      Cohttp_lwt.Body.to_string body >>= handle_verify_encryption req
+      handle_verify_encryption req body
   | `POST, "/verify/signature" ->
-      Cohttp_lwt.Body.to_string body >>= handle_verify_signature req
+      handle_verify_signature req body
   | _ ->
       let json = `Assoc [
         ("error", `String "Not found");
