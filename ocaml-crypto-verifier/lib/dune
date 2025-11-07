@@ -4,6 +4,7 @@
  (libraries
    mirage-crypto
    mirage-crypto-rng
+   mirage-crypto-ec
    yojson
    ppx_deriving_yojson
    logs
