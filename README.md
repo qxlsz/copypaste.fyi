@@ -174,7 +174,7 @@ npm test -- --run
 npm run build
 ```
 
-For an all-in-one local environment (Rocket API + Vite dev server) run `./scripts/run_both.sh`. Stop everything with `./scripts/stop.sh`.
+For an all-in-one local environment (Rocket API + Vite dev server) run `./scripts/run_both.sh`. The script automatically configures the frontend to communicate with the backend API, ensuring proper functionality for features like Kyber encryption. Stop everything with `./scripts/stop.sh`.
 
 ## REST API
 

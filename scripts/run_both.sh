@@ -40,6 +40,8 @@ REDIS_CONTAINER_STARTED=false
 REDIS_PROXY_PID=""
 
 # Start Vite in the background
+# Note: Frontend automatically detects development mode and uses direct backend URL
+# In production, frontend uses relative /api paths (same domain as deployed app)
 (
   cd frontend
   npm run dev -- --host 127.0.0.1 --port ${FRONTEND_PORT}
