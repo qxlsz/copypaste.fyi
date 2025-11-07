@@ -2,5 +2,5 @@
  (name crypto_verifier_test)
  (libraries
    crypto_verifier
-   (ounit2 :with-test))
+   ounit2)
  (preprocess (pps ppx_deriving_yojson)))
