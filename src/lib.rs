@@ -53,6 +53,35 @@ pub enum PasteFormat {
     Css,
 }
 
+impl std::fmt::Display for PasteFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            PasteFormat::PlainText => "plain_text",
+            PasteFormat::Markdown => "markdown",
+            PasteFormat::Code => "code",
+            PasteFormat::Json => "json",
+            PasteFormat::Javascript => "javascript",
+            PasteFormat::Typescript => "typescript",
+            PasteFormat::Python => "python",
+            PasteFormat::Rust => "rust",
+            PasteFormat::Go => "go",
+            PasteFormat::Cpp => "cpp",
+            PasteFormat::Kotlin => "kotlin",
+            PasteFormat::Java => "java",
+            PasteFormat::Csharp => "csharp",
+            PasteFormat::Php => "php",
+            PasteFormat::Ruby => "ruby",
+            PasteFormat::Bash => "bash",
+            PasteFormat::Yaml => "yaml",
+            PasteFormat::Sql => "sql",
+            PasteFormat::Swift => "swift",
+            PasteFormat::Html => "html",
+            PasteFormat::Css => "css",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionAlgorithm {

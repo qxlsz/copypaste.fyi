@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use crate::{
-    create_paste_store, AttestationRequirement, BundleMetadata, BundlePointer, EncryptionAlgorithm,
-    PasteError, PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent,
-    StoredPaste, WebhookConfig,
+    create_paste_store, BundleMetadata, BundlePointer, EncryptionAlgorithm, PasteError,
+    PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste,
+    WebhookConfig,
 };
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -27,11 +27,9 @@ use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
     AnchorRequest, AnchorResponse, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse,
-    AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
-    PasteEncryptionInfo, PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery,
-    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, StegoRequest,
-    TimeLockRequest, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
-    WebhookRequest,
+    AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, PasteViewQuery,
+    PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+    UserPasteCountResponse, UserPasteListItem, UserPasteListResponse, WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -61,7 +59,6 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 create_api,
                 anchor_api,
                 show,
-                show_api,
                 show_raw,
                 stats_summary_api,
                 auth_challenge_api,
@@ -290,187 +287,6 @@ async fn anchor_api(
     };
 
     Ok(Json(response))
-}
-
-#[get("/api/pastes/<id>?<query..>")]
-async fn show_api(
-    store: &State<SharedPasteStore>,
-    id: String,
-    query: PasteViewQuery,
-    onion: OnionAccess,
-) -> Result<Json<PasteViewResponse>, (Status, String)> {
-    match store.get_paste(&id).await {
-        Ok(paste) => {
-            if paste.metadata.tor_access_only && !onion.is_onion() {
-                return Err((
-                    Status::Forbidden,
-                    "This paste can only be accessed via the Tor hidden service".into(),
-                ));
-            }
-
-            let now = current_timestamp();
-            if evaluate_time_lock(&paste.metadata, now).is_some() {
-                return Err((Status::Locked, "Paste is time-locked".into()));
-            }
-
-            if let Some(requirement) = paste.metadata.attestation.as_ref() {
-                match attestation::verify_attestation(requirement, &query, now) {
-                    AttestationVerdict::Granted => {}
-                    AttestationVerdict::Prompt { invalid } => {
-                        let message = if invalid {
-                            "Attestation invalid"
-                        } else {
-                            "Attestation required"
-                        };
-                        return Err((Status::Unauthorized, message.into()));
-                    }
-                }
-            }
-
-            match decrypt_content(&paste.content, query.key.as_deref()) {
-                Ok(text) => {
-                    if paste.burn_after_reading {
-                        let webhook_config = paste.metadata.webhook.clone();
-                        if let Some(config) = webhook_config.clone() {
-                            trigger_webhook(
-                                config,
-                                WebhookEvent::Viewed,
-                                &id,
-                                paste.metadata.bundle_label.clone(),
-                            );
-                        }
-                        let deleted = store.delete_paste(&id).await;
-                        if deleted {
-                            if let Some(config) = webhook_config {
-                                trigger_webhook(
-                                    config,
-                                    WebhookEvent::Consumed,
-                                    &id,
-                                    paste.metadata.bundle_label.clone(),
-                                );
-                            }
-                        }
-                    }
-
-                    // Freemium enforcement: 100 views per paste for owned pastes
-                    if let Some(_owner) = &paste.metadata.owner_pubkey_hash {
-                        if paste.metadata.access_count >= 100 {
-                            return Err((Status::TooManyRequests, "Freemium limit exceeded: 100 views per paste. Upgrade for unlimited access.".to_string()));
-                        }
-                    }
-
-                    // Increment access count
-                    let mut updated_paste = paste.clone();
-                    updated_paste.metadata.access_count += 1;
-                    // TODO: Update in persistent store
-                    // For now, access counts are ephemeral
-                    // Use updated_paste for response
-                    let metadata = &updated_paste.metadata;
-                    let encryption = match &updated_paste.content {
-                        StoredContent::Plain { .. } => PasteEncryptionInfo {
-                            algorithm: EncryptionAlgorithm::None,
-                            requires_key: false,
-                        },
-                        StoredContent::Encrypted { algorithm, .. }
-                        | StoredContent::Stego { algorithm, .. } => PasteEncryptionInfo {
-                            algorithm: *algorithm,
-                            requires_key: true,
-                        },
-                    };
-
-                    let time_lock = if metadata.not_before.is_some() || metadata.not_after.is_some()
-                    {
-                        Some(PasteTimeLockInfo {
-                            not_before: metadata.not_before,
-                            not_after: metadata.not_after,
-                        })
-                    } else {
-                        None
-                    };
-
-                    let attestation =
-                        metadata
-                            .attestation
-                            .as_ref()
-                            .map(|requirement| match requirement {
-                                AttestationRequirement::Totp { issuer, .. } => {
-                                    PasteAttestationInfo {
-                                        kind: "totp".to_string(),
-                                        issuer: issuer.clone(),
-                                    }
-                                }
-                                AttestationRequirement::SharedSecret { .. } => {
-                                    PasteAttestationInfo {
-                                        kind: "shared_secret".to_string(),
-                                        issuer: None,
-                                    }
-                                }
-                            });
-
-                    let persistence = metadata.persistence.as_ref().map(|locator| match locator {
-                        PersistenceLocator::Memory => PastePersistenceInfo {
-                            kind: "memory".to_string(),
-                            detail: None,
-                        },
-                        PersistenceLocator::Vault { key_path } => PastePersistenceInfo {
-                            kind: "vault".to_string(),
-                            detail: Some(key_path.clone()),
-                        },
-                        PersistenceLocator::S3 { bucket, prefix } => {
-                            let detail = match prefix.as_ref() {
-                                Some(p) if !p.is_empty() => format!("{}/{}", bucket, p),
-                                _ => bucket.clone(),
-                            };
-                            PastePersistenceInfo {
-                                kind: "s3".to_string(),
-                                detail: Some(detail),
-                            }
-                        }
-                    });
-
-                    let webhook = metadata.webhook.as_ref().map(|config| PasteWebhookInfo {
-                        provider: config.provider.clone(),
-                    });
-
-                    let stego = match &updated_paste.content {
-                        StoredContent::Stego {
-                            carrier_mime,
-                            carrier_image,
-                            payload_digest,
-                            ..
-                        } => Some(PasteStegoInfo {
-                            carrier_mime: carrier_mime.clone(),
-                            carrier_image: carrier_image.clone(),
-                            payload_digest: payload_digest.clone(),
-                        }),
-                        _ => None,
-                    };
-
-                    let response = PasteViewResponse {
-                        id,
-                        format: updated_paste.format,
-                        content: text,
-                        created_at: updated_paste.created_at,
-                        expires_at: updated_paste.expires_at,
-                        burn_after_reading: updated_paste.burn_after_reading,
-                        bundle: metadata.bundle.clone(),
-                        encryption,
-                        tor_access_only: updated_paste.metadata.tor_access_only,
-                        stego,
-                        time_lock,
-                        attestation,
-                        persistence,
-                        webhook,
-                    };
-                    Ok(Json(response))
-                }
-                Err(DecryptError::MissingKey) => Err((Status::Unauthorized, "Missing key".into())),
-                Err(DecryptError::InvalidKey) => Err((Status::Forbidden, "Invalid key".into())),
-            }
-        }
-        Err(PasteError::NotFound(_)) => Err((Status::NotFound, "Paste not found".into())),
-        Err(PasteError::Expired(_)) => Err((Status::Gone, "Paste expired".into())),
-    }
 }
 
 pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {

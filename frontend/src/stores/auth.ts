@@ -29,11 +29,6 @@ export const useAuth = create<AuthState>()(
 
       generateKeys: async () => {
         try {
-          console.log('🔐 Initializing Ed25519...')
-          if ('init' in ed25519 && typeof (ed25519 as { init?: () => Promise<void> }).init === 'function') {
-            await (ed25519 as { init?: () => Promise<void> }).init?.()
-          }
-          
           console.log('🔑 Generating private key...')
           const privkey = ed25519.utils.randomPrivateKey()
           
@@ -62,11 +57,6 @@ export const useAuth = create<AuthState>()(
             throw new Error('HTTPS is required for cryptographic operations')
           }
 
-          console.log('🔐 Initializing Ed25519 for login...')
-          if ('init' in ed25519 && typeof (ed25519 as { init?: () => Promise<void> }).init === 'function') {
-            await (ed25519 as { init?: () => Promise<void> }).init?.()
-          }
-          
           console.log('🔑 Processing private key...')
           const privkeyBytes = privkey
             ? new Uint8Array(atob(privkey).split('').map((c) => c.charCodeAt(0)))

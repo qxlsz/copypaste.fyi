@@ -133,11 +133,22 @@ pub async fn encrypt_content(
             OsRng.fill_bytes(&mut pq_private_key);
 
             // Simulate PQ KEM encapsulation (in real PQ, this would be Kyber)
-            // Generate a random shared secret and "ciphertext"
-            let mut shared_secret = [0u8; 32];
+            // Generate a random shared secret (not used in this simulation)
+            let mut _kem_shared_secret = [0u8; 32];
             let mut kem_ciphertext = [0u8; 64]; // Simulated PQ ciphertext
-            OsRng.fill_bytes(&mut shared_secret);
+            OsRng.fill_bytes(&mut _kem_shared_secret);
             OsRng.fill_bytes(&mut kem_ciphertext);
+
+            // Generate AES nonce
+            let mut nonce_bytes = [0u8; 12];
+            OsRng.fill_bytes(&mut nonce_bytes);
+
+            // Derive shared secret deterministically from private key and nonce
+            let mut shared_secret = [0u8; 32];
+            let mut hasher = Sha256::new();
+            hasher.update(pq_private_key);
+            hasher.update(nonce_bytes);
+            shared_secret.copy_from_slice(&hasher.finalize());
 
             // Mix user passphrase with PQ shared secret for additional security
             let mut hasher = Sha256::new();
@@ -148,15 +159,13 @@ pub async fn encrypt_content(
             // Encrypt with AES-GCM using the hybrid-derived key
             let cipher = Aes256Gcm::new_from_slice(&aes_key)
                 .map_err(|_| "failed to initialise AES cipher".to_string())?;
-            let mut nonce_bytes = [0u8; 12];
-            OsRng.fill_bytes(&mut nonce_bytes);
             let nonce = AesNonce::from(nonce_bytes);
 
             let ciphertext_aes = cipher
                 .encrypt(&nonce, text.as_bytes())
                 .map_err(|_| "failed to encrypt content with AES".to_string())?;
 
-            // Store hybrid data: PQ_ciphertext|PQ_public_key|PQ_private_key|aes_ciphertext|aes_nonce
+            // Store hybrid data: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
             let pq_ciphertext_b64 = general_purpose::STANDARD.encode(kem_ciphertext);
             let pq_public_key_b64 = general_purpose::STANDARD.encode(pq_public_key);
             let pq_private_key_b64 = general_purpose::STANDARD.encode(pq_private_key);
@@ -171,16 +180,6 @@ pub async fn encrypt_content(
                 aes_nonce_b64,
                 pq_private_key_b64
             );
-
-            // Optional OCaml verification (for the AES portion)
-            let _ = verify_encryption_with_ocaml(
-                EncryptionAlgorithm::Aes256Gcm,
-                text,
-                &aes_ciphertext_b64,
-                &hex::encode(aes_key),
-                Some(&aes_nonce_b64),
-            )
-            .await;
 
             Ok(StoredContent::Encrypted {
                 algorithm,
