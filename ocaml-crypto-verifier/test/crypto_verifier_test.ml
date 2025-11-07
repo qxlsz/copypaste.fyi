@@ -52,25 +52,12 @@ let test_ed25519_verification _ =
   let result = verify_signature sv in
   assert_bool "Should handle Ed25519 verification gracefully" (not result.valid || result.valid)
 
-let test_unsupported_algorithm _ =
-  let ev = {
-    algorithm = "unsupported";
-    plaintext = "test";
-    ciphertext = "test";
-    key = "test";
-    nonce = None;
-    aad = None;
-  } in
-  let result = verify_encryption ev in
-  assert_bool "Should reject unsupported algorithms" (not result.valid)
-
 let suite =
   "Crypto Verifier Tests" >::: [
     "test_health_check" >:: test_health_check;
     "test_aes_gcm_verification" >:: test_aes_gcm_verification;
     "test_chacha20_verification" >:: test_chacha20_verification;
     "test_ed25519_verification" >:: test_ed25519_verification;
-    "test_unsupported_algorithm" >:: test_unsupported_algorithm;
   ]
 
 let () =

@@ -10,7 +10,7 @@ let json_content_type = ("Content-Type", "application/json")
 
 let respond_json status json =
   let body = Yojson.Safe.to_string json in
-  Server.respond_string ~status ~headers:[json_content_type] ~body ()
+  Server.respond_string ~status ~headers:(Cohttp.Header.of_list [json_content_type]) ~body ()
 
 let respond_error status message =
   let json = `Assoc [
