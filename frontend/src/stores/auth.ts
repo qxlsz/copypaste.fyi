@@ -30,7 +30,9 @@ export const useAuth = create<AuthState>()(
       generateKeys: async () => {
         try {
           console.log('🔐 Initializing Ed25519...')
-          await (ed25519 as any).init?.()
+          if ('init' in ed25519 && typeof (ed25519 as { init?: () => Promise<void> }).init === 'function') {
+            await (ed25519 as { init?: () => Promise<void> }).init?.()
+          }
           
           console.log('🔑 Generating private key...')
           const privkey = ed25519.utils.randomPrivateKey()
@@ -61,7 +63,9 @@ export const useAuth = create<AuthState>()(
           }
 
           console.log('🔐 Initializing Ed25519 for login...')
-          await (ed25519 as any).init?.()
+          if ('init' in ed25519 && typeof (ed25519 as { init?: () => Promise<void> }).init === 'function') {
+            await (ed25519 as { init?: () => Promise<void> }).init?.()
+          }
           
           console.log('🔑 Processing private key...')
           const privkeyBytes = privkey

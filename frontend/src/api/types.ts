@@ -75,6 +75,21 @@ export interface AuthLoginResponse {
   pubkeyHash: string
 }
 
+export interface UserPasteListItem {
+  id: string
+  url: string
+  createdAt: number
+  expiresAt?: number | null
+  retentionMinutes?: number | null
+  burnAfterReading: boolean
+  format: string
+  accessCount: number
+}
+
+export interface UserPasteListResponse {
+  pastes: UserPasteListItem[]
+}
+
 export interface StatsSummary {
   totalPastes: number
   activePastes: number

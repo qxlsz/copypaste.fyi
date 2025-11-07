@@ -22,7 +22,7 @@ export const LoginPage = () => {
         description: `Public key: ${keys.pubkey.slice(0, 20)}...\n\n⚠️ Save your private key securely - it's shown below and stored locally.`,
         duration: 8000,
       })
-    } catch (error) {
+    } catch {
       toast.error('Failed to generate keys')
     }
   }

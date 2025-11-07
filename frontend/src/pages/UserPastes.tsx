@@ -1,37 +1,40 @@
 import { useAuth } from '../stores/auth'
 import { useEffect, useState } from 'react'
 import { fetchUserPastes } from '../api/client'
+import type { UserPasteListItem } from '../api/types'
 import { Link } from 'react-router-dom'
-
-interface PasteItem {
-  id: string
-  url: string
-  createdAt: number
-  expiresAt?: number
-  retentionMinutes?: number
-  burnAfterReading: boolean
-  format: string
-  accessCount: number
-}
 
 export const UserPastesPage = () => {
   const { user } = useAuth()
-  const [pastes, setPastes] = useState<PasteItem[]>([])
+  const [pastes, setPastes] = useState<UserPasteListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (user) {
-      fetchUserPastes(user.pubkeyHash)
-        .then(data => {
-          setPastes(data.pastes)
-          setLoading(false)
-        })
-        .catch(err => {
-          console.error('Failed to fetch user pastes:', err)
-          setError('Failed to load pastes')
-          setLoading(false)
-        })
+    if (!user) {
+      setPastes([])
+      setLoading(false)
+      return
+    }
+
+    let isActive = true
+    setLoading(true)
+
+    fetchUserPastes(user.pubkeyHash)
+      .then(data => {
+        if (!isActive) return
+        setPastes(data.pastes)
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error('Failed to fetch user pastes:', err)
+        if (!isActive) return
+        setError('Failed to load pastes')
+        setLoading(false)
+      })
+
+    return () => {
+      isActive = false
     }
   }, [user])
 
@@ -45,7 +48,7 @@ export const UserPastesPage = () => {
     })
   }
 
-  const formatExpiration = (paste: PasteItem) => {
+  const formatExpiration = (paste: UserPasteListItem) => {
     if (paste.burnAfterReading) {
       return 'Burn after reading'
     }

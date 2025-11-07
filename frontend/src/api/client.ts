@@ -1,4 +1,4 @@
-import type { CreatePastePayload, CreatePasteResponse, StatsSummary, AuthChallengeResponse } from './types'
+import type { CreatePastePayload, CreatePasteResponse, StatsSummary, AuthChallengeResponse, UserPasteListResponse } from './types'
 import type { PasteViewResponse } from '../server/types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
@@ -69,9 +69,9 @@ export const fetchUserPasteCount = async (pubkeyHash: string): Promise<{ pasteCo
   return jsonFetch<{ pasteCount: number }>(url)
 }
 
-export const fetchUserPastes = async (pubkeyHash: string): Promise<{ pastes: any[] }> => {
+export const fetchUserPastes = async (pubkeyHash: string): Promise<UserPasteListResponse> => {
   const url = `${API_BASE}/user/pastes?pubkey_hash=${encodeURIComponent(pubkeyHash)}`
-  return jsonFetch<{ pastes: any[] }>(url)
+  return jsonFetch<UserPasteListResponse>(url)
 }
 
 export const loginWithSignature = async (challenge: string, signature: string, pubkey: string): Promise<{ token: string, pubkeyHash: string }> => {

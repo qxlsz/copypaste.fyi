@@ -1,14 +1,15 @@
 import { useAuth } from '../stores/auth'
 import { Link } from 'react-router-dom'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { fetchUserPasteCount, fetchUserPastes } from '../api/client'
+import type { UserPasteListItem } from '../api/types'
 
 export const DashboardPage = () => {
   const { user } = useAuth()
   const [pasteCount, setPasteCount] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState<'pastes' | 'account'>('pastes')
-  const [pastes, setPastes] = useState<any[]>([])
+  const [pastes, setPastes] = useState<UserPasteListItem[]>([])
   const [loadingPastes, setLoadingPastes] = useState(false)
   const [showPrivateKey, setShowPrivateKey] = useState(false)
 
@@ -19,6 +20,21 @@ export const DashboardPage = () => {
   const keyStrength = '256-bit elliptic curve'
   const gpgKeyId = user ? user.pubkeyHash.slice(0, 16).toUpperCase() : ''
 
+  const loadPastes = useCallback(async () => {
+    if (!user) return
+
+    setLoadingPastes(true)
+    try {
+      const data = await fetchUserPastes(user.pubkeyHash)
+      setPastes(data.pastes)
+    } catch (err) {
+      console.error('Failed to fetch user pastes:', err)
+      setPastes([])
+    } finally {
+      setLoadingPastes(false)
+    }
+  }, [user])
+
   useEffect(() => {
     if (user) {
       fetchUserPasteCount(user.pubkeyHash)
@@ -28,23 +44,11 @@ export const DashboardPage = () => {
           setPasteCount(0)
         })
       loadPastes()
-    }
-  }, [user])
-
-  const loadPastes = async () => {
-    if (!user) return
-    
-    setLoadingPastes(true)
-    try {
-      const data = await fetchUserPastes(user.pubkeyHash)
-      setPastes(data.pastes || [])
-    } catch (err) {
-      console.error('Failed to fetch user pastes:', err)
+    } else {
+      setPasteCount(null)
       setPastes([])
-    } finally {
-      setLoadingPastes(false)
     }
-  }
+  }, [user, loadPastes])
 
   if (!user) {
     return (
@@ -108,7 +112,7 @@ export const DashboardPage = () => {
                 ) : pastes.length === 0 ? (
                   <div className="px-4 py-8 text-center text-gray-500 dark:text-slate-400">No pastes found</div>
                 ) : (
-                  pastes.map((paste: any) => (
+                  pastes.map((paste: UserPasteListItem) => (
                     <div key={paste.id} className="px-4 py-4 sm:px-6">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
@@ -128,7 +132,15 @@ export const DashboardPage = () => {
                             )}
                           </div>
                           <div className="mt-2 flex items-center text-sm text-gray-500 dark:text-slate-400">
-                            <span>Created {new Date(paste.createdAt * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            <span>
+                              Created {new Date(paste.createdAt * 1000).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
                             <span className="mx-2">•</span>
                             <span>{paste.accessCount} view{paste.accessCount !== 1 ? 's' : ''}</span>
                           </div>
