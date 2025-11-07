@@ -1,7 +1,7 @@
 open Mirage_crypto
 open Mirage_crypto_rng
 open Mirage_crypto_ec
-module AEAD = Mirage_crypto.Cipher_block.AES.CCM
+module AEAD = Mirage_crypto.AES.GCM
 module ChaCha = Mirage_crypto.ChaCha20
 module Poly1305 = Mirage_crypto.Poly1305
 module Hash = Mirage_crypto.Hash
