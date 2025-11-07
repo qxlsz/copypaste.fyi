@@ -55,6 +55,7 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
             routes![
                 api_preflight,
                 index,
+                about,
                 spa_fallback,
                 create,
                 create_api,
@@ -498,6 +499,11 @@ async fn spa_index() -> Option<NamedFile> {
 #[get("/")]
 async fn index() -> Option<NamedFile> {
     spa_index().await
+}
+
+#[get("/about.txt", rank = 1)]
+async fn about() -> Option<NamedFile> {
+    NamedFile::open("static/about.txt").await.ok()
 }
 
 #[get("/<_path..>", rank = 20)]

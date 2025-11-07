@@ -51,16 +51,17 @@ graph TD
         I[Bundle + Burn-after-reading]
         J[Renderers\nMarkdown / code / raw]
         K[Webhooks]
+        L[Crypto Verification\nOCaml Service]
     end
 
     subgraph Persistence
-        L[PasteStore Trait]
-        M[MemoryPasteStore\nEphemeral HashMap]
+        N[PasteStore Trait]
+        O[MemoryPasteStore\nEphemeral HashMap]
     end
 
     subgraph Tooling
-        N[Vitest + ESLint]
-        O[Cargo fmt / clippy / nextest]
+        P[Vitest + ESLint]
+        Q[Cargo fmt / clippy / nextest]
     end
 
     A -->|fetch| E
@@ -74,28 +75,53 @@ graph TD
     G --> L
     H --> L
     I --> L
-    L --> M
+    L --> N
     D --> J
     E --> I
     I --> K
-    N --> A
-    O --> D
+    P --> A
+    Q --> D
+    Q --> L
 
     class A,B,C client;
     class D,E,F service;
-    class G,H,I,J,K logic;
-    class L,M storage;
-    class N,O tooling;
-    class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O link;
+    class G,H,I,J,K,L logic;
+    class N,O storage;
+    class P,Q tooling;
+    class A,B,C,D,E,F,G,H,I,J,K,L,N,O,P,Q link;
 ```
 
 The SPA communicates with the Rocket REST API for creation and viewing, while the server still renders HTML for raw links and one-time fallbacks. Domain helpers handle encryption, attestations, bundles, and webhook notifications before persisting to the in-memory store.
 
 - **Backend:** Rust (edition 2021), Rocket 0.5, Tokio 1.x
+- **Cryptographic Verification:** OCaml service with `mirage-crypto` for independent security validation
 - **Frontend:** React 19 + Vite 7, TanStack Query, Tailwind CSS
 - **Storage:** Ephemeral in-memory `PasteStore`
 - **CLI:** `cpaste` using `reqwest`
 - **Tooling:** Cargo fmt/clippy/nextest, Vitest, ESLint
+
+## Roadmap
+
+### Post-quantum cryptography
+Introduce hybrid trust anchors with CRYSTALS-Dilithium signatures and Kyber KEM alongside Ed25519 to ease transition to quantum-resistant algorithms.
+
+### Zero-knowledge proof integration
+Enable verifiable claims about encrypted paste properties (length, format, content type) without requiring decryption.
+
+### Homomorphic search capabilities
+Allow searching within encrypted pastes and applying transformations to ciphertext for advanced data processing workflows.
+
+### Threshold access control
+Multi-signature schemes for sensitive pastes requiring approval from multiple authorized parties.
+
+### Federated deployments
+Peer discovery and replication protocol so sovereign operators can exchange encrypted pastes with policy attestation.
+
+### HSM-backed custodianship
+Optional PKCS#11 and AWS CloudHSM adapters for environments that require hardware-rooted signing and key custody.
+
+### Formal verification
+Model authentication and policy flows in TLA+ and ProVerif to mechanically prove forward secrecy and non-repudiation.
 
 ## Getting Started
 
@@ -256,6 +282,12 @@ Encrypted pastes require the key query parameter: `/p/{id}/raw?key=<secret>`.
 - `ChaCha20-Poly1305` – compact 96-bit nonce cipher for performance-oriented clients
 - `XChaCha20-Poly1305` – 24-byte nonce variant suited for longer keys and high-entropy secrets
 
+**Security Features**
+
+- **Dual Cryptographic Verification**: Each encryption operation is independently verified by both the primary Rust implementation and a secondary OCaml service using `mirage-crypto` library for defense-in-depth security assurance.
+- **Client-Side Encryption**: Keys are never stored server-side and encryption happens in memory before transmission.
+- **Zero-Trust Architecture**: Encrypted pastes require explicit key sharing out-of-band.
+
 The web UI includes multiple passphrase helpers (**Geek**, **Emoji combo**, **Diceware blend**) and a live key-strength meter. Keys stay visible (or toggle to hidden) so you can share them out-of-band—the server never stores them. A share panel provides easy copy, email, Slack, X/Twitter, QR, and native share shortcuts.
 
 **Extras**
@@ -332,15 +364,25 @@ A GitHub Actions workflow (`.github/workflows/release.yml`) automates steps 2–
 ```
 copypaste.fyi/
 ├── Cargo.toml          # Rust workspace and dependencies
-├── Dockerfile          # Multi-stage build for production images
+├── Dockerfile.backend  # Multi-stage build for production (Rust + OCaml)
 ├── docker-compose.yml  # Local orchestration
+├── fly.toml           # Fly.io deployment configuration
+├── ocaml-crypto-verifier/    # OCaml cryptographic verification service
+│   ├── dune-project
+│   ├── lib/
+│   │   └── crypto_verifier.ml
+│   ├── bin/
+│   │   └── server.ml
+│   ├── test/
+│   └── Dockerfile
 ├── src/
 │   ├── lib.rs          # PasteStore trait + memory implementation
 │   ├── main.rs         # Rocket application entry point
 │   └── bin/
 │       └── cpaste.rs   # CLI client
-└── static/
-    └── index.html      # Frontend interface
+├── static/
+│   └── index.html      # Frontend interface
+└── .github/workflows/  # CI/CD pipelines
 ```
 
 ## Development Notes
@@ -358,6 +400,10 @@ Pull requests are welcome! Please:
 2. Ensure formatting, linting, and tests pass locally: `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace --all-features`.
 3. (Optional but encouraged) Verify coverage meets CI expectations: `cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75`.
 4. Keep changes focused and add tests when extending functionality.
+
+## About
+
+Visit `/about.txt` for a plain text overview of the service and its security features.
 
 ## License
 
