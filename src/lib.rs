@@ -687,6 +687,86 @@ pub mod vault {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct RecordingAdapter {
+        saved: Mutex<Vec<String>>,
+        deleted: Mutex<Vec<String>>,
+        load_queue: Mutex<VecDeque<Result<Option<StoredPaste>, PersistenceError>>>,
+    }
+
+    impl RecordingAdapter {
+        fn with_load_results(results: Vec<Result<Option<StoredPaste>, PersistenceError>>) -> Self {
+            Self {
+                saved: Mutex::new(Vec::new()),
+                deleted: Mutex::new(Vec::new()),
+                load_queue: Mutex::new(results.into_iter().collect()),
+            }
+        }
+
+        fn push_load_result(&self, result: Result<Option<StoredPaste>, PersistenceError>) {
+            self.load_queue.lock().unwrap().push_back(result);
+        }
+
+        fn take_deleted(&self) -> Vec<String> {
+            std::mem::take(&mut *self.deleted.lock().unwrap())
+        }
+
+        fn take_saved(&self) -> Vec<String> {
+            std::mem::take(&mut *self.saved.lock().unwrap())
+        }
+    }
+
+    #[async_trait]
+    impl PersistenceAdapter for RecordingAdapter {
+        async fn save(&self, id: &str, _paste: &StoredPaste) -> Result<(), PersistenceError> {
+            self.saved.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
+
+        async fn load(&self, id: &str) -> Result<Option<StoredPaste>, PersistenceError> {
+            let result = self
+                .load_queue
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| Ok(None));
+            match result {
+                Ok(opt) => Ok(opt),
+                Err(err) => Err(match err {
+                    PersistenceError::Save(_, msg) => PersistenceError::Load(id.to_string(), msg),
+                    PersistenceError::Load(_, msg) => PersistenceError::Load(id.to_string(), msg),
+                    PersistenceError::Delete(_, msg) => PersistenceError::Load(id.to_string(), msg),
+                }),
+            }
+        }
+
+        async fn delete(&self, id: &str) -> Result<(), PersistenceError> {
+            self.deleted.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
+    }
+
+    fn build_paste(content: StoredContent) -> StoredPaste {
+        StoredPaste {
+            content,
+            format: PasteFormat::PlainText,
+            created_at: 1_700_000_000,
+            expires_at: None,
+            burn_after_reading: false,
+            bundle: None,
+            bundle_parent: None,
+            bundle_label: None,
+            not_before: None,
+            not_after: None,
+            persistence: None,
+            webhook: None,
+            metadata: PasteMetadata::default(),
+        }
+    }
 
     #[tokio::test]
     async fn creates_and_reads_plain_paste() {
@@ -779,5 +859,157 @@ mod tests {
         let id = store.create_paste(paste).await;
         let stored = store.get_paste(&id).await.expect("paste should exist");
         assert!(matches!(stored.content, StoredContent::Encrypted { .. }));
+    }
+
+    #[tokio::test]
+    async fn delete_paste_invokes_persistence_adapter() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+        let paste = build_paste(StoredContent::Plain {
+            text: "tracked".into(),
+        });
+
+        let id = store.create_paste(paste).await;
+        assert!(store.delete_paste(&id).await);
+        assert_eq!(adapter.take_deleted(), vec![id.clone()]);
+
+        // Second deletion still triggers adapter delete but reports false
+        assert!(!store.delete_paste(&id).await);
+        assert_eq!(adapter.take_deleted(), vec![id.clone()]);
+        assert_eq!(adapter.take_saved(), vec![id]);
+    }
+
+    #[tokio::test]
+    async fn get_paste_uses_persistence_fallback() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+
+        let paste = build_paste(StoredContent::Plain {
+            text: "persisted".into(),
+        });
+        adapter.push_load_result(Ok(Some(paste.clone())));
+
+        let fetched = store
+            .get_paste("persisted-id")
+            .await
+            .expect("should load from persistence");
+        assert!(matches!(
+            fetched.content,
+            StoredContent::Plain { ref text } if text == "persisted"
+        ));
+
+        // Subsequent call is served from in-memory cache
+        let again = store
+            .get_paste("persisted-id")
+            .await
+            .expect("should still be present");
+        assert!(matches!(again.content, StoredContent::Plain { .. }));
+    }
+
+    #[tokio::test]
+    async fn get_paste_reports_expired_from_persistence() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+
+        let mut expired = build_paste(StoredContent::Plain { text: "old".into() });
+        expired.expires_at = Some(0);
+        adapter.push_load_result(Ok(Some(expired)));
+
+        let err = store
+            .get_paste("old-id")
+            .await
+            .expect_err("should be expired");
+        assert!(matches!(err, PasteError::Expired(id) if id == "old-id"));
+    }
+
+    #[tokio::test]
+    async fn get_paste_returns_not_found_on_adapter_error() {
+        let adapter = Arc::new(RecordingAdapter::with_load_results(vec![Err(
+            PersistenceError::Load("err".into(), "boom".into()),
+        )]));
+        let store = MemoryPasteStore::with_persistence(adapter);
+
+        let err = store
+            .get_paste("missing-id")
+            .await
+            .expect_err("adapter error should surface as not found");
+        assert!(matches!(err, PasteError::NotFound(id) if id == "missing-id"));
+    }
+
+    #[tokio::test]
+    async fn stats_reports_counts_and_breakdowns() {
+        let store = MemoryPasteStore::default();
+
+        let mut plain = build_paste(StoredContent::Plain { text: "one".into() });
+        plain.burn_after_reading = true;
+        plain.metadata.not_before = Some(1_700_000_100);
+        plain.metadata.not_after = Some(1_700_000_200);
+
+        let mut encrypted = build_paste(StoredContent::Encrypted {
+            algorithm: EncryptionAlgorithm::Aes256Gcm,
+            ciphertext: "cipher".into(),
+            nonce: "nonce".into(),
+            salt: "salt".into(),
+        });
+        encrypted.format = PasteFormat::Json;
+        encrypted.expires_at = Some(0);
+        encrypted.created_at = 1_650_000_000;
+
+        let mut stego = build_paste(StoredContent::Stego {
+            algorithm: EncryptionAlgorithm::ChaCha20Poly1305,
+            ciphertext: "payload".into(),
+            nonce: "nonce".into(),
+            salt: "salt".into(),
+            carrier_mime: "image/png".into(),
+            carrier_image: "data".into(),
+            payload_digest: "digest".into(),
+        });
+        stego.format = PasteFormat::Markdown;
+        stego.created_at = 1_700_086_400;
+
+        let id1 = store.create_paste(plain).await;
+        let id2 = store.create_paste(encrypted).await;
+        let id3 = store.create_paste(stego).await;
+
+        let stats = store.stats().await;
+
+        assert_eq!(stats.total_pastes, 3);
+        assert_eq!(stats.active_pastes, 2);
+        assert_eq!(stats.expired_pastes, 1);
+        assert_eq!(stats.burn_after_reading_count, 1);
+        assert_eq!(stats.time_locked_count, 1);
+
+        let format_counts: HashMap<_, _> = stats
+            .formats
+            .iter()
+            .map(|entry| (entry.format, entry.count))
+            .collect();
+        assert_eq!(format_counts.get(&PasteFormat::PlainText), Some(&1));
+        assert_eq!(format_counts.get(&PasteFormat::Json), Some(&1));
+        assert_eq!(format_counts.get(&PasteFormat::Markdown), Some(&1));
+
+        let encryption_counts: HashMap<_, _> = stats
+            .encryption_usage
+            .iter()
+            .map(|entry| (entry.algorithm, entry.count))
+            .collect();
+        assert_eq!(encryption_counts.get(&EncryptionAlgorithm::None), Some(&1));
+        assert_eq!(
+            encryption_counts.get(&EncryptionAlgorithm::Aes256Gcm),
+            Some(&1)
+        );
+        assert_eq!(
+            encryption_counts.get(&EncryptionAlgorithm::ChaCha20Poly1305),
+            Some(&1)
+        );
+
+        let day_total: usize = stats.created_by_day.iter().map(|entry| entry.count).sum();
+        assert_eq!(day_total, 3);
+
+        let mut ids = store.get_all_paste_ids().await;
+        ids.sort();
+        let mut expected = vec![id1, id2, id3];
+        expected.sort();
+        assert_eq!(ids, expected);
     }
 }
