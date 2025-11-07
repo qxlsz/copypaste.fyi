@@ -64,6 +64,7 @@ let test_unsupported_algorithm _ =
   let result = verify_encryption ev in
   assert_bool "Should reject unsupported algorithms" (not result.valid)
   (* Removed String.contains check - main assertion already verifies rejection *)
+;;
 
 let suite =
   "Crypto Verifier Tests" >::: [
