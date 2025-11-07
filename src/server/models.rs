@@ -279,9 +279,40 @@ pub struct AuthLoginRequest {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UserPasteCountResponse {
+    pub paste_count: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPasteListItem {
+    pub id: String,
+    pub url: String,
+    pub created_at: i64,
+    pub expires_at: Option<i64>,
+    pub retention_minutes: Option<i64>,
+    pub burn_after_reading: bool,
+    pub format: String,
+    pub access_count: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPasteListResponse {
+    pub pastes: Vec<UserPasteListItem>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthLoginResponse {
     pub token: String,
     pub pubkey_hash: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLogoutResponse {
+    pub success: bool,
 }
 
 #[derive(FromForm, Default)]

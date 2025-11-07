@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import * as ed25519 from '@noble/ed25519'
-import { fetchAuthChallenge, loginWithSignature } from '../api/client'
+import { fetchAuthChallenge, loginWithSignature, logoutUser } from '../api/client'
 import { toast } from 'sonner'
 
 export interface User {
@@ -75,6 +75,8 @@ export const useAuth = create<AuthState>()(
       },
 
       logout: () => {
+        // Call server logout endpoint (non-blocking)
+        logoutUser().catch(() => {}) // Ignore errors, logout is client-side primarily
         set({ user: null, token: null })
         toast.success('Logged out')
       },

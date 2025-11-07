@@ -8,6 +8,8 @@ import { PasteViewPage } from './pages/PasteView'
 import { StatsPage } from './pages/Stats'
 import { DashboardPage } from './pages/Dashboard'
 import { LoginPage } from './pages/Login'
+import { UserPastesPage } from './pages/UserPastes'
+
 import { ThemeProvider } from './theme/ThemeProvider'
 
 export function App() {

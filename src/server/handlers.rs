@@ -27,9 +27,10 @@ use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
     AnchorRequest, AnchorResponse, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse,
-    CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo, PasteEncryptionInfo,
-    PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse,
-    PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+    AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, PasteAttestationInfo,
+    PasteEncryptionInfo, PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery,
+    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, StatsSummaryResponse, StegoRequest,
+    TimeLockRequest, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
     WebhookRequest,
 };
 use super::render::{
@@ -63,7 +64,10 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 show_raw,
                 stats_summary_api,
                 auth_challenge_api,
-                auth_login_api
+                auth_login_api,
+                auth_logout_api,
+                user_paste_count_api,
+                user_paste_list_api
             ],
         )
         .mount("/static", FileServer::from("static"))
@@ -138,6 +142,90 @@ async fn auth_login_api(
     // TODO: Store token with pubkey_hash for session validation
 
     Ok(Json(AuthLoginResponse { token, pubkey_hash }))
+}
+
+#[post("/api/auth/logout")]
+async fn auth_logout_api() -> Json<AuthLogoutResponse> {
+    // For now, logout is stateless - just return success
+    // In the future, this could invalidate server-side sessions if implemented
+    Json(AuthLogoutResponse { success: true })
+}
+
+#[get("/api/user/paste-count?<pubkey_hash>")]
+async fn user_paste_count_api(
+    store: &State<SharedPasteStore>,
+    pubkey_hash: String,
+    onion: OnionAccess,
+) -> Json<UserPasteCountResponse> {
+    if onion.suppress_logs() {
+        rocket::info!("user paste count accessed via onion host");
+    }
+
+    // Count pastes owned by this user
+    let all_pastes = store.get_all_paste_ids().await;
+    let mut count = 0;
+
+    for id in all_pastes {
+        if let Ok(paste) = store.get_paste(&id).await {
+            if let Some(owner_hash) = &paste.metadata.owner_pubkey_hash {
+                if owner_hash == &pubkey_hash {
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    Json(UserPasteCountResponse { paste_count: count })
+}
+
+#[get("/api/user/pastes?<pubkey_hash>")]
+async fn user_paste_list_api(
+    store: &State<SharedPasteStore>,
+    pubkey_hash: String,
+    onion: OnionAccess,
+) -> Json<UserPasteListResponse> {
+    if onion.suppress_logs() {
+        rocket::info!("user paste list accessed via onion host");
+    }
+
+    // Get all pastes owned by this user
+    let all_pastes = store.get_all_paste_ids().await;
+    let mut user_pastes = Vec::new();
+
+    for id in all_pastes {
+        if let Ok(paste) = store.get_paste(&id).await {
+            if let Some(owner_hash) = &paste.metadata.owner_pubkey_hash {
+                if owner_hash == &pubkey_hash {
+                    let retention_minutes = paste.expires_at.map(|exp| {
+                        let now = current_timestamp();
+                        if exp > now {
+                            (exp - now) / 60
+                        } else {
+                            0
+                        }
+                    });
+
+                    user_pastes.push(UserPasteListItem {
+                        id: id.clone(),
+                        url: format!("/{}", id),
+                        created_at: paste.created_at,
+                        expires_at: paste.expires_at,
+                        retention_minutes,
+                        burn_after_reading: paste.burn_after_reading,
+                        format: format!("{:?}", paste.format).to_lowercase(),
+                        access_count: paste.metadata.access_count,
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort by created_at descending (newest first)
+    user_pastes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    Json(UserPasteListResponse {
+        pastes: user_pastes,
+    })
 }
 
 #[post("/api/pastes/<id>/anchor", data = "<body>")]
