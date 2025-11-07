@@ -107,7 +107,7 @@ export const PasteFormPage = () => {
       const payload: CreatePastePayload = {
         content,
         format,
-        retention_minutes: retentionMinutes || undefined,
+        retention_minutes: retentionMinutes ? Number(retentionMinutes) : undefined,
         burn_after_reading: burnAfterReading || undefined,
         owner_pubkey_hash: user?.pubkeyHash,
       }

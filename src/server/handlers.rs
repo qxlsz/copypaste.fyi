@@ -617,10 +617,35 @@ async fn create(
 #[post("/api/pastes", data = "<body>")]
 async fn create_api(
     store: &State<SharedPasteStore>,
-    body: Json<CreatePasteRequest>,
+    body: Result<Json<CreatePasteRequest>, rocket::serde::json::Error<'_>>,
     onion: OnionAccess,
 ) -> Result<Json<CreatePasteResponse>, (Status, String)> {
+    // Handle JSON deserialization errors
+    let body = match body {
+        Ok(json) => {
+            rocket::info!("Successfully deserialized JSON request");
+            json
+        }
+        Err(e) => {
+            rocket::error!("JSON deserialization failed: {:?}", e);
+            return Err((Status::BadRequest, format!("Invalid JSON: {}", e)));
+        }
+    };
+
+    // Debug logging
+    rocket::info!("Received create paste request");
+    // Note: Cannot serialize CreatePasteRequest for logging since it doesn't implement Serialize
+
     let body = body.into_inner();
+    rocket::info!(
+        "Processing paste creation: content length={}, format={:?}, encryption={:?}",
+        body.content.len(),
+        body.format,
+        body.encryption
+            .as_ref()
+            .map(|e| format!("{:?}", e.algorithm))
+    );
+
     let created = create_paste_internal(store.inner(), body, &onion).await?;
     let response = CreatePasteResponse {
         id: created.id,
