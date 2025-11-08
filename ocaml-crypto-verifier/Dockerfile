@@ -10,7 +10,7 @@ RUN sudo apt-get update && sudo apt-get install -y \
 
 # Copy source code (expecting build context to be the ocaml-crypto-verifier directory)
 WORKDIR /app/ocaml-crypto-verifier
-COPY . ./
+COPY --chown=opam:opam . ./
 RUN opam install . --deps-only --yes
 RUN opam exec -- dune build @install
 
@@ -21,6 +21,7 @@ FROM debian:12-slim
 RUN apt-get update && apt-get install -y \
     libssl3 \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user

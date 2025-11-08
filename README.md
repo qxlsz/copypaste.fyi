@@ -21,6 +21,7 @@ Key traits:
 - 🔗 **Scriptable** – companion CLI (`cpaste`) for shell automation.
 - 🧨 **One-time links** – optional burn-after-reading destroys pastes after the first successful view.
 - 🔐 **Post-quantum ready** – Kyber hybrid encryption for future-proof security.
+- 🛡️ **Privacy awareness** – real-time privacy journey tracker showing HTTPS, Tor, VPN, DNT, and encryption status.
 
 ## Architecture
 
@@ -290,6 +291,20 @@ Encrypted pastes require the key query parameter: `/p/{id}/raw?key=<secret>`.
 - **Client-Side Encryption**: Keys are never stored server-side and encryption happens in memory before transmission.
 - **Zero-Trust Architecture**: Encrypted pastes require explicit key sharing out-of-band.
 - **Post-Quantum Ready**: Kyber hybrid encryption provides quantum-resistant key exchange with AES-256-GCM symmetric encryption.
+- **Privacy Journey Tracker**: Real-time visualization of privacy measures protecting your connection (HTTPS/TLS, Tor network, VPN/proxy detection, Do Not Track, private browsing mode, and client-side encryption status).
+
+### Privacy Journey
+
+The **Privacy Journey** indicator appears in the bottom-left corner of the web interface, showing a real-time privacy score based on detected security measures:
+
+- 🔒 **Encrypted Connection** - HTTPS/TLS active
+- 🌐 **Tor Network** - Accessing via .onion service
+- 🛡️ **VPN/Proxy** - Heuristic detection of privacy proxies
+- 👁️ **Do Not Track** - Browser DNT header enabled
+- ⚡ **Private Browsing** - Incognito/private mode detection
+- 🖥️ **Client-Side Encryption** - Keys never leave your device
+
+Inspired by [how-did-i-get-here.net](https://how-did-i-get-here.net/), this feature educates users about the privacy layers safeguarding their data without being intrusive. Click the indicator to see detailed information about each detected measure.
 
 ### Kyber Hybrid Encryption
 

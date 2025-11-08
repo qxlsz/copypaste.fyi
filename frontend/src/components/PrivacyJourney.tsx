@@ -98,20 +98,20 @@ export const PrivacyJourney = () => {
   const totalSteps = steps.length
 
   return (
-    <div className="fixed bottom-4 left-4 z-50">
+    <div className="fixed bottom-4 left-4 z-50 sm:bottom-6 sm:left-6">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="group relative flex items-center gap-2 rounded-full bg-gradient-to-r from-primary/90 to-primary/70 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/30 backdrop-blur-sm transition-all hover:shadow-xl hover:shadow-primary/40"
+        className="group relative flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary/90 to-primary/70 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-primary/30 backdrop-blur-sm transition-all hover:shadow-xl hover:shadow-primary/40 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm"
         aria-label="Privacy journey details"
       >
-        <Shield className="h-4 w-4" />
-        <span className="hidden sm:inline">Privacy Score:</span>
+        <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+        <span className="hidden sm:inline">Privacy:</span>
         <span className="font-mono">{privacyScore}/{totalSteps}</span>
-        <div className="absolute -top-1 -right-1 h-3 w-3 animate-pulse rounded-full bg-green-400" />
+        <div className="absolute -top-0.5 -right-0.5 h-2 w-2 animate-pulse rounded-full bg-green-400 sm:-top-1 sm:-right-1 sm:h-3 sm:w-3" />
       </button>
 
       {isExpanded && (
-        <div className="absolute bottom-14 left-0 w-80 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/95">
+        <div className="absolute bottom-12 left-0 w-[calc(100vw-2rem)] max-w-sm rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-2xl backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/95 sm:bottom-14 sm:w-80 sm:p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
               Your Privacy Journey

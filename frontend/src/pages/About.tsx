@@ -502,6 +502,13 @@ export const AboutPage = () => {
               Responsible disclosure channels provide encrypted communication paths. Security advisories are signed with the project key to guarantee
               authenticity, and regression tests codify discovered issues to prevent recurrence.
             </p>
+            <p className="mt-4 text-base text-slate-600 dark:text-slate-300/90">
+              The <span className="font-semibold text-primary">Privacy Journey</span> indicator (bottom-left corner) shows real-time detection of privacy measures protecting your connection—including HTTPS/TLS, Tor network, VPN/proxy, Do Not Track headers, private browsing mode, and client-side encryption. Inspired by{' '}
+              <a href="https://how-did-i-get-here.net/" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">
+                how-did-i-get-here.net
+              </a>
+              , this feature educates users about the privacy layers safeguarding their data.
+            </p>
           </section>
         </main>
       </div>
