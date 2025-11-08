@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MermaidDiagram } from "../components/MermaidDiagram";
+import { API_BASE } from "../api/client";
 
 const securityPillars = [
   {
@@ -213,7 +214,7 @@ export const AboutPage = () => {
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const response = await fetch("/api/health");
+        const response = await fetch(`${API_BASE}/health`);
         if (response.ok) {
           const data: HealthResponse = await response.json();
           setHealth(data);
