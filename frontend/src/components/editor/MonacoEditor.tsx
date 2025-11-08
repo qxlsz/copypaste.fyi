@@ -1,4 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
+import type { editor } from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 
@@ -161,6 +162,17 @@ export const MonacoEditor = ({
       },
     })
   }, [])
+  const handleMount = useCallback((editorInstance: editor.IStandaloneCodeEditor) => {
+    // Disable problematic IntelliSense features that cause control access errors
+    editorInstance.updateOptions({
+      quickSuggestions: false,
+      parameterHints: { enabled: false },
+      suggestOnTriggerCharacters: false,
+      acceptSuggestionOnEnter: 'off',
+      tabCompletion: 'off',
+      wordBasedSuggestions: 'off',
+    })
+  }, [])
 
   if (!editorModule) {
     if (readOnly) {
@@ -224,8 +236,18 @@ export const MonacoEditor = ({
         tabSize: 2,
         readOnly,
         domReadOnly: readOnly,
+        // Disable IntelliSense features that cause control access errors
+        quickSuggestions: false,
+        parameterHints: { enabled: false },
+        suggestOnTriggerCharacters: false,
+        acceptSuggestionOnEnter: 'off',
+        tabCompletion: 'off',
+        wordBasedSuggestions: 'off',
+        hover: { enabled: false },
+        contextmenu: false,
       }}
       beforeMount={handleBeforeMount}
+      onMount={handleMount}
       onChange={handleChange}
     />
   )

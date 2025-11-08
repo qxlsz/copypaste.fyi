@@ -6,7 +6,8 @@ import mkcert from 'vite-plugin-mkcert'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
-  if (mode === 'production' && !env.VITE_API_BASE) {
+  // Only require VITE_API_BASE when actually deploying to Vercel (not local builds)
+  if (mode === 'production' && !env.VITE_API_BASE && process.env.VERCEL) {
     throw new Error(
       'Missing VITE_API_BASE environment variable for production builds. Configure it in your Vercel project settings.'
     )
@@ -14,6 +15,10 @@ export default defineConfig(({ mode }) => {
 
   const config: UserConfig = {
     plugins: [react()],
+    build: {
+      // Increase chunk size warning limit to 1MB
+      chunkSizeWarningLimit: 1000,
+    },
   }
 
   if (mode === 'development') {

@@ -1,0 +1,54 @@
+name: OCaml Crypto Verifier CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ocaml-crypto-verifier/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ocaml-crypto-verifier/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install dependencies
+        working-directory: ocaml-crypto-verifier
+        run: |
+          opam install . --deps-only --yes --with-test
+          opam install dune --yes
+
+      - name: Build
+        working-directory: ocaml-crypto-verifier
+        run: opam exec -- dune build
+
+      - name: Run tests
+        working-directory: ocaml-crypto-verifier
+        run: opam exec -- dune test
+
+      - name: Build Docker image
+        working-directory: ocaml-crypto-verifier
+        run: docker build -t crypto-verifier-test .
+
+      - name: Test Docker container
+        run: |
+          docker run -d --name crypto-verifier-test -p 8001:8001 crypto-verifier-test
+          sleep 5
+          curl -f http://localhost:8001/health
+          docker stop crypto-verifier-test
+          docker rm crypto-verifier-test

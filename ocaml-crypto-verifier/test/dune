@@ -1,0 +1,5 @@
+(test
+ (name crypto_verifier_test)
+ (libraries
+   crypto_verifier
+   ounit2))

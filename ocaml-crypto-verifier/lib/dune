@@ -1,0 +1,8 @@
+(library
+ (name crypto_verifier)
+ (public_name crypto_verifier.lib)
+ (libraries
+   unix
+   mirage-crypto-rng
+   yojson)
+ )

@@ -18,7 +18,11 @@ interface AuthState {
   login: (privkey?: string) => Promise<void>
   logout: () => void
   generateKeys: () => Promise<{ pubkey: string; privkey: string }>
+  importKey: (keyData: string, format: KeyFormat) => Promise<{ pubkey: string; privkey: string }>
+  validateKeyPair: (privkey: string, pubkey: string) => Promise<boolean>
 }
+
+export type KeyFormat = 'hex' | 'base64' | 'pem' | 'raw'
 
 export const useAuth = create<AuthState>()(
   persist(
@@ -29,11 +33,6 @@ export const useAuth = create<AuthState>()(
 
       generateKeys: async () => {
         try {
-          console.log('🔐 Initializing Ed25519...')
-          if ('init' in ed25519 && typeof (ed25519 as { init?: () => Promise<void> }).init === 'function') {
-            await (ed25519 as { init?: () => Promise<void> }).init?.()
-          }
-          
           console.log('🔑 Generating private key...')
           const privkey = ed25519.utils.randomPrivateKey()
           
@@ -54,6 +53,106 @@ export const useAuth = create<AuthState>()(
         }
       },
 
+      validateKeyPair: async (privkey: string, pubkey: string) => {
+        try {
+          const privkeyBytes = new Uint8Array(atob(privkey).split('').map((c) => c.charCodeAt(0)))
+          const pubkeyBytes = new Uint8Array(atob(pubkey).split('').map((c) => c.charCodeAt(0)))
+          
+          // Verify the public key matches the private key
+          const derivedPubkey = await ed25519.getPublicKey(privkeyBytes)
+          
+          return derivedPubkey.every((byte, i) => byte === pubkeyBytes[i])
+        } catch (error) {
+          console.error('Key pair validation failed:', error)
+          return false
+        }
+      },
+
+      importKey: async (keyData: string, format: KeyFormat) => {
+        try {
+          console.log('🔑 Importing key with format:', format)
+          
+          let privkeyBytes: Uint8Array
+          
+          switch (format) {
+            case 'hex': {
+              // Remove 0x prefix if present and validate hex
+              const hexData = keyData.replace(/^0x/, '')
+              if (!/^[0-9a-fA-F]{64}$/.test(hexData)) {
+                throw new Error('Invalid hex format - must be 64 characters (32 bytes)')
+              }
+              privkeyBytes = new Uint8Array(hexData.match(/.{2}/g)!.map(byte => parseInt(byte, 16)))
+              break
+            }
+              
+            case 'base64': {
+              try {
+                privkeyBytes = new Uint8Array(atob(keyData).split('').map(c => c.charCodeAt(0)))
+              } catch {
+                throw new Error('Invalid base64 format')
+              }
+              break
+            }
+              
+            case 'pem': {
+              // Basic PEM parsing for Ed25519 private keys
+              const pemMatch = keyData.match(/-----BEGIN (?:.* )?PRIVATE KEY-----([\s\S]*?)-----END (?:.* )?PRIVATE KEY-----/)
+              if (!pemMatch) {
+                throw new Error('Invalid PEM format - expected Ed25519 private key')
+              }
+              const pemBody = pemMatch[1].replace(/\s/g, '')
+              try {
+                const derBytes = new Uint8Array(atob(pemBody).split('').map(c => c.charCodeAt(0)))
+                // For Ed25519, the private key is typically at offset 16 in PKCS#8 format
+                if (derBytes.length >= 48) { // PKCS#8 minimum length
+                  privkeyBytes = derBytes.slice(16, 48) // Extract 32-byte private key
+                } else {
+                  throw new Error('PEM key too short')
+                }
+              } catch {
+                throw new Error('Failed to decode PEM body')
+              }
+              break
+            }
+              
+            case 'raw': {
+              // Raw binary data as base64
+              try {
+                privkeyBytes = new Uint8Array(atob(keyData).split('').map(c => c.charCodeAt(0)))
+              } catch {
+                throw new Error('Invalid raw key format')
+              }
+              break
+            }
+              
+            default:
+              throw new Error(`Unsupported key format: ${format}`)
+          }
+          
+          // Validate key length (Ed25519 private keys are 32 bytes)
+          if (privkeyBytes.length !== 32) {
+            throw new Error(`Invalid key length: ${privkeyBytes.length} bytes (expected 32 bytes for Ed25519)`)
+          }
+          
+          // Validate the key is valid for Ed25519
+          try {
+            const pubkey = await ed25519.getPublicKey(privkeyBytes)
+            console.log('✅ Key import successful')
+            
+            return {
+              pubkey: btoa(String.fromCharCode(...pubkey)),
+              privkey: btoa(String.fromCharCode(...privkeyBytes)),
+            }
+          } catch {
+            throw new Error('Invalid Ed25519 private key')
+          }
+          
+        } catch (error) {
+          console.error('❌ Key import failed:', error)
+          throw new Error(`Key import failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+      },
+
       login: async (privkey) => {
         set({ isLoading: true })
         try {
@@ -62,11 +161,6 @@ export const useAuth = create<AuthState>()(
             throw new Error('HTTPS is required for cryptographic operations')
           }
 
-          console.log('🔐 Initializing Ed25519 for login...')
-          if ('init' in ed25519 && typeof (ed25519 as { init?: () => Promise<void> }).init === 'function') {
-            await (ed25519 as { init?: () => Promise<void> }).init?.()
-          }
-          
           console.log('🔑 Processing private key...')
           const privkeyBytes = privkey
             ? new Uint8Array(atob(privkey).split('').map((c) => c.charCodeAt(0)))

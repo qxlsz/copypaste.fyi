@@ -617,14 +617,19 @@ dependencies = [
  "clap",
  "data-encoding",
  "ed25519-dalek",
+ "env_logger",
  "hex",
  "hmac",
  "html-escape",
  "httpmock",
  "image",
+ "log",
  "nanoid",
+ "once_cell",
+ "pqc_kyber",
  "pulldown-cmark",
  "rand",
+ "regex",
  "reqwest",
  "rocket",
  "serde",
@@ -877,6 +882,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
+dependencies = [
+ "humantime",
+ "is-terminal",
+ "log",
+ "regex",
+ "termcolor",
 ]
 
 [[package]]
@@ -1300,6 +1318,12 @@ dependencies = [
  "tokio",
  "url",
 ]
+
+[[package]]
+name = "humantime"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "hyper"
@@ -1982,6 +2006,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "pqc_kyber"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b23e1823e8a78ad67990c5cb843d5eba75ab3b8a44d041f3814fde89463dc6f"
+dependencies = [
+ "rand_core",
 ]
 
 [[package]]
@@ -2709,6 +2742,15 @@ dependencies = [
  "dirs-next",
  "rustversion",
  "winapi",
+]
+
+[[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
 ]
 
 [[package]]

@@ -26,6 +26,7 @@ export type EncryptionAlgorithm =
   | 'aes256_gcm'
   | 'chacha20_poly1305'
   | 'xchacha20_poly1305'
+  | 'kyber_hybrid_aes256_gcm'
 
 export interface CreatePastePayload {
   content: string

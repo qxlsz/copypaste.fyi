@@ -76,6 +76,7 @@ pub fn render_paste_view(
             EncryptionAlgorithm::Aes256Gcm => "AES-256-GCM".to_string(),
             EncryptionAlgorithm::ChaCha20Poly1305 => "ChaCha20-Poly1305".to_string(),
             EncryptionAlgorithm::XChaCha20Poly1305 => "XChaCha20-Poly1305".to_string(),
+            EncryptionAlgorithm::KyberHybridAes256Gcm => "Kyber Hybrid AES-256-GCM".to_string(),
         },
     };
 
@@ -389,5 +390,158 @@ pub fn format_json(text: &str) -> String {
             format_code(&serde_json::to_string_pretty(&value).unwrap_or_else(|_| text.to_string()))
         }
         Err(_) => format_code(text),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        server::time::TimeLockState, AttestationRequirement, BundleMetadata, BundlePointer,
+        EncryptionAlgorithm, PasteMetadata, StoredContent, WebhookConfig, WebhookProvider,
+    };
+
+    fn sample_metadata() -> PasteMetadata {
+        PasteMetadata {
+            bundle: Some(BundleMetadata {
+                children: vec![BundlePointer {
+                    id: "child-1".to_string(),
+                    label: Some("Child".to_string()),
+                }],
+            }),
+            bundle_parent: Some("parent".to_string()),
+            bundle_label: Some("Parent label".to_string()),
+            not_before: Some(1700),
+            not_after: Some(1800),
+            attestation: Some(AttestationRequirement::Totp {
+                secret: "secret".to_string(),
+                digits: 6,
+                step: 30,
+                allowed_drift: 1,
+                issuer: Some("Test Issuer".to_string()),
+            }),
+            persistence: Some(PersistenceLocator::S3 {
+                bucket: "bucket".to_string(),
+                prefix: Some("prefix".to_string()),
+            }),
+            webhook: Some(WebhookConfig {
+                url: "https://example.com".to_string(),
+                provider: Some(WebhookProvider::Slack),
+                view_template: None,
+                burn_template: None,
+            }),
+            tor_access_only: true,
+            owner_pubkey_hash: Some("owner_hash".to_string()),
+            access_count: 3,
+        }
+    }
+
+    #[test]
+    fn layout_wraps_title_and_body() {
+        let html = layout("Title", "<p>Content</p>".to_string());
+        assert!(html.contains("<title>Title</title>"));
+        assert!(html.contains("<p>Content</p>"));
+    }
+
+    #[test]
+    fn render_paste_view_formats_metadata() {
+        let content = StoredContent::Encrypted {
+            algorithm: EncryptionAlgorithm::ChaCha20Poly1305,
+            ciphertext: "cipher".to_string(),
+            nonce: "nonce".to_string(),
+            salt: "salt".to_string(),
+        };
+        let metadata = sample_metadata();
+        let view = StoredPasteView {
+            content: &content,
+            format: PasteFormat::Markdown,
+            created_at: 1,
+            expires_at: Some(2),
+            burn_after_reading: true,
+            metadata: &metadata,
+        };
+        let bundle_html = Some("<div class=\"bundle\">bundle</div>".to_string());
+
+        let html = render_paste_view("paste-id", &view, "# Heading", bundle_html);
+
+        assert!(html.contains("ChaCha20-Poly1305"));
+        assert!(html.contains("bundle"));
+        assert!(html.contains("Test Issuer"));
+        assert!(html.contains("S3 bucket"));
+        assert!(html.contains("Slack"));
+    }
+
+    #[test]
+    fn render_time_locked_variants() {
+        let early = render_time_locked(TimeLockState::TooEarly(1));
+        assert!(early.contains("Time-locked paste"));
+        let late = render_time_locked(TimeLockState::TooLate(2));
+        assert!(late.contains("Time window elapsed"));
+    }
+
+    #[test]
+    fn render_attestation_prompt_totp_and_secret() {
+        let totp_html = render_attestation_prompt(
+            "id",
+            true,
+            None,
+            &AttestationRequirement::Totp {
+                secret: "secret".into(),
+                digits: 6,
+                step: 30,
+                allowed_drift: 1,
+                issuer: None,
+            },
+            true,
+        );
+        assert!(totp_html.contains("Encryption key"));
+        assert!(totp_html.contains("pattern=\"[0-9]{6,10}\""));
+        assert!(totp_html.contains("Verification failed"));
+
+        let secret_html = render_attestation_prompt(
+            "id",
+            false,
+            Some("existing"),
+            &AttestationRequirement::SharedSecret {
+                hash: "hash".into(),
+            },
+            false,
+        );
+        assert!(secret_html.contains("type=\"password\""));
+        assert!(secret_html.contains("existing"));
+    }
+
+    #[test]
+    fn render_key_and_error_prompts() {
+        let key_html = render_key_prompt("abc");
+        assert!(key_html.contains("Encryption key"));
+
+        let invalid_html = render_invalid_key("def");
+        assert!(invalid_html.contains("Invalid encryption key"));
+    }
+
+    #[test]
+    fn render_expired_contains_message() {
+        let html = render_expired("expired-id");
+        assert!(html.contains("Paste expired"));
+        assert!(html.contains("expired-id"));
+    }
+
+    #[test]
+    fn format_helpers_escape_and_render() {
+        let plain = format_plain("<script>");
+        assert!(plain.contains("&lt;script&gt;"));
+
+        let markdown = format_markdown("# Title");
+        assert!(markdown.contains("<h1>"));
+
+        let code = format_code("let x = 1;");
+        assert!(code.contains("<code>"));
+
+        let pretty_json = format_json("{\"k\":1}");
+        assert!(pretty_json.contains("\n"));
+
+        let fallback_json = format_json("not-json");
+        assert!(fallback_json.contains("not-json"));
     }
 }

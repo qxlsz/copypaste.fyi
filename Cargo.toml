@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }
+env_logger = "0.10"
+log = "0.4"
 nanoid = "0.4"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 rocket = { version = "0.5.0-rc.3", features = ["json"] }
@@ -17,6 +19,7 @@ html-escape = "0.2"
 rand = "0.8"
 aes-gcm = { version = "0.10", features = ["aes"] }
 chacha20poly1305 = "0.10"
+pqc_kyber = "0.7"
 sha2 = "0.10"
 base64 = "0.21"
 image = { version = "0.24", default-features = false, features = ["png", "bmp"] }
@@ -31,6 +34,8 @@ ed25519-dalek = { version = "2.0", features = ["serde"] }
 
 [dev-dependencies]
 httpmock = "0.7"
+regex = "1.11"
+once_cell = "1.19"
 
 [lib]
 name = "copypaste"

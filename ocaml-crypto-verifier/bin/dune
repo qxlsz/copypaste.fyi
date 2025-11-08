@@ -1,0 +1,9 @@
+(executable
+ (name server)
+ (public_name crypto_verifier_server)
+ (libraries
+   crypto_verifier
+   cohttp-lwt-unix
+   cohttp
+   lwt
+   yojson))

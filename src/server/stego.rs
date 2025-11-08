@@ -26,6 +26,7 @@ pub enum StegoCarrierSource {
     Uploaded { mime: String, data: Vec<u8> },
 }
 
+#[derive(Debug)]
 pub struct StegoEmbedResult {
     pub mime: String,
     pub image_data: Vec<u8>,
@@ -253,4 +254,76 @@ fn pseudo_random(x: u32, y: u32) -> f32 {
     value = (value ^ (value >> 13)).wrapping_mul(1_274_126_177);
     let masked = value ^ (value >> 16);
     ((masked & 0x00FF_FFFF) as f32) / 0x00FF_FFFF as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD_TEST;
+    use base64::Engine;
+    use image::{ImageBuffer, ImageEncoder, Rgba};
+
+    #[test]
+    fn parse_data_uri_decodes_payload() {
+        let original = b"hello";
+        let uri = format!(
+            "data:image/png;base64,{}",
+            BASE64_STANDARD_TEST.encode(original)
+        );
+        let (mime, data) = parse_data_uri(&uri).expect("data uri should decode");
+        assert_eq!(mime, "image/png");
+        assert_eq!(data, original);
+    }
+
+    #[test]
+    fn parse_data_uri_rejects_invalid_inputs() {
+        assert!(matches!(
+            parse_data_uri("not-a-data-uri"),
+            Err(StegoError::InvalidDataUri)
+        ));
+        assert!(matches!(
+            parse_data_uri("data:text/plain,hello"),
+            Err(StegoError::InvalidDataUri)
+        ));
+    }
+
+    #[test]
+    fn embed_payload_builtin_carrier_produces_png() {
+        let result = embed_payload(
+            StegoCarrierSource::BuiltIn("aurora".to_string()),
+            b"secret payload",
+        )
+        .expect("embedding into builtin carrier should succeed");
+
+        assert_eq!(result.mime, "image/png");
+        assert!(!result.image_data.is_empty());
+    }
+
+    #[test]
+    fn embed_payload_rejects_large_payload_for_small_carrier() {
+        let mut buffer = Vec::new();
+        {
+            let encoder = image::codecs::png::PngEncoder::new(&mut buffer);
+            encoder
+                .write_image(&[255, 0, 0, 255], 1, 1, image::ColorType::Rgba8)
+                .expect("encode 1x1 image");
+        }
+
+        let source = StegoCarrierSource::Uploaded {
+            mime: "image/png".to_string(),
+            data: buffer,
+        };
+
+        let err = embed_payload(source, &[0u8; 16]).expect_err("payload should be too large");
+        assert!(matches!(err, StegoError::PayloadTooLarge { .. }));
+    }
+
+    #[test]
+    fn embed_message_writes_bits_until_payload_complete() {
+        let baseline = ImageBuffer::from_pixel(16, 16, Rgba([0, 0, 0, 255]));
+        let mut image = baseline.clone();
+        embed_message(b"a", &mut image).expect("embedding small payload succeeds");
+
+        assert_ne!(image, baseline, "embedding should modify carrier pixels");
+    }
 }

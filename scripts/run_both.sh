@@ -40,6 +40,8 @@ REDIS_CONTAINER_STARTED=false
 REDIS_PROXY_PID=""
 
 # Start Vite in the background
+# Note: Frontend automatically detects development mode and uses direct backend URL
+# In production, frontend uses relative /api paths (same domain as deployed app)
 (
   cd frontend
   npm run dev -- --host 127.0.0.1 --port ${FRONTEND_PORT}
@@ -102,6 +104,7 @@ fi
 
 echo "Frontend dev server running at ${FRONTEND_URL}"
 echo "Starting Rocket backend on http://127.0.0.1:8000"
-ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste
+# Force memory persistence to avoid Redis connection issues
+COPYPASTE_PERSISTENCE_BACKEND=memory ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste
 
 popd >/dev/null

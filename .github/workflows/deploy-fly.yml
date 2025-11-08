@@ -9,6 +9,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'src/**'
+      - 'ocaml-crypto-verifier/**'
       - '.github/workflows/deploy-fly.yml'
   workflow_dispatch: {}
 

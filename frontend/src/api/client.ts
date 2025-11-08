@@ -1,7 +1,18 @@
 import type { CreatePastePayload, CreatePasteResponse, StatsSummary, AuthChallengeResponse, UserPasteListResponse } from './types'
 import type { PasteViewResponse } from '../server/types'
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
+// In development, use relative /api paths (proxied by Vite)
+// In production, use the configured API base
+export const API_BASE = import.meta.env.DEV
+  ? '/api'
+  : (import.meta.env.VITE_API_BASE ?? '/api')
+
+// Debug logging for development (temporarily enabled)
+if (import.meta.env.DEV) {
+  console.log('🚀 Frontend API_BASE:', API_BASE)
+  console.log('🚀 Development mode:', import.meta.env.DEV)
+  console.log('🚀 VITE_API_BASE env:', import.meta.env.VITE_API_BASE)
+}
 
 const jsonFetch = async <T>(input: RequestInfo, init?: RequestInit): Promise<T> => {
   const controller = new AbortController()
