@@ -68,3 +68,27 @@ frontend/**/*.sln
 frontend/**/*.sw?
 frontend/**/.vercel
 fly.toml
+
+# Git and CI
+.git
+.github
+.gitignore
+
+# Documentation and tests
+*.md
+!README.md
+tests/
+frontend/tests/
+
+# Development files
+.env
+.env.*
+*.log
+server.log
+frontend.log
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo

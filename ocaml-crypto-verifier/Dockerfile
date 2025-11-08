@@ -10,8 +10,15 @@ RUN sudo apt-get update && sudo apt-get install -y \
 
 # Copy source code (expecting build context to be the ocaml-crypto-verifier directory)
 WORKDIR /app/ocaml-crypto-verifier
-COPY --chown=opam:opam . ./
+
+# Copy only dependency files first for better caching
+COPY --chown=opam:opam dune-project crypto_verifier.opam ./
 RUN opam install . --deps-only --yes
+
+# Now copy source code
+COPY --chown=opam:opam . ./
+
+# Build the application (only this layer rebuilds when code changes)
 RUN opam exec -- dune build @install
 
 # Runtime stage
@@ -30,7 +37,7 @@ USER app
 
 # Copy built binary
 WORKDIR /home/app
-COPY --from=builder /app/ocaml-crypto-verifier/_build/install/default/bin/server ./crypto-verifier
+COPY --from=builder /app/ocaml-crypto-verifier/_build/install/default/bin/crypto_verifier_server ./crypto-verifier
 
 # Expose port
 EXPOSE 8001

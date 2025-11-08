@@ -8,15 +8,23 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy only dependency files first for better caching
 COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src && echo "fn main() {}" > src/main.rs
 RUN cargo fetch --locked
 
+# Build dependencies only (cached layer)
+RUN cargo build --release --locked --bin copypaste || true
+RUN rm -rf src
+
+# Now copy actual source code
 COPY src ./src
 COPY static ./static
 COPY docs ./docs
 COPY README.md ./
 COPY blockchain ./blockchain
 
+# Build the actual application (only this layer rebuilds when code changes)
 RUN cargo build --release --locked --bin copypaste
 
 # OCaml builder stage
@@ -28,12 +36,18 @@ RUN sudo apt-get update && sudo apt-get install -y \
     libssl-dev \
     && sudo rm -rf /var/lib/apt/lists/*
 
-# Copy OCaml source
 WORKDIR /app/ocaml-crypto-verifier
+
+# Copy only dependency files first for better caching
+COPY ocaml-crypto-verifier/dune-project ocaml-crypto-verifier/crypto_verifier.opam ./
+
+# Install dependencies (cached layer)
+RUN opam install . --deps-only --yes
+
+# Now copy source code
 COPY ocaml-crypto-verifier/ ./
 
-# Build the OCaml application
-RUN opam install . --deps-only --yes
+# Build the OCaml application (only this layer rebuilds when code changes)
 RUN opam exec -- dune build @install
 
 # Runtime stage
