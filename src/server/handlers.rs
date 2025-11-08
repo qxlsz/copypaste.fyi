@@ -161,9 +161,9 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
         },
     };
 
-    let overall_status = if crypto_status.status == "ok" && storage_status.status == "ok" {
+    let overall_status = if storage_status.status == "ok" {
         "ok"
-    } else if crypto_status.status == "unavailable" || storage_status.status == "unavailable" {
+    } else if storage_status.status == "unavailable" {
         "degraded"
     } else {
         "ok"
@@ -172,7 +172,7 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
     Json(DetailedHealthResponse {
         status: overall_status.to_string(),
         timestamp: current_timestamp(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: env!("COPYPASTE_VERSION").to_string(),
         commit: option_env!("GIT_COMMIT").map(String::from),
         commit_message: option_env!("GIT_COMMIT_MESSAGE").map(String::from),
         services: ServiceHealth {

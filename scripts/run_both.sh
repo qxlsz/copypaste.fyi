@@ -38,6 +38,7 @@ USE_LOCAL_REDIS=${USE_LOCAL_REDIS:-true}
 
 REDIS_CONTAINER_STARTED=false
 REDIS_PROXY_PID=""
+CRYPTO_PID=""
 
 # Function to kill processes using a specific port
 kill_port() {
@@ -52,6 +53,7 @@ kill_port() {
 
 # Kill any existing processes using our ports
 kill_port 8000  # Backend
+kill_port 8001  # Crypto verifier
 kill_port ${REDIS_TCP_PORT}  # Redis
 kill_port ${REDIS_HTTP_PORT}  # Redis proxy
 kill_port ${FRONTEND_PORT}  # Frontend (try to kill 5173)
@@ -71,6 +73,9 @@ VITE_PID=$!
 cleanup() {
   echo "\nStopping frontend dev server (PID ${VITE_PID}) ..."
   kill ${VITE_PID} >/dev/null 2>&1 || true
+
+  echo "Stopping OCaml crypto verifier (PID ${CRYPTO_PID}) ..."
+  kill ${CRYPTO_PID} >/dev/null 2>&1 || true
 
   if [[ -n "${REDIS_PROXY_PID}" ]]; then
     echo "Stopping Redis REST proxy (PID ${REDIS_PROXY_PID}) ..."
@@ -123,6 +128,14 @@ if [[ "${USE_LOCAL_REDIS}" == "true" ]]; then
 fi
 
 echo "Frontend dev server running at ${FRONTEND_URL}"
+echo "Starting OCaml crypto verifier on http://127.0.0.1:8001"
+(
+  cd ocaml-crypto-verifier
+  dune exec bin/server.exe &
+) &
+CRYPTO_PID=$!
+sleep 2
+
 echo "Starting Rocket backend on http://127.0.0.1:8000"
 # Force memory persistence to avoid Redis connection issues
 COPYPASTE_PERSISTENCE_BACKEND=memory ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { MermaidDiagram } from "../components/MermaidDiagram";
 
 const securityPillars = [
@@ -192,7 +193,40 @@ const roadmapItems = [
   },
 ];
 
+interface HealthResponse {
+  status: string;
+  timestamp: number;
+  version: string;
+  commit?: string;
+  commit_message?: string;
+  services: {
+    backend: { status: string; message?: string };
+    crypto_verifier: { status: string; message?: string };
+    storage: { status: string; message?: string };
+  };
+}
+
 export const AboutPage = () => {
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const response = await fetch('/api/health');
+        if (response.ok) {
+          const data: HealthResponse = await response.json();
+          setHealth(data);
+        } else {
+          setHealthError('Failed to fetch system health');
+        }
+      } catch (error) {
+        setHealthError('Network error fetching system health');
+      }
+    };
+
+    fetchHealth();
+  }, []);
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-100 to-slate-200 dark:from-[#05070f] dark:via-[#0b1120] dark:to-[#0f172a]">
       <div className="mx-auto max-w-6xl px-4 pb-24 pt-16 sm:px-6 lg:px-8">
@@ -639,6 +673,96 @@ export const AboutPage = () => {
               , this feature educates users about the privacy layers
               safeguarding their data.
             </p>
+          </section>
+
+          <section className="rounded-3xl border border-white/80 bg-white/85 p-8 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+            <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              Deployment & build information
+            </h2>
+            <div className="mt-6 space-y-4">
+              {health ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200/70 bg-slate-50/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/70">
+                      <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                        System Status
+                      </h3>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-block w-2 h-2 rounded-full ${
+                            health.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
+                          }`} />
+                          <span className="text-slate-700 dark:text-slate-300">
+                            Overall: {health.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-block w-2 h-2 rounded-full ${
+                            health.services.backend.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
+                          }`} />
+                          <span className="text-slate-700 dark:text-slate-300">
+                            Backend: {health.services.backend.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-block w-2 h-2 rounded-full ${
+                            health.services.crypto_verifier.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
+                          }`} />
+                          <span className="text-slate-700 dark:text-slate-300">
+                            Crypto Verifier: {health.services.crypto_verifier.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-block w-2 h-2 rounded-full ${
+                            health.services.storage.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
+                          }`} />
+                          <span className="text-slate-700 dark:text-slate-300">
+                            Storage: {health.services.storage.status.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200/70 bg-slate-50/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/70">
+                      <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                        Version Information
+                      </h3>
+                      <div className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                        <div>
+                          <strong>Version:</strong> {health.version}
+                        </div>
+                        {health.commit && (
+                          <div>
+                            <strong>Commit:</strong>{" "}
+                            <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-xs">
+                              {health.commit}
+                            </code>
+                          </div>
+                        )}
+                        {health.commit_message && (
+                          <div>
+                            <strong>Message:</strong> {health.commit_message}
+                          </div>
+                        )}
+                        <div>
+                          <strong>Build:</strong> {health.version}
+                        </div>
+                        <div>
+                          <strong>Last checked:</strong>{" "}
+                          {new Date(health.timestamp * 1000).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-xl border border-slate-200/70 bg-slate-50/90 p-6 text-center dark:border-slate-700/60 dark:bg-slate-900/70">
+                  <p className="text-slate-700 dark:text-slate-300">
+                    {healthError || "Loading deployment information..."}
+                  </p>
+                </div>
+              )}
+            </div>
           </section>
         </main>
       </div>
