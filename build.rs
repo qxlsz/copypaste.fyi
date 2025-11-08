@@ -1,13 +1,15 @@
 use std::process::Command;
 
 fn main() {
-    // Generate version information from git
+    // Generate version information from git or fallback
     let version = get_version_from_git();
     println!("cargo:rustc-env=COPYPASTE_VERSION={}", version);
 
-    // Re-run build script if git state changes
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/refs");
+    // Re-run build script if git state changes (only if .git exists)
+    if std::path::Path::new(".git").exists() {
+        println!("cargo:rerun-if-changed=.git/HEAD");
+        println!("cargo:rerun-if-changed=.git/refs");
+    }
 }
 
 fn get_version_from_git() -> String {
@@ -44,6 +46,22 @@ fn get_version_from_git() -> String {
         }
     }
 
+    // Check for environment variables set by Docker
+    if let Ok(commit) = std::env::var("GIT_COMMIT") {
+        if let Ok(message) = std::env::var("GIT_COMMIT_MESSAGE") {
+            if !commit.is_empty() {
+                return format!(
+                    "0.1.0-dev+{}-{}",
+                    commit,
+                    message.chars().take(20).collect::<String>()
+                );
+            }
+        }
+        if !commit.is_empty() {
+            return format!("0.1.0-dev+{}", commit);
+        }
+    }
+
     // Final fallback: use static version
-    "0.1.0-unknown".to_string()
+    "0.1.0-docker".to_string()
 }

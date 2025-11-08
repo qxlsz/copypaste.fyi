@@ -213,15 +213,15 @@ export const AboutPage = () => {
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const response = await fetch('/api/health');
+        const response = await fetch("/api/health");
         if (response.ok) {
           const data: HealthResponse = await response.json();
           setHealth(data);
         } else {
-          setHealthError('Failed to fetch system health');
+          setHealthError("Failed to fetch system health");
         }
-      } catch (error) {
-        setHealthError('Network error fetching system health');
+      } catch {
+        setHealthError("Network error fetching system health");
       }
     };
 
@@ -689,35 +689,54 @@ export const AboutPage = () => {
                       </h3>
                       <div className="space-y-1 text-sm">
                         <div className="flex items-center space-x-2">
-                          <span className={`inline-block w-2 h-2 rounded-full ${
-                            health.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
-                          }`} />
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full ${
+                              health.status === "ok"
+                                ? "bg-green-500"
+                                : "bg-red-500"
+                            }`}
+                          />
                           <span className="text-slate-700 dark:text-slate-300">
                             Overall: {health.status.toUpperCase()}
                           </span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <span className={`inline-block w-2 h-2 rounded-full ${
-                            health.services.backend.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
-                          }`} />
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full ${
+                              health.services.backend.status === "ok"
+                                ? "bg-green-500"
+                                : "bg-red-500"
+                            }`}
+                          />
                           <span className="text-slate-700 dark:text-slate-300">
-                            Backend: {health.services.backend.status.toUpperCase()}
+                            Backend:{" "}
+                            {health.services.backend.status.toUpperCase()}
                           </span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <span className={`inline-block w-2 h-2 rounded-full ${
-                            health.services.crypto_verifier.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
-                          }`} />
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full ${
+                              health.services.crypto_verifier.status === "ok"
+                                ? "bg-green-500"
+                                : "bg-red-500"
+                            }`}
+                          />
                           <span className="text-slate-700 dark:text-slate-300">
-                            Crypto Verifier: {health.services.crypto_verifier.status.toUpperCase()}
+                            Crypto Verifier:{" "}
+                            {health.services.crypto_verifier.status.toUpperCase()}
                           </span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <span className={`inline-block w-2 h-2 rounded-full ${
-                            health.services.storage.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
-                          }`} />
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full ${
+                              health.services.storage.status === "ok"
+                                ? "bg-green-500"
+                                : "bg-red-500"
+                            }`}
+                          />
                           <span className="text-slate-700 dark:text-slate-300">
-                            Storage: {health.services.storage.status.toUpperCase()}
+                            Storage:{" "}
+                            {health.services.storage.status.toUpperCase()}
                           </span>
                         </div>
                       </div>

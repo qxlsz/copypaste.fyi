@@ -172,7 +172,10 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
     Json(DetailedHealthResponse {
         status: overall_status.to_string(),
         timestamp: current_timestamp(),
-        version: env!("COPYPASTE_VERSION").to_string(),
+        version: option_env!("COPYPASTE_VERSION")
+            .map(String::from)
+            .or_else(|| std::env::var("COPYPASTE_VERSION").ok())
+            .unwrap_or_else(|| "unknown".to_string()),
         commit: option_env!("GIT_COMMIT").map(String::from),
         commit_message: option_env!("GIT_COMMIT_MESSAGE").map(String::from),
         services: ServiceHealth {
