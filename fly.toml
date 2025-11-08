@@ -15,21 +15,31 @@ primary_region = 'iad'
   RUST_LOG = 'info'
   CRYPTO_VERIFIER_URL = 'http://localhost:8001'
 
-[http_service]
+[[services]]
   internal_port = 8000
-  force_https = true
+  protocol = "tcp"
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ['app']
 
-[[http_service]]
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[[services]]
   internal_port = 8001
-  force_https = true
+  protocol = "tcp"
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ['crypto-verifier']
+
+  [[services.ports]]
+    port = 8001
 
 [processes]
   app = 'copypaste'
