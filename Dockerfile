@@ -15,7 +15,9 @@ FROM node:20 AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
-RUN npm ci
+COPY frontend/scripts ./scripts
+# Disable prepare hook during Docker build to avoid Playwright installation issues
+RUN npm ci --ignore-scripts
 
 COPY frontend ./
 RUN npm run build

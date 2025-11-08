@@ -161,6 +161,17 @@ export const MonacoEditor = ({
       },
     })
   }, [])
+  const handleMount = useCallback((editor: any) => {
+    // Disable problematic IntelliSense features that cause control access errors
+    editor.updateOptions({
+      quickSuggestions: false,
+      parameterHints: { enabled: false },
+      suggestOnTriggerCharacters: false,
+      acceptSuggestionOnEnter: false,
+      tabCompletion: 'off',
+      wordBasedSuggestions: false,
+    })
+  }, [])
 
   if (!editorModule) {
     if (readOnly) {
@@ -224,8 +235,18 @@ export const MonacoEditor = ({
         tabSize: 2,
         readOnly,
         domReadOnly: readOnly,
+        // Disable IntelliSense features that cause control access errors
+        quickSuggestions: false,
+        parameterHints: { enabled: false },
+        suggestOnTriggerCharacters: false,
+        acceptSuggestionOnEnter: 'off',
+        tabCompletion: 'off',
+        wordBasedSuggestions: 'off',
+        hover: { enabled: false },
+        contextmenu: false,
       }}
       beforeMount={handleBeforeMount}
+      onMount={handleMount}
       onChange={handleChange}
     />
   )
