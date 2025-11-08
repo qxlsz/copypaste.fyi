@@ -48,8 +48,8 @@ WORKDIR /app/ocaml-crypto-verifier
 # Copy only dependency files first for better caching
 COPY ocaml-crypto-verifier/dune-project ocaml-crypto-verifier/crypto_verifier.opam ./
 
-# Install system dependencies via opam depext, then install OCaml dependencies
-RUN opam depext -y . && opam install . --deps-only --yes
+# Update opam and install OCaml dependencies (system deps already installed above)
+RUN opam update && opam install . --deps-only --yes
 
 # Now copy source code
 COPY ocaml-crypto-verifier/ ./
