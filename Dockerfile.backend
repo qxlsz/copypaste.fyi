@@ -48,7 +48,7 @@ RUN apt-get update \
 COPY --from=rust-builder /app/target/release/copypaste /usr/local/bin/copypaste
 
 # Copy OCaml binary
-COPY --from=ocaml-builder /app/ocaml-crypto-verifier/_build/install/default/bin/server /usr/local/bin/crypto-verifier
+COPY --from=ocaml-builder /app/ocaml-crypto-verifier/_build/install/default/bin/crypto_verifier_server /usr/local/bin/crypto-verifier
 
 # Copy static assets
 COPY --from=rust-builder /app/static ./static

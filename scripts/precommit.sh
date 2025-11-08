@@ -17,6 +17,10 @@ Runs the same checks enforced by the git commit hooks:
   3. cargo build --release --all-targets
   4. cargo nextest run --workspace --all-features
   5. cargo llvm-cov nextest --workspace --all-features --fail-under-lines 75 --lcov --output-path coverage/lcov.info
+  6. npm run format (Prettier check)
+  7. npm run lint (ESLint check)
+  8. npm test
+  9. npm run build
 
 Pass --skip-coverage to omit the coverage step when running locally.
 EOF
@@ -81,9 +85,10 @@ else
   echo "[8/9] Skipping coverage (--skip-coverage provided)"
 fi
 
-echo "[9/9] Running frontend lint/test/build"
+echo "[9/9] Running frontend lint/format/test/build"
 (
   cd frontend
+  npm run format
   npm run lint
   npm test -- --run
   npm run build
