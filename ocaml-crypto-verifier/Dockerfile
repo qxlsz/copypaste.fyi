@@ -5,6 +5,7 @@ FROM ocaml/opam:debian-12-ocaml-5.2 AS builder
 RUN sudo apt-get update && sudo apt-get install -y \
     pkg-config \
     libssl-dev \
+    libgmp-dev \
     && sudo rm -rf /var/lib/apt/lists/*
 
 # Copy source code (expecting build context to be the ocaml-crypto-verifier directory)
