@@ -53,7 +53,7 @@ export const PrivacyJourney = () => {
       })
 
       // Check for Do Not Track
-      const dnt = navigator.doNotTrack === '1' || (window as any).doNotTrack === '1'
+      const dnt = navigator.doNotTrack === '1' || (window as Window & { doNotTrack?: string }).doNotTrack === '1'
       journeySteps.push({
         icon: Eye,
         label: 'Do Not Track',
