@@ -21,6 +21,7 @@ primary_region = 'iad'
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
+  processes = ["app"]
 
   [[services.ports]]
     port = 80
@@ -37,6 +38,7 @@ primary_region = 'iad'
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
+  processes = ["crypto-verifier"]
 
   [[services.ports]]
     port = 8001
