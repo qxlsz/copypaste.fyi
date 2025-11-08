@@ -1,18 +1,18 @@
-import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import '@testing-library/jest-dom/vitest'
+import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import "@testing-library/jest-dom/vitest";
 
-import { App } from './App'
-import { ThemeProvider } from './theme/ThemeProvider'
+import { App } from "./App";
+import { ThemeProvider } from "./theme/ThemeProvider";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: false },
     mutations: { retry: false },
   },
-})
+});
 
 const renderApp = () => {
   return render(
@@ -22,19 +22,19 @@ const renderApp = () => {
           <App />
         </ThemeProvider>
       </MemoryRouter>
-    </QueryClientProvider>
-  )
-}
+    </QueryClientProvider>,
+  );
+};
 
-describe('App', () => {
-  it('renders without crashing', () => {
-    expect(() => renderApp()).not.toThrow()
-  })
+describe("App", () => {
+  it("renders without crashing", () => {
+    expect(() => renderApp()).not.toThrow();
+  });
 
-  it('renders the basic layout elements', () => {
-    renderApp()
-    
+  it("renders the basic layout elements", () => {
+    renderApp();
+
     // Check that the header with branding is present
-    expect(screen.getByText('copypaste.fyi')).toBeInTheDocument()
-  })
-})
+    expect(screen.getByText("copypaste.fyi")).toBeInTheDocument();
+  });
+});

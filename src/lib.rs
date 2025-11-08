@@ -11,12 +11,13 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
+use utoipa::ToSchema;
 
 pub mod server;
 
 use crate::server::redis::RedisPersistenceAdapter;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PasteFormat {
     #[default]
@@ -82,7 +83,7 @@ impl std::fmt::Display for PasteFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, Hash, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionAlgorithm {
     #[default]
@@ -96,7 +97,7 @@ pub enum EncryptionAlgorithm {
     KyberHybridAes256Gcm,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StoredContent {
     Plain {
@@ -119,7 +120,7 @@ pub enum StoredContent {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StoredPaste {
     pub content: StoredContent,
     pub format: PasteFormat,
@@ -138,7 +139,7 @@ pub struct StoredPaste {
     pub webhook: Option<WebhookConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreStats {
     pub total_pastes: usize,
@@ -151,28 +152,28 @@ pub struct StoreStats {
     pub created_by_day: Vec<DailyCount>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatUsage {
     pub format: PasteFormat,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EncryptionUsage {
     pub algorithm: EncryptionAlgorithm,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyCount {
     pub date: String,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(default)]
 pub struct PasteMetadata {
     pub bundle: Option<BundleMetadata>,
@@ -189,19 +190,19 @@ pub struct PasteMetadata {
     pub access_count: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(default)]
 pub struct BundleMetadata {
     pub children: Vec<BundlePointer>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BundlePointer {
     pub id: String,
     pub label: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AttestationRequirement {
     Totp {
@@ -222,7 +223,7 @@ const fn default_attestation_drift() -> u32 {
     1
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PersistenceLocator {
     Memory,
@@ -236,7 +237,7 @@ pub enum PersistenceLocator {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WebhookProvider {
     Slack,
@@ -244,7 +245,7 @@ pub enum WebhookProvider {
     Generic,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(default)]
 pub struct WebhookConfig {
     pub url: String,

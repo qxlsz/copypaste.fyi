@@ -1,17 +1,17 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useState } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 
-import { Layout } from './components/Layout'
-import { PrivacyJourney } from './components/PrivacyJourney'
-import { PasteFormPage } from './pages/PasteForm'
-import { PasteViewPage } from './pages/PasteView'
-import { StatsPage } from './pages/Stats'
-import { DashboardPage } from './pages/Dashboard'
-import { LoginPage } from './pages/Login'
-import { AboutPage } from './pages/About'
+import { Layout } from "./components/Layout";
+import { PrivacyJourney } from "./components/PrivacyJourney";
+import { PasteFormPage } from "./pages/PasteForm";
+import { PasteViewPage } from "./pages/PasteView";
+import { StatsPage } from "./pages/Stats";
+import { DashboardPage } from "./pages/Dashboard";
+import { LoginPage } from "./pages/Login";
+import { AboutPage } from "./pages/About";
 
-import { ThemeProvider } from './theme/ThemeProvider'
+import { ThemeProvider } from "./theme/ThemeProvider";
 
 export function App() {
   return (
@@ -28,11 +28,11 @@ export function App() {
       </Routes>
       <PrivacyJourney />
     </>
-  )
+  );
 }
 
 export default function AppWithProviders() {
-  const [queryClient] = useState(() => new QueryClient())
+  const [queryClient] = useState(() => new QueryClient());
 
   return (
     <BrowserRouter>
@@ -42,5 +42,5 @@ export default function AppWithProviders() {
         </ThemeProvider>
       </QueryClientProvider>
     </BrowserRouter>
-  )
+  );
 }

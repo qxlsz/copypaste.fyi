@@ -2,13 +2,13 @@ use crate::AttestationRequirement;
 use base64::Engine;
 use data_encoding::BASE32;
 use hmac::{Hmac, Mac};
-use rocket::serde::Deserialize;
+use rocket::serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
 use super::models::PasteViewQuery;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AttestationRequest {
     Totp {

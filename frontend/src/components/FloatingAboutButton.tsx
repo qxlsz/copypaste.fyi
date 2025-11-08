@@ -1,11 +1,11 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation } from "react-router-dom";
 
 export const FloatingAboutButton = () => {
-  const location = useLocation()
+  const location = useLocation();
 
   // Don't show on the about page itself
-  if (location.pathname === '/about') {
-    return null
+  if (location.pathname === "/about") {
+    return null;
   }
 
   return (
@@ -21,7 +21,7 @@ export const FloatingAboutButton = () => {
             Learn more about copypaste.fyi
           </div>
         </div>
-        
+
         {/* Button */}
         <div className="flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110">
           <svg
@@ -44,5 +44,5 @@ export const FloatingAboutButton = () => {
         <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 animate-ping opacity-20"></div>
       </div>
     </Link>
-  )
-}
+  );
+};

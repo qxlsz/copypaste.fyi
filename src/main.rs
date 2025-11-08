@@ -315,7 +315,7 @@ mod tests {
 
         assert_eq!(response.status(), Status::BadRequest);
         let message = response.into_string().await.expect("error body");
-        assert!(message.contains("requires an encryption key"));
+        assert!(message.contains("require an encryption key"));
     }
 
     #[rocket::async_test]

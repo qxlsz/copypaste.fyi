@@ -1,17 +1,15 @@
 use std::path::PathBuf;
 
-use crate::{
-    create_paste_store, BundleMetadata, BundlePointer, EncryptionAlgorithm, PasteError,
-    PasteFormat, PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste,
-    WebhookConfig,
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use rocket::{
+    fs::FileServer, http::Status, response::content, serde::json::Json, Build, Rocket, State,
 };
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine;
-use rocket::fs::{FileServer, NamedFile};
-use rocket::http::Status;
-use rocket::response::content;
-use rocket::serde::json::Json;
-use rocket::{get, post, routes, Build, Rocket, State};
+
+use crate::{
+    create_paste_store, EncryptionAlgorithm, PasteError, PasteFormat, PasteMetadata,
+    PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste, WebhookConfig,
+};
+use rocket::{get, post, routes};
 use serde_json;
 use sha2::{Digest, Sha256};
 
@@ -36,11 +34,12 @@ use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
     render_paste_view, render_time_locked, StoredPasteView,
 };
-use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
+use super::stego::parse_data_uri;
 use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp};
 use super::tor::{OnionAccess, TorConfig};
 use super::webhook::{trigger_webhook, WebhookEvent};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     let tor_config = TorConfig::from_env();
@@ -78,7 +77,13 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
         .mount("/static", FileServer::from("static"))
 }
 
-#[derive(Serialize, Deserialize)]
+pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
+    let store = create_paste_store();
+    build_rocket(store).launch().await?;
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
 struct HealthResponse {
     status: String,
     timestamp: i64,
@@ -87,7 +92,7 @@ struct HealthResponse {
     commit: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 struct DetailedHealthResponse {
     status: String,
     timestamp: i64,
@@ -123,6 +128,11 @@ async fn health_api() -> Json<HealthResponse> {
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/health",
+    responses((status = 200, description = "Detailed health", body = DetailedHealthResponse))
+)]
 #[get("/api/health")]
 async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHealthResponse> {
     // Check storage
@@ -176,6 +186,11 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/stats/summary",
+    responses((status = 200, description = "Stats summary", body = StatsSummaryResponse))
+)]
 #[get("/api/stats/summary")]
 async fn stats_summary_api(
     store: &State<SharedPasteStore>,
@@ -188,6 +203,11 @@ async fn stats_summary_api(
     Json(stats.into())
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/auth/challenge",
+    responses((status = 200, description = "Auth challenge", body = AuthChallengeResponse))
+)]
 #[get("/api/auth/challenge")]
 async fn auth_challenge_api() -> Json<AuthChallengeResponse> {
     let challenge = rand::thread_rng()
@@ -198,6 +218,16 @@ async fn auth_challenge_api() -> Json<AuthChallengeResponse> {
     Json(AuthChallengeResponse { challenge })
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/login",
+    request_body = AuthLoginRequest,
+    responses(
+        (status = 200, description = "Auth login response", body = AuthLoginResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+    )
+)]
 #[post("/api/auth/login", data = "<body>")]
 async fn auth_login_api(
     body: Json<AuthLoginRequest>,
@@ -247,6 +277,11 @@ async fn auth_login_api(
     Ok(Json(AuthLoginResponse { token, pubkey_hash }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/logout",
+    responses((status = 200, description = "Auth logout response", body = AuthLogoutResponse))
+)]
 #[post("/api/auth/logout")]
 async fn auth_logout_api() -> Json<AuthLogoutResponse> {
     // For now, logout is stateless - just return success
@@ -254,6 +289,12 @@ async fn auth_logout_api() -> Json<AuthLogoutResponse> {
     Json(AuthLogoutResponse { success: true })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/user/paste-count",
+    params(("pubkey_hash" = String, description = "Pubkey hash")),
+    responses((status = 200, description = "User paste count response", body = UserPasteCountResponse))
+)]
 #[get("/api/user/paste-count?<pubkey_hash>")]
 async fn user_paste_count_api(
     store: &State<SharedPasteStore>,
@@ -281,6 +322,12 @@ async fn user_paste_count_api(
     Json(UserPasteCountResponse { paste_count: count })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/user/pastes",
+    params(("pubkey_hash" = String, description = "Pubkey hash")),
+    responses((status = 200, description = "User paste list response", body = UserPasteListResponse))
+)]
 #[get("/api/user/pastes?<pubkey_hash>")]
 async fn user_paste_list_api(
     store: &State<SharedPasteStore>,
@@ -331,6 +378,18 @@ async fn user_paste_list_api(
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/pastes/{id}/anchor",
+    request_body = AnchorRequest,
+    params(("id" = String, description = "Paste identifier")),
+    responses(
+        (status = 200, description = "Paste anchored", body = AnchorResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Paste not found"),
+        (status = 410, description = "Paste expired"),
+    )
+)]
 #[post("/api/pastes/<id>/anchor", data = "<body>")]
 async fn anchor_api(
     store: &State<SharedPasteStore>,
@@ -394,19 +453,38 @@ async fn anchor_api(
     Ok(Json(response))
 }
 
-// Test API route
+#[utoipa::path(
+    get,
+    path = "/api/test",
+    responses((status = 200, description = "API connectivity test"))
+)]
 #[get("/api/test", rank = 1)]
 async fn api_test() -> Json<serde_json::Value> {
     Json(serde_json::json!({"message": "API test successful"}))
 }
 
-// Test API route with parameter
+#[utoipa::path(
+    get,
+    path = "/api/echo/{id}",
+    params(("id" = String, description = "Echo value")),
+    responses((status = 200, description = "Echo response"))
+)]
 #[get("/api/echo/<id>", rank = 1)]
 async fn api_echo(id: String) -> Json<serde_json::Value> {
     Json(serde_json::json!({"echo": id}))
 }
 
-// Simple JSON API for paste viewing
+#[utoipa::path(
+    get,
+    path = "/api/pastes/{id}",
+    params(("id" = String, description = "Paste identifier")),
+    responses(
+        (status = 200, description = "Paste content", body = PasteViewResponse),
+        (status = 401, description = "Key required"),
+        (status = 403, description = "Invalid key"),
+        (status = 404, description = "Paste not found"),
+    )
+)]
 #[get("/api/pastes/<id>?<query..>", rank = 1)]
 async fn show_api(
     store: &State<SharedPasteStore>,
@@ -460,250 +538,17 @@ async fn show_api(
     }
 }
 
-pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
-    let config = rocket::Config {
-        address: "0.0.0.0".parse()?,
-        port: 8000,
-        ..rocket::Config::debug_default()
-    };
-
-    build_rocket(create_paste_store())
-        .configure(config)
-        .launch()
-        .await?;
-
-    Ok(())
-}
-
-async fn spa_index() -> Option<NamedFile> {
-    if let Ok(file) = NamedFile::open("static/dist/index.html").await {
-        Some(file)
-    } else {
-        NamedFile::open("static/index.html").await.ok()
-    }
-}
-
-#[get("/")]
-async fn index() -> Option<NamedFile> {
-    spa_index().await
-}
-
-#[get("/about.txt", rank = 1)]
-async fn about() -> Option<NamedFile> {
-    NamedFile::open("static/about.txt").await.ok()
-}
-
-#[get("/<_path..>", rank = 20)]
-async fn spa_fallback(_path: PathBuf) -> Option<NamedFile> {
-    spa_index().await
-}
-
-struct CreatedPaste {
-    id: String,
-    path: String,
-}
-
-async fn create_paste_internal(
-    store: &SharedPasteStore,
-    body: CreatePasteRequest,
-    onion: &OnionAccess,
-) -> Result<CreatedPaste, (Status, String)> {
-    let now = current_timestamp();
-    let format = body.format.unwrap_or_default();
-    let expires_at = body.retention_minutes.and_then(|mins| match mins {
-        0 => None,
-        minutes => Some(now + i64::try_from(minutes).unwrap_or(0) * 60),
-    });
-    let burn_after_reading = body.burn_after_reading;
-
-    let mut metadata = PasteMetadata {
-        tor_access_only: body.tor_access_only,
-        owner_pubkey_hash: body.owner_pubkey_hash.clone(),
-        access_count: 0,
-        ..PasteMetadata::default()
-    };
-
-    if metadata.tor_access_only && !onion.is_onion() {
-        return Err((
-            Status::Forbidden,
-            "Tor-access-only pastes must be created via the onion service".to_string(),
-        ));
-    }
-
-    if let Some(lock) = body.time_lock.as_ref() {
-        apply_time_lock(lock, &mut metadata)?;
-    }
-
-    if let Some(attestation) = body.attestation.as_ref() {
-        metadata.attestation = Some(
-            attestation::requirement_from_request(attestation)
-                .map_err(|e| (Status::BadRequest, e))?,
-        );
-    }
-
-    if let Some(persistence) = body.persistence.as_ref() {
-        metadata.persistence = Some(persistence_locator_from_request(persistence)?);
-    }
-
-    if let Some(webhook) = body.webhook.as_ref() {
-        metadata.webhook = Some(webhook_config_from_request(webhook)?);
-    }
-
-    let mut content = resolve_content(&body, format).await?;
-
-    let mut bundle_children: Vec<BundlePointer> = Vec::new();
-
-    if let Some(bundle) = body.bundle.as_ref() {
-        if !bundle.children.is_empty() {
-            let enc = body.encryption.as_ref().ok_or_else(|| {
-                (
-                    Status::BadRequest,
-                    "Bundle creation requires an encryption key".to_string(),
-                )
-            })?;
-
-            if matches!(enc.algorithm, EncryptionAlgorithm::None) {
-                return Err((
-                    Status::BadRequest,
-                    "Bundle creation requires a non-zero encryption algorithm".to_string(),
-                ));
-            }
-
-            for child in &bundle.children {
-                let encrypted_child = encrypt_content(&child.content, &enc.key, enc.algorithm)
-                    .await
-                    .map_err(|e| {
-                        (
-                            Status::BadRequest,
-                            format!("failed to encrypt bundle child: {e}"),
-                        )
-                    })?;
-                let mut child_metadata = metadata.clone();
-                child_metadata.bundle = None;
-                child_metadata.bundle_label = child.label.clone();
-
-                let child_bundle = child_metadata.bundle.clone();
-                let child_bundle_parent = child_metadata.bundle_parent.clone();
-                let child_bundle_label = child_metadata.bundle_label.clone();
-                let child_not_before = child_metadata.not_before;
-                let child_not_after = child_metadata.not_after;
-                let child_persistence = child_metadata.persistence.clone();
-                let child_webhook = child_metadata.webhook.clone();
-
-                let child_paste = StoredPaste {
-                    content: encrypted_child,
-                    format: child.format.unwrap_or(format),
-                    created_at: now,
-                    expires_at,
-                    burn_after_reading: true,
-                    metadata: child_metadata,
-                    bundle: child_bundle,
-                    bundle_parent: child_bundle_parent,
-                    bundle_label: child_bundle_label,
-                    not_before: child_not_before,
-                    not_after: child_not_after,
-                    persistence: child_persistence,
-                    webhook: child_webhook,
-                };
-                let child_id = store.create_paste(child_paste).await;
-                bundle_children.push(BundlePointer {
-                    id: child_id,
-                    label: child.label.clone(),
-                });
-            }
-        }
-    }
-
-    if !bundle_children.is_empty() {
-        metadata.bundle = Some(BundleMetadata {
-            children: bundle_children,
-        });
-    }
-
-    if let Some(stego_request) = body.stego.as_ref() {
-        let (algorithm, ciphertext, nonce, salt) = match &content {
-            StoredContent::Encrypted {
-                algorithm,
-                ciphertext,
-                nonce,
-                salt,
-            } => (algorithm, ciphertext, nonce, salt),
-            StoredContent::Stego { .. } => {
-                return Err((
-                    Status::BadRequest,
-                    "Steganographic carrier already applied".to_string(),
-                ))
-            }
-            StoredContent::Plain { .. } => {
-                return Err((
-                    Status::BadRequest,
-                    "Steganographic carrier requires encryption".to_string(),
-                ))
-            }
-        };
-
-        let payload = BASE64_STANDARD.decode(ciphertext).map_err(|_| {
-            (
-                Status::BadRequest,
-                "Failed to decode ciphertext for steganographic embedding".to_string(),
-            )
-        })?;
-
-        let carrier_source = match stego_request {
-            StegoRequest::Builtin { carrier } => StegoCarrierSource::BuiltIn(carrier.clone()),
-            StegoRequest::Uploaded { data_uri } => {
-                let (mime, data) = parse_data_uri(data_uri)
-                    .map_err(|error| (Status::BadRequest, error.to_string()))?;
-                StegoCarrierSource::Uploaded { mime, data }
-            }
-        };
-
-        let embed = embed_payload(carrier_source, &payload)
-            .map_err(|error| (Status::BadRequest, error.to_string()))?;
-
-        let digest = Sha256::digest(&payload);
-        let payload_digest = hex::encode(digest);
-
-        content = StoredContent::Stego {
-            algorithm: *algorithm,
-            ciphertext: ciphertext.clone(),
-            nonce: nonce.clone(),
-            salt: salt.clone(),
-            carrier_mime: embed.mime,
-            carrier_image: BASE64_STANDARD.encode(embed.image_data),
-            payload_digest,
-        };
-    }
-
-    let bundle = metadata.bundle.clone();
-    let bundle_parent = metadata.bundle_parent.clone();
-    let bundle_label = metadata.bundle_label.clone();
-    let not_before = metadata.not_before;
-    let not_after = metadata.not_after;
-    let persistence = metadata.persistence.clone();
-    let webhook = metadata.webhook.clone();
-
-    let paste = StoredPaste {
-        content,
-        format,
-        created_at: now,
-        expires_at,
-        burn_after_reading,
-        metadata,
-        bundle,
-        bundle_parent,
-        bundle_label,
-        not_before,
-        not_after,
-        persistence,
-        webhook,
-    };
-
-    let id = store.create_paste(paste).await;
-    let path = format!("/{}", id);
-    Ok(CreatedPaste { id, path })
-}
-
+#[utoipa::path(
+    post,
+    path = "/",
+    request_body = CreatePasteRequest,
+    responses(
+        (status = 200, description = "Paste created", body = String),
+        (status = 400, description = "Invalid paste request"),
+        (status = 403, description = "Forbidden"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 #[post("/", data = "<body>")]
 async fn create(
     store: &State<SharedPasteStore>,
@@ -715,6 +560,18 @@ async fn create(
     Ok(created.path)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/pastes",
+    request_body = CreatePasteRequest,
+    responses(
+        (status = 200, description = "Paste created", body = CreatePasteResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Forbidden"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 #[post("/api/pastes", data = "<body>")]
 async fn create_api(
     store: &State<SharedPasteStore>,
@@ -756,6 +613,17 @@ async fn create_api(
     Ok(Json(response))
 }
 
+#[utoipa::path(
+    get,
+    path = "/{id}",
+    params(("id" = String, description = "Paste identifier")),
+    responses(
+        (status = 200, description = "Paste rendered as HTML", content_type = "text/html"),
+        (status = 401, description = "Key required"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Paste not found"),
+    )
+)]
 #[get("/<id>?<query..>")]
 async fn show(
     store: &State<SharedPasteStore>,
@@ -1001,6 +869,135 @@ async fn resolve_content(
             text: body.content.clone(),
         })
     }
+}
+
+async fn create_paste_internal(
+    store: &SharedPasteStore,
+    body: CreatePasteRequest,
+    _onion: &OnionAccess,
+) -> Result<CreatePasteResponse, (Status, String)> {
+    // Validate content
+    if body.content.trim().is_empty() {
+        return Err((Status::BadRequest, "Content cannot be empty".into()));
+    }
+
+    // Resolve content (handle encryption)
+    let content = resolve_content(&body, body.format.unwrap_or(PasteFormat::PlainText)).await?;
+
+    // Build metadata
+    let mut metadata = PasteMetadata::default();
+
+    // Handle attestation
+    if let Some(attestation_req) = &body.attestation {
+        let requirement = attestation::requirement_from_request(attestation_req)
+            .map_err(|e| (Status::BadRequest, e))?;
+        metadata.attestation = Some(requirement);
+    }
+
+    // Handle time lock
+    if let Some(ref time_lock) = body.time_lock {
+        apply_time_lock(time_lock, &mut metadata)?;
+    }
+
+    // Handle persistence
+    if let Some(ref persistence_req) = body.persistence {
+        metadata.persistence = Some(persistence_locator_from_request(persistence_req)?);
+    }
+
+    // Handle webhook
+    if let Some(ref webhook_req) = body.webhook {
+        metadata.webhook = Some(webhook_config_from_request(webhook_req)?);
+    }
+
+    // Handle stego
+    if let Some(ref stego_req) = body.stego {
+        match stego_req {
+            StegoRequest::Builtin { carrier: _ } => {
+                // For now, just store the original content
+                // In a full implementation, this would embed the content in the carrier
+            }
+            StegoRequest::Uploaded { data_uri } => {
+                // Parse and embed in uploaded carrier
+                let _carrier = parse_data_uri(data_uri)
+                    .map_err(|e| (Status::BadRequest, format!("Invalid data URI: {}", e)))?;
+                // For now, just store the original content
+            }
+        }
+    }
+
+    // Handle bundle
+    if let Some(ref bundle_req) = body.bundle {
+        // Enforce encryption for bundles
+        if body.encryption.is_none() {
+            return Err((
+                Status::BadRequest,
+                "Bundles require an encryption key".to_string(),
+            ));
+        }
+
+        // Create bundle metadata
+        metadata.bundle = Some(crate::BundleMetadata {
+            children: bundle_req
+                .children
+                .iter()
+                .map(|child| crate::BundlePointer {
+                    id: "".to_string(), // Will be set when child pastes are created
+                    label: child.label.clone(),
+                })
+                .collect(),
+        });
+    }
+
+    // Set tor access only
+    metadata.tor_access_only = body.tor_access_only;
+    metadata.owner_pubkey_hash = body.owner_pubkey_hash;
+
+    // Calculate expiration
+    let expires_at = body
+        .retention_minutes
+        .map(|minutes| current_timestamp() + (minutes as i64 * 60));
+
+    // Create the paste
+    let paste = StoredPaste {
+        content,
+        format: body.format.unwrap_or(PasteFormat::PlainText),
+        created_at: current_timestamp(),
+        expires_at,
+        burn_after_reading: body.burn_after_reading,
+        bundle: metadata.bundle.clone(),
+        bundle_parent: metadata.bundle_parent.clone(),
+        bundle_label: metadata.bundle_label.clone(),
+        not_before: metadata.not_before,
+        not_after: metadata.not_after,
+        persistence: metadata.persistence.clone(),
+        webhook: metadata.webhook.clone(),
+        metadata,
+    };
+
+    // Store the paste
+    let id = store.create_paste(paste).await;
+    let path = format!("/{}", id);
+
+    Ok(CreatePasteResponse {
+        id: id.clone(),
+        path: path.clone(),
+        shareable_url: path,
+    })
+}
+
+#[get("/")]
+async fn index() -> content::RawHtml<String> {
+    content::RawHtml(include_str!("../../static/index.html").to_string())
+}
+
+#[get("/about")]
+async fn about() -> content::RawHtml<String> {
+    content::RawHtml(include_str!("../../static/index.html").to_string())
+}
+
+#[get("/<_path..>")]
+async fn spa_fallback(_path: PathBuf) -> content::RawHtml<String> {
+    content::RawHtml(include_str!("../../static/index.html").to_string())
 }
 
 #[cfg(test)]

@@ -1,34 +1,41 @@
-import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
-import { useHotkeys } from '../hooks/useHotkeys.ts'
-import type { CommandPaletteAction } from '../types/commandPalette'
-import { Button } from './ui/Button'
+import { useHotkeys } from "../hooks/useHotkeys.ts";
+import type { CommandPaletteAction } from "../types/commandPalette";
+import { Button } from "./ui/Button";
 
 interface CommandPaletteProps {
-  actions: CommandPaletteAction[]
-  isOpen?: boolean
-  onOpenChange?: (open: boolean) => void
+  actions: CommandPaletteAction[];
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface CommandPaletteOverlayProps {
-  isOpen: boolean
-  onClose: () => void
-  query: string
-  onQueryChange: (value: string) => void
-  actions: CommandPaletteAction[]
-  onSelect: (action: CommandPaletteAction) => void
+  isOpen: boolean;
+  onClose: () => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  actions: CommandPaletteAction[];
+  onSelect: (action: CommandPaletteAction) => void;
 }
 
-const CommandPaletteOverlay = ({ isOpen, onClose, query, onQueryChange, actions, onSelect }: CommandPaletteOverlayProps) => {
-  const [mounted, setMounted] = useState(false)
+const CommandPaletteOverlay = ({
+  isOpen,
+  onClose,
+  query,
+  onQueryChange,
+  actions,
+  onSelect,
+}: CommandPaletteOverlayProps) => {
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true)
-    return () => setMounted(false)
-  }, [])
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
-  if (!isOpen || !mounted) return null
+  if (!isOpen || !mounted) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/60 px-4 pt-[15vh] backdrop-blur">
@@ -48,17 +55,22 @@ const CommandPaletteOverlay = ({ isOpen, onClose, query, onQueryChange, actions,
           <div className="space-y-3">
             {actions.length ? (
               Object.entries(
-                actions.reduce<Record<string, CommandPaletteAction[]>>((grouped, action) => {
-                  const group = action.group ?? 'General'
-                  if (!grouped[group]) {
-                    grouped[group] = []
-                  }
-                  grouped[group].push(action)
-                  return grouped
-                }, {})
+                actions.reduce<Record<string, CommandPaletteAction[]>>(
+                  (grouped, action) => {
+                    const group = action.group ?? "General";
+                    if (!grouped[group]) {
+                      grouped[group] = [];
+                    }
+                    grouped[group].push(action);
+                    return grouped;
+                  },
+                  {},
+                ),
               ).map(([group, groupActions]) => (
                 <div key={group} className="space-y-2">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{group}</p>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {group}
+                  </p>
                   <div className="grid gap-1">
                     {groupActions.map((action) => (
                       <button
@@ -70,10 +82,16 @@ const CommandPaletteOverlay = ({ isOpen, onClose, query, onQueryChange, actions,
                         <span>
                           {action.label}
                           {action.description ? (
-                            <span className="block text-xs font-normal text-muted-foreground">{action.description}</span>
+                            <span className="block text-xs font-normal text-muted-foreground">
+                              {action.description}
+                            </span>
                           ) : null}
                         </span>
-                        {action.shortcut ? <span className="text-xs text-muted-foreground">{action.shortcut}</span> : null}
+                        {action.shortcut ? (
+                          <span className="text-xs text-muted-foreground">
+                            {action.shortcut}
+                          </span>
+                        ) : null}
                       </button>
                     ))}
                   </div>
@@ -81,7 +99,7 @@ const CommandPaletteOverlay = ({ isOpen, onClose, query, onQueryChange, actions,
               ))
             ) : (
               <div className="rounded-xl border border-dashed border-muted px-4 py-10 text-center text-sm text-muted-foreground">
-                No commands found{query ? ` for "${query}"` : ''}.
+                No commands found{query ? ` for "${query}"` : ""}.
               </div>
             )}
           </div>
@@ -93,60 +111,66 @@ const CommandPaletteOverlay = ({ isOpen, onClose, query, onQueryChange, actions,
         </div>
       </div>
     </div>,
-    document.body
-  )
-}
+    document.body,
+  );
+};
 
-export const CommandPalette = ({ actions, isOpen: controlledOpen, onOpenChange }: CommandPaletteProps) => {
-  const [internalOpen, setInternalOpen] = useState(false)
-  const [query, setQuery] = useState('')
+export const CommandPalette = ({
+  actions,
+  isOpen: controlledOpen,
+  onOpenChange,
+}: CommandPaletteProps) => {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
-  const isControlled = typeof controlledOpen === 'boolean'
-  const isOpen = isControlled ? controlledOpen : internalOpen
+  const isControlled = typeof controlledOpen === "boolean";
+  const isOpen = isControlled ? controlledOpen : internalOpen;
 
   const setOpen = (value: boolean) => {
     if (!isControlled) {
-      setInternalOpen(value)
+      setInternalOpen(value);
     }
     if (!value) {
-      setQuery('')
+      setQuery("");
     }
-    onOpenChange?.(value)
-  }
+    onOpenChange?.(value);
+  };
 
   const sortedActions = useMemo(
     () => actions.slice().sort((a, b) => a.label.localeCompare(b.label)),
-    [actions]
-  )
+    [actions],
+  );
 
   const filteredActions = useMemo(() => {
     if (!query.trim()) {
-      return sortedActions
+      return sortedActions;
     }
-    const term = query.toLowerCase()
-    return sortedActions.filter((action) => action.label.toLowerCase().includes(term))
-  }, [sortedActions, query])
+    const term = query.toLowerCase();
+    return sortedActions.filter((action) =>
+      action.label.toLowerCase().includes(term),
+    );
+  }, [sortedActions, query]);
 
   useHotkeys({
-    shortcut: 'meta+k',
+    shortcut: "meta+k",
     handler: () => setOpen(!isOpen),
-  })
+  });
 
   useHotkeys({
-    shortcut: 'ctrl+k',
+    shortcut: "ctrl+k",
     handler: () => setOpen(!isOpen),
-  })
+  });
 
   useHotkeys({
-    shortcut: 'escape',
+    shortcut: "escape",
     enabled: isOpen,
     handler: () => setOpen(false),
-  })
+  });
 
   const handleSelect = (action: CommandPaletteAction) => {
-    action.handler()
-    setOpen(false)
-  }
+    action.handler();
+    setOpen(false);
+  };
 
   return (
     <CommandPaletteOverlay
@@ -157,5 +181,5 @@ export const CommandPalette = ({ actions, isOpen: controlledOpen, onOpenChange }
       actions={filteredActions}
       onSelect={handleSelect}
     />
-  )
-}
+  );
+};

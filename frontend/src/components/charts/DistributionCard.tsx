@@ -1,23 +1,27 @@
 interface DistributionDatum {
-  label: string
-  value: number
+  label: string;
+  value: number;
 }
 
 interface DistributionCardProps {
-  title: string
-  data: DistributionDatum[]
-  palette?: 'formats' | 'encryption' | 'default'
+  title: string;
+  data: DistributionDatum[];
+  palette?: "formats" | "encryption" | "default";
 }
 
 const palettes: Record<string, string[]> = {
-  formats: ['#6366f1', '#f97316', '#22d3ee', '#14b8a6', '#8b5cf6', '#ec4899'],
-  encryption: ['#6366f1', '#22d3ee', '#14b8a6', '#f97316'],
-  default: ['#6366f1', '#22d3ee', '#14b8a6', '#ec4899'],
-}
+  formats: ["#6366f1", "#f97316", "#22d3ee", "#14b8a6", "#8b5cf6", "#ec4899"],
+  encryption: ["#6366f1", "#22d3ee", "#14b8a6", "#f97316"],
+  default: ["#6366f1", "#22d3ee", "#14b8a6", "#ec4899"],
+};
 
-export const DistributionCard = ({ title, data, palette = 'default' }: DistributionCardProps) => {
-  const total = data.reduce((sum, item) => sum + item.value, 0)
-  const colors = palettes[palette] ?? palettes.default
+export const DistributionCard = ({
+  title,
+  data,
+  palette = "default",
+}: DistributionCardProps) => {
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  const colors = palettes[palette] ?? palettes.default;
 
   if (data.length === 0) {
     return (
@@ -25,7 +29,7 @@ export const DistributionCard = ({ title, data, palette = 'default' }: Distribut
         <h2 className="text-lg font-semibold text-gray-100">{title}</h2>
         <p className="mt-4 text-sm text-gray-400">No data available yet.</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -33,8 +37,8 @@ export const DistributionCard = ({ title, data, palette = 'default' }: Distribut
       <h2 className="text-lg font-semibold text-gray-100">{title}</h2>
       <ul className="mt-4 space-y-3">
         {data.map((item, index) => {
-          const percent = total ? Math.round((item.value / total) * 100) : 0
-          const color = colors[index % colors.length]
+          const percent = total ? Math.round((item.value / total) * 100) : 0;
+          const color = colors[index % colors.length];
           return (
             <li key={item.label} className="space-y-1">
               <div className="flex items-center justify-between text-sm text-gray-300">
@@ -49,9 +53,9 @@ export const DistributionCard = ({ title, data, palette = 'default' }: Distribut
                 />
               </div>
             </li>
-          )
+          );
         })}
       </ul>
     </div>
-  )
-}
+  );
+};

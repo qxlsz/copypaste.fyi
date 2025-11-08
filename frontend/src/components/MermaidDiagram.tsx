@@ -1,49 +1,51 @@
-import { useEffect, useMemo, useState } from 'react'
-import mermaid from 'mermaid'
+import { useEffect, useMemo, useState } from "react";
+import mermaid from "mermaid";
 
-type MermaidConfig = Parameters<typeof mermaid.initialize>[0]
+type MermaidConfig = Parameters<typeof mermaid.initialize>[0];
 
 interface MermaidDiagramProps {
-  id: string
-  chart: string
-  config?: MermaidConfig
-  ariaLabel?: string
-  title?: string
-  description?: string
-  defaultOpen?: boolean
+  id: string;
+  chart: string;
+  config?: MermaidConfig;
+  ariaLabel?: string;
+  title?: string;
+  description?: string;
+  defaultOpen?: boolean;
 }
 
-const buildThemeVariables = (mode: 'light' | 'dark') => {
-  if (mode === 'dark') {
+const buildThemeVariables = (mode: "light" | "dark") => {
+  if (mode === "dark") {
     return {
-      background: 'transparent',
-      primaryColor: '#312e81',
-      primaryTextColor: '#f8fafc',
-      primaryBorderColor: '#6366f1',
-      lineColor: '#818cf8',
-      secondaryColor: '#0f172a',
-      tertiaryColor: '#1f2937',
-      fontFamily: '"Inter", "Inter var", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      nodeTextColor: '#f8fafc',
-      noteTextColor: '#cbd5f5',
-      edgeLabelBackground: '#1e293b',
-    }
+      background: "transparent",
+      primaryColor: "#312e81",
+      primaryTextColor: "#f8fafc",
+      primaryBorderColor: "#6366f1",
+      lineColor: "#818cf8",
+      secondaryColor: "#0f172a",
+      tertiaryColor: "#1f2937",
+      fontFamily:
+        '"Inter", "Inter var", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      nodeTextColor: "#f8fafc",
+      noteTextColor: "#cbd5f5",
+      edgeLabelBackground: "#1e293b",
+    };
   }
 
   return {
-    background: 'transparent',
-    primaryColor: '#e0e7ff',
-    primaryTextColor: '#1e293b',
-    primaryBorderColor: '#6366f1',
-    lineColor: '#475569',
-    secondaryColor: '#eef2ff',
-    tertiaryColor: '#f8fafc',
-    fontFamily: '"Inter", "Inter var", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    nodeTextColor: '#1e293b',
-    noteTextColor: '#334155',
-    edgeLabelBackground: '#e2e8f0',
-  }
-}
+    background: "transparent",
+    primaryColor: "#e0e7ff",
+    primaryTextColor: "#1e293b",
+    primaryBorderColor: "#6366f1",
+    lineColor: "#475569",
+    secondaryColor: "#eef2ff",
+    tertiaryColor: "#f8fafc",
+    fontFamily:
+      '"Inter", "Inter var", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    nodeTextColor: "#1e293b",
+    noteTextColor: "#334155",
+    edgeLabelBackground: "#e2e8f0",
+  };
+};
 
 export const MermaidDiagram = ({
   id,
@@ -54,42 +56,46 @@ export const MermaidDiagram = ({
   description,
   defaultOpen = false,
 }: MermaidDiagramProps) => {
-  const [hasRendered, setHasRendered] = useState(false)
-  const chartDefinition = useMemo(() => chart.trim(), [chart])
-  const colorMode = typeof document !== 'undefined' && document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+  const [hasRendered, setHasRendered] = useState(false);
+  const chartDefinition = useMemo(() => chart.trim(), [chart]);
+  const colorMode =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark")
+      ? "dark"
+      : "light";
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === "undefined") return;
 
-    const container = document.getElementById(id)
-    if (!container) return
+    const container = document.getElementById(id);
+    if (!container) return;
 
     const renderDiagram = async () => {
       try {
         mermaid.initialize({
           startOnLoad: false,
-          securityLevel: 'loose',
-          theme: 'base',
+          securityLevel: "loose",
+          theme: "base",
           themeVariables: buildThemeVariables(colorMode),
           flowchart: {
-            curve: 'basis',
+            curve: "basis",
             htmlLabels: true,
           },
           sequence: {
             mirrorActors: false,
           },
           ...config,
-        })
-        const { svg } = await mermaid.render(`${id}-diagram`, chartDefinition)
-        container.innerHTML = svg
-        setHasRendered(true)
+        });
+        const { svg } = await mermaid.render(`${id}-diagram`, chartDefinition);
+        container.innerHTML = svg;
+        setHasRendered(true);
       } catch (error) {
-        console.error('Mermaid render error', error)
+        console.error("Mermaid render error", error);
       }
-    }
+    };
 
-    renderDiagram()
-  }, [id, chartDefinition, config, colorMode])
+    renderDiagram();
+  }, [id, chartDefinition, config, colorMode]);
 
   return (
     <details
@@ -105,14 +111,18 @@ export const MermaidDiagram = ({
         </summary>
       )}
       <div className="space-y-4">
-        {description && <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300/90">{description}</p>}
+        {description && (
+          <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300/90">
+            {description}
+          </p>
+        )}
         <div
           id={id}
           role="img"
-          aria-label={ariaLabel ?? title ?? 'Architecture diagram'}
-          className={`w-full overflow-x-auto rounded-2xl border border-indigo-100/80 bg-white/95 p-0 shadow-inner transition-all duration-300 dark:border-indigo-400/30 dark:bg-slate-950/40 ${hasRendered ? 'group-open:p-6 group-open:min-h-[600px]' : 'animate-pulse'}`}
+          aria-label={ariaLabel ?? title ?? "Architecture diagram"}
+          className={`w-full overflow-x-auto rounded-2xl border border-indigo-100/80 bg-white/95 p-0 shadow-inner transition-all duration-300 dark:border-indigo-400/30 dark:bg-slate-950/40 ${hasRendered ? "group-open:p-6 group-open:min-h-[600px]" : "animate-pulse"}`}
         />
       </div>
     </details>
-  )
-}
+  );
+};

@@ -4,18 +4,19 @@ use crate::{
 };
 use rocket::form::FromForm;
 use rocket::serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::server::attestation::AttestationRequest;
 use crate::server::blockchain::{AnchorManifest, AnchorReceipt};
 
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct EncryptionRequest {
     pub algorithm: EncryptionAlgorithm,
     pub key: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePasteResponse {
     pub id: String,
@@ -23,7 +24,7 @@ pub struct CreatePasteResponse {
     pub shareable_url: String,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AnchorRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -32,7 +33,7 @@ pub struct AnchorRequest {
     pub attestation_ref: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AnchorResponse {
     pub paste_id: String,
@@ -45,7 +46,7 @@ pub struct AnchorResponse {
     pub receipt: AnchorReceipt,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PasteViewResponse {
     pub id: String,
@@ -70,14 +71,14 @@ pub struct PasteViewResponse {
     pub stego: Option<PasteStegoInfo>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PasteEncryptionInfo {
     pub algorithm: EncryptionAlgorithm,
     pub requires_key: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PasteTimeLockInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,7 +87,7 @@ pub struct PasteTimeLockInfo {
     pub not_after: Option<i64>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PasteAttestationInfo {
     pub kind: String,
@@ -94,7 +95,7 @@ pub struct PasteAttestationInfo {
     pub issuer: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PastePersistenceInfo {
     pub kind: String,
@@ -102,14 +103,14 @@ pub struct PastePersistenceInfo {
     pub detail: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PasteWebhookInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<WebhookProvider>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PasteStegoInfo {
     pub carrier_mime: String,
@@ -117,7 +118,7 @@ pub struct PasteStegoInfo {
     pub payload_digest: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StatsSummaryResponse {
     pub total_pastes: usize,
@@ -130,21 +131,21 @@ pub struct StatsSummaryResponse {
     pub created_by_day: Vec<DailyCountResponse>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatUsageResponse {
     pub format: PasteFormat,
     pub count: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EncryptionUsageResponse {
     pub algorithm: EncryptionAlgorithm,
     pub count: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyCountResponse {
     pub date: String,
@@ -183,13 +184,13 @@ impl From<StoreStats> for StatsSummaryResponse {
     }
 }
 
-#[derive(Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, ToSchema)]
 #[serde(default)]
 pub struct CreateBundleRequest {
     pub children: Vec<CreateBundleChildRequest>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, ToSchema)]
 pub struct CreateBundleChildRequest {
     pub content: String,
     #[serde(default)]
@@ -198,14 +199,14 @@ pub struct CreateBundleChildRequest {
     pub label: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, ToSchema)]
 #[serde(default)]
 pub struct TimeLockRequest {
     pub not_before: Option<String>,
     pub not_after: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, ToSchema)]
 #[serde(default)]
 pub struct CreatePasteRequest {
     pub content: String,
@@ -232,7 +233,7 @@ pub struct CreatePasteRequest {
     pub owner_pubkey_hash: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PersistenceRequest {
     #[default]
@@ -247,7 +248,7 @@ pub enum PersistenceRequest {
     },
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, ToSchema)]
 #[serde(default)]
 pub struct WebhookRequest {
     pub url: String,
@@ -256,20 +257,20 @@ pub struct WebhookRequest {
     pub burn_template: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, ToSchema)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum StegoRequest {
     Builtin { carrier: String },
     Uploaded { data_uri: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthChallengeResponse {
     pub challenge: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthLoginRequest {
     pub challenge: String,
@@ -277,13 +278,13 @@ pub struct AuthLoginRequest {
     pub pubkey: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserPasteCountResponse {
     pub paste_count: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserPasteListItem {
     pub id: String,
@@ -296,20 +297,20 @@ pub struct UserPasteListItem {
     pub access_count: u64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserPasteListResponse {
     pub pastes: Vec<UserPasteListItem>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthLoginResponse {
     pub token: String,
     pub pubkey_hash: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthLogoutResponse {
     pub success: bool,

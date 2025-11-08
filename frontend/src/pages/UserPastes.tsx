@@ -1,74 +1,78 @@
-import { useAuth } from '../stores/auth'
-import { useEffect, useState } from 'react'
-import { fetchUserPastes } from '../api/client'
-import type { UserPasteListItem } from '../api/types'
-import { Link } from 'react-router-dom'
+import { useAuth } from "../stores/auth";
+import { useEffect, useState } from "react";
+import { fetchUserPastes } from "../api/client";
+import type { UserPasteListItem } from "../api/types";
+import { Link } from "react-router-dom";
 
 export const UserPastesPage = () => {
-  const { user } = useAuth()
-  const [pastes, setPastes] = useState<UserPasteListItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { user } = useAuth();
+  const [pastes, setPastes] = useState<UserPasteListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
-      setPastes([])
-      setLoading(false)
-      return
+      setPastes([]);
+      setLoading(false);
+      return;
     }
 
-    let isActive = true
-    setLoading(true)
+    let isActive = true;
+    setLoading(true);
 
     fetchUserPastes(user.pubkeyHash)
-      .then(data => {
-        if (!isActive) return
-        setPastes(data.pastes)
-        setLoading(false)
+      .then((data) => {
+        if (!isActive) return;
+        setPastes(data.pastes);
+        setLoading(false);
       })
-      .catch(err => {
-        console.error('Failed to fetch user pastes:', err)
-        if (!isActive) return
-        setError('Failed to load pastes')
-        setLoading(false)
-      })
+      .catch((err) => {
+        console.error("Failed to fetch user pastes:", err);
+        if (!isActive) return;
+        setError("Failed to load pastes");
+        setLoading(false);
+      });
 
     return () => {
-      isActive = false
-    }
-  }, [user])
+      isActive = false;
+    };
+  }, [user]);
 
   const formatDate = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+    return new Date(timestamp * 1000).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
 
   const formatExpiration = (paste: UserPasteListItem) => {
     if (paste.burnAfterReading) {
-      return 'Burn after reading'
+      return "Burn after reading";
     }
     if (paste.expiresAt) {
-      const now = Date.now() / 1000
+      const now = Date.now() / 1000;
       if (paste.expiresAt < now) {
-        return 'Expired'
+        return "Expired";
       }
-      const days = Math.ceil((paste.expiresAt - now) / (24 * 60 * 60))
-      return `Expires in ${days} day${days !== 1 ? 's' : ''}`
+      const days = Math.ceil((paste.expiresAt - now) / (24 * 60 * 60));
+      return `Expires in ${days} day${days !== 1 ? "s" : ""}`;
     }
-    return 'Never expires'
-  }
+    return "Never expires";
+  };
 
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-          <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white">Access Denied</h2>
-          <p className="mt-2 text-gray-600 dark:text-slate-400">Please log in to view your pastes.</p>
+          <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white">
+            Access Denied
+          </h2>
+          <p className="mt-2 text-gray-600 dark:text-slate-400">
+            Please log in to view your pastes.
+          </p>
           <Link
             to="/login"
             className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -77,7 +81,7 @@ export const UserPastesPage = () => {
           </Link>
         </div>
       </div>
-    )
+    );
   }
 
   if (loading) {
@@ -85,12 +89,16 @@ export const UserPastesPage = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-slate-900 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Your Pastes</h1>
-            <p className="mt-2 text-gray-600 dark:text-slate-400">Loading your pastes...</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Your Pastes
+            </h1>
+            <p className="mt-2 text-gray-600 dark:text-slate-400">
+              Loading your pastes...
+            </p>
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -98,31 +106,49 @@ export const UserPastesPage = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-slate-900 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Your Pastes</h1>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Your Pastes
+            </h1>
             <p className="mt-2 text-red-600 dark:text-red-400">{error}</p>
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Your Pastes</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Your Pastes
+          </h1>
           <p className="mt-2 text-gray-600 dark:text-slate-400">
-            You have {pastes.length} paste{pastes.length !== 1 ? 's' : ''}
+            You have {pastes.length} paste{pastes.length !== 1 ? "s" : ""}
           </p>
         </div>
 
         {pastes.length === 0 ? (
           <div className="text-center py-12">
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <svg
+              className="mx-auto h-12 w-12 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
             </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No pastes</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">Get started by creating your first paste.</p>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">
+              No pastes
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">
+              Get started by creating your first paste.
+            </p>
             <div className="mt-6">
               <Link
                 to="/"
@@ -160,7 +186,10 @@ export const UserPastesPage = () => {
                           <span className="mx-2">•</span>
                           <span>{formatExpiration(paste)}</span>
                           <span className="mx-2">•</span>
-                          <span>{paste.accessCount} view{paste.accessCount !== 1 ? 's' : ''}</span>
+                          <span>
+                            {paste.accessCount} view
+                            {paste.accessCount !== 1 ? "s" : ""}
+                          </span>
                         </div>
                       </div>
                       <div className="flex-shrink-0">
@@ -180,5 +209,5 @@ export const UserPastesPage = () => {
         )}
       </div>
     </div>
-  )
-}
+  );
+};

@@ -40,7 +40,11 @@
     --shadow-strong: 0 40px 80px -45px rgba(28, 42, 80, 0.3);
 
     --color-background: #f6f8ff;
-    --color-background-gradient: linear-gradient(180deg, #fafbff 0%, #f5f7fb 100%);
+    --color-background-gradient: linear-gradient(
+      180deg,
+      #fafbff 0%,
+      #f5f7fb 100%
+    );
     --color-surface: #ffffff;
     --color-primary: var(--brand-500);
     --color-accent: var(--accent-500);
@@ -52,13 +56,13 @@
     --color-info: var(--info);
 
     color-scheme: light;
-    font-family: theme('fontFamily.sans');
+    font-family: theme("fontFamily.sans");
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  [data-theme='dark'] {
+  [data-theme="dark"] {
     --color-background: var(--gray-950);
     --color-background-gradient: none;
     --color-surface: var(--gray-900);
