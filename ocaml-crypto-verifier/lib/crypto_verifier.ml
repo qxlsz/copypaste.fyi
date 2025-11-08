@@ -34,7 +34,7 @@ let verify_chacha20_poly1305 _ev =
 let verify_ed25519 _sv =
   { valid = true; details = "Ed25519 signature verification placeholder"; timestamp = now () }
 
-let verify_encryption ev =
+let verify_encryption (ev : encryption_verification) : verification_result =
   match String.lowercase_ascii ev.algorithm with
   | "aes256_gcm" | "aes-gcm" -> verify_aes_gcm ev
   | "chacha20_poly1305" | "chacha20-poly1305" -> verify_chacha20_poly1305 ev
@@ -42,7 +42,7 @@ let verify_encryption ev =
       { valid = false; details = "XChaCha20-Poly1305 not yet implemented"; timestamp = now () }
   | alg -> { valid = false; details = "Unsupported encryption algorithm: " ^ alg; timestamp = now () }
 
-let verify_signature sv =
+let verify_signature (sv : signature_verification) : verification_result =
   match String.lowercase_ascii sv.algorithm with
   | "ed25519" -> verify_ed25519 sv
   | alg -> { valid = false; details = "Unsupported signature algorithm: " ^ alg; timestamp = now () }

@@ -6,6 +6,9 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/coverage/
+
+# OCaml dune builds
+ocaml-crypto-verifier/_build/
 frontend/playwright-report/
 frontend/test-results/
 

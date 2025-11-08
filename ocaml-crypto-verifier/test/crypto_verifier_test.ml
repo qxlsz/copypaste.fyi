@@ -1,64 +1,64 @@
-open OUnit2
 open Crypto_verifier
+open OUnit2
 
-let test_health_check _ =
+let test_health_check (_ctx : test_ctxt) =
   let result = health_check () in
-  assert_bool "Health check should be valid" result.valid;
-  assert_equal "Health check details should indicate healthy" result.details "Crypto verifier is healthy"
+  assert_bool "health check should be valid" result.valid;
+  assert_equal
+    "Crypto verifier is healthy"
+    result.details
 
-let test_aes_gcm_verification _ =
+let test_aes_gcm_verification (_ctx : test_ctxt) =
   let key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" in
-  let plaintext = "Hello, World!" in
   let nonce = "000102030405060708090a0b" in
-  let ev = {
-    algorithm = "aes256_gcm";
-    plaintext;
-    ciphertext = "base64_encoded_ciphertext"; (* This would be computed properly *)
-    key;
-    nonce = Some nonce;
-    aad = None;
-  } in
-  (* For now, just test that the function doesn't crash *)
-  let result = verify_encryption ev in
-  assert_bool "Should handle AES-GCM verification gracefully" (not result.valid || result.valid)
+  let ev : encryption_verification =
+    {
+      algorithm = "aes256_gcm";
+      plaintext = "Hello, World!";
+      ciphertext = "base64_encoded_ciphertext";
+      key;
+      nonce = Some nonce;
+      aad = None;
+    }
+  in
+  let result : verification_result = verify_encryption ev in
+  assert_bool "AES-GCM verification should not crash" (not result.valid || result.valid)
 
-let test_chacha20_verification _ =
+let test_chacha20_verification (_ctx : test_ctxt) =
   let key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" in
-  let plaintext = "Hello, World!" in
   let nonce = "000102030405060708090a0b" in
-  let ev = {
-    algorithm = "chacha20_poly1305";
-    plaintext;
-    ciphertext = "base64_encoded_ciphertext"; (* This would be computed properly *)
-    key;
-    nonce = Some nonce;
-    aad = None;
-  } in
-  (* For now, just test that the function doesn't crash *)
-  let result = verify_encryption ev in
-  assert_bool "Should handle ChaCha20 verification gracefully" (not result.valid || result.valid)
+  let ev : encryption_verification =
+    {
+      algorithm = "chacha20_poly1305";
+      plaintext = "Hello, World!";
+      ciphertext = "base64_encoded_ciphertext";
+      key;
+      nonce = Some nonce;
+      aad = None;
+    }
+  in
+  let result : verification_result = verify_encryption ev in
+  assert_bool "ChaCha20 verification should not crash" (not result.valid || result.valid)
 
-let test_ed25519_verification _ =
-  let message = "Hello, World!" in
-  let public_key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" in
-  let signature = "signature_hex"; (* This would be computed properly *)
-  let sv = {
-    algorithm = "ed25519";
-    message;
-    signature;
-    public_key;
-  } in
-  (* For now, just test that the function doesn't crash *)
-  let result = verify_signature sv in
-  assert_bool "Should handle Ed25519 verification gracefully" (not result.valid || result.valid)
+let test_ed25519_verification (_ctx : test_ctxt) =
+  let sv : signature_verification =
+    {
+      algorithm = "ed25519";
+      message = "Hello, World!";
+      signature = "signature_hex";
+      public_key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    }
+  in
+  let result : verification_result = verify_signature sv in
+  assert_bool "Ed25519 verification should not crash" (not result.valid || result.valid)
 
 let suite =
-  "Crypto Verifier Tests" >::: [
-    "test_health_check" >:: test_health_check;
-    "test_aes_gcm_verification" >:: test_aes_gcm_verification;
-    "test_chacha20_verification" >:: test_chacha20_verification;
-    "test_ed25519_verification" >:: test_ed25519_verification;
-  ]
+  "Crypto Verifier Tests"
+  >::: [
+         "test_health_check" >:: test_health_check;
+         "test_aes_gcm_verification" >:: test_aes_gcm_verification;
+         "test_chacha20_verification" >:: test_chacha20_verification;
+         "test_ed25519_verification" >:: test_ed25519_verification;
+       ]
 
-let () =
-  run_test_tt_main suite
+let () = run_test_tt_main suite
