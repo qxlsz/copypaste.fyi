@@ -108,6 +108,8 @@ ENV ROCKET_PORT=8000
 # Set version info from build args
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV GIT_COMMIT_MESSAGE=${GIT_COMMIT_MESSAGE}
+# Set a default version that will be overridden by build.rs if available
+ENV COPYPASTE_VERSION=0.1.0-docker
 EXPOSE 8000 8001
 
 # Fly.io will set FLY_PROCESS_GROUP to determine which service to run
