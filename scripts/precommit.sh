@@ -85,7 +85,7 @@ else
   echo "[8/9] Skipping coverage (--skip-coverage provided)"
 fi
 
-echo "[9/9] Running frontend lint/format/test/build"
+echo "[9/10] Running frontend lint/format/test/build"
 (
   cd frontend
   npm run format
@@ -93,6 +93,14 @@ echo "[9/9] Running frontend lint/format/test/build"
   npm test -- --run
   npm run build
 )
+
+echo "[10/10] Validating fly.toml"
+if command -v flyctl &> /dev/null; then
+  flyctl config validate
+else
+  echo "Warning: flyctl not installed, skipping fly.toml validation"
+  echo "Install with: brew install flyctl"
+fi
 
 echo "All pre-commit checks completed successfully."
 

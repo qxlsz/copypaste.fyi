@@ -39,6 +39,9 @@ jobs:
       - name: Check Fly auth
         run: flyctl auth whoami
 
+      - name: Validate fly.toml
+        run: flyctl config validate
+
       - name: Deploy app
         run: flyctl deploy --remote-only --strategy rolling --auto-confirm --dockerfile Dockerfile.backend
 
