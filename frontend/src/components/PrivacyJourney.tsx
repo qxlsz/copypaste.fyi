@@ -98,7 +98,7 @@ export const PrivacyJourney = () => {
   const totalSteps = steps.length
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className="fixed bottom-4 left-4 z-50">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="group relative flex items-center gap-2 rounded-full bg-gradient-to-r from-primary/90 to-primary/70 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/30 backdrop-blur-sm transition-all hover:shadow-xl hover:shadow-primary/40"
@@ -111,7 +111,7 @@ export const PrivacyJourney = () => {
       </button>
 
       {isExpanded && (
-        <div className="absolute bottom-14 right-0 w-80 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/95">
+        <div className="absolute bottom-14 left-0 w-80 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/95">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
               Your Privacy Journey
