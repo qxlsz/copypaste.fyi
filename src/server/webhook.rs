@@ -93,3 +93,55 @@ fn apply_template(template: &str, id: &str, label: Option<&str>, event: &str) ->
     result = result.replace("{{label}}", label.unwrap_or(""));
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_config() -> WebhookConfig {
+        WebhookConfig {
+            url: "https://example.test/webhook".into(),
+            provider: Some(WebhookProvider::Generic),
+            view_template: None,
+            burn_template: None,
+        }
+    }
+
+    #[test]
+    fn default_view_message_without_label() {
+        let config = base_config();
+        let message = resolve_webhook_message(&config, WebhookEvent::Viewed, "abc123", None);
+        assert_eq!(message, "Paste abc123 was opened");
+    }
+
+    #[test]
+    fn default_consumed_message_with_label() {
+        let config = base_config();
+        let message = resolve_webhook_message(
+            &config,
+            WebhookEvent::Consumed,
+            "xyz789",
+            Some("Premium bundle"),
+        );
+        assert_eq!(
+            message,
+            "Bundle share 'Premium bundle' for paste xyz789 was consumed"
+        );
+    }
+
+    #[test]
+    fn template_is_applied_with_placeholders() {
+        let mut config = base_config();
+        config.view_template = Some("Paste {{id}} was {{event}} by {{label}}".into());
+
+        let output = resolve_webhook_message(&config, WebhookEvent::Viewed, "p123", Some("Alice"));
+
+        assert_eq!(output, "Paste p123 was viewed by Alice");
+    }
+
+    #[test]
+    fn apply_template_handles_missing_label() {
+        let rendered = apply_template("{{id}} {{event}} {{label}}", "id", None, "viewed");
+        assert_eq!(rendered, "id viewed ");
+    }
+}

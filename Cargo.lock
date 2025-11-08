@@ -625,6 +625,7 @@ dependencies = [
  "image",
  "log",
  "nanoid",
+ "once_cell",
  "pqc_kyber",
  "pulldown-cmark",
  "rand",

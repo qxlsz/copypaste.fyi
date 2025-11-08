@@ -7,12 +7,9 @@ RUN sudo apt-get update && sudo apt-get install -y \
     libssl-dev \
     && sudo rm -rf /var/lib/apt/lists/*
 
-# Copy source code
-WORKDIR /app
-COPY ocaml-crypto-verifier/ ./ocaml-crypto-verifier/
-
-# Build the application
+# Copy source code (expecting build context to be the ocaml-crypto-verifier directory)
 WORKDIR /app/ocaml-crypto-verifier
+COPY . ./
 RUN opam install . --deps-only --yes
 RUN opam exec -- dune build @install
 
