@@ -131,10 +131,10 @@ echo "Frontend dev server running at ${FRONTEND_URL}"
 echo "Starting OCaml crypto verifier on http://127.0.0.1:8001"
 (
   cd ocaml-crypto-verifier
-  dune exec bin/server.exe &
+  ./_build/default/bin/server.exe &
 ) &
 CRYPTO_PID=$!
-sleep 2
+sleep 5
 
 echo "Starting Rocket backend on http://127.0.0.1:8000"
 # Force memory persistence to avoid Redis connection issues
