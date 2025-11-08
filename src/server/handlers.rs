@@ -40,6 +40,7 @@ use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
 use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp};
 use super::tor::{OnionAccess, TorConfig};
 use super::webhook::{trigger_webhook, WebhookEvent};
+use serde::{Deserialize, Serialize};
 
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     let tor_config = TorConfig::from_env();
@@ -69,10 +70,97 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 auth_login_api,
                 auth_logout_api,
                 user_paste_count_api,
-                user_paste_list_api
+                user_paste_list_api,
+                health_api,
+                health_detailed_api
             ],
         )
         .mount("/static", FileServer::from("static"))
+}
+
+#[derive(Serialize, Deserialize)]
+struct HealthResponse {
+    status: String,
+    timestamp: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DetailedHealthResponse {
+    status: String,
+    timestamp: i64,
+    services: ServiceHealth,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ServiceHealth {
+    backend: ServiceStatus,
+    crypto_verifier: ServiceStatus,
+    storage: ServiceStatus,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ServiceStatus {
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+#[get("/health")]
+async fn health_api() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ok".to_string(),
+        timestamp: current_timestamp(),
+    })
+}
+
+#[get("/api/health")]
+async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHealthResponse> {
+    // Check storage
+    let stats = store.stats().await;
+    let storage_status = ServiceStatus {
+        status: "ok".to_string(),
+        message: Some(format!("Total pastes: {}", stats.total_pastes)),
+    };
+
+    // Check crypto verifier
+    let crypto_verifier_url = std::env::var("CRYPTO_VERIFIER_URL")
+        .unwrap_or_else(|_| "http://localhost:8001".to_string());
+
+    let crypto_status = match reqwest::get(format!("{}/health", crypto_verifier_url)).await {
+        Ok(resp) if resp.status().is_success() => ServiceStatus {
+            status: "ok".to_string(),
+            message: Some("Crypto verifier responding".to_string()),
+        },
+        Ok(resp) => ServiceStatus {
+            status: "degraded".to_string(),
+            message: Some(format!("HTTP {}", resp.status())),
+        },
+        Err(e) => ServiceStatus {
+            status: "unavailable".to_string(),
+            message: Some(format!("Connection failed: {}", e)),
+        },
+    };
+
+    let overall_status = if crypto_status.status == "ok" && storage_status.status == "ok" {
+        "ok"
+    } else if crypto_status.status == "unavailable" || storage_status.status == "unavailable" {
+        "degraded"
+    } else {
+        "ok"
+    };
+
+    Json(DetailedHealthResponse {
+        status: overall_status.to_string(),
+        timestamp: current_timestamp(),
+        services: ServiceHealth {
+            backend: ServiceStatus {
+                status: "ok".to_string(),
+                message: Some("Backend operational".to_string()),
+            },
+            crypto_verifier: crypto_status,
+            storage: storage_status,
+        },
+    })
 }
 
 #[get("/api/stats/summary")]
@@ -1063,5 +1151,42 @@ mod tests {
         assert!(stats.active_pastes >= 1);
         assert!(!stats.formats.is_empty());
         assert!(!stats.encryption_usage.is_empty());
+    }
+
+    #[test]
+    fn health_endpoint_returns_ok_status() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client.get("/health").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().expect("body");
+        let health: HealthResponse = serde_json::from_str(&body).expect("parse health");
+
+        assert_eq!(health.status, "ok");
+        assert!(health.timestamp > 0);
+    }
+
+    #[test]
+    fn detailed_health_endpoint_checks_services() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client.get("/api/health").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        let body = response.into_string().expect("body");
+        let health: DetailedHealthResponse =
+            serde_json::from_str(&body).expect("parse detailed health");
+
+        assert!(!health.status.is_empty());
+        assert!(health.timestamp > 0);
+        assert_eq!(health.services.backend.status, "ok");
+        assert_eq!(health.services.storage.status, "ok");
+        // crypto_verifier status depends on whether service is running
+        assert!(!health.services.crypto_verifier.status.is_empty());
     }
 }

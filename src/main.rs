@@ -357,4 +357,28 @@ mod tests {
         assert!(html.contains("Bundle shares"));
         assert!(html.contains("child-one"));
     }
+
+    #[rocket::async_test]
+    async fn health_endpoint_responds_quickly() {
+        let client = rocket_client().await;
+        let response = client.get("/health").dispatch().await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().await.expect("body");
+        assert!(body.contains("\"status\""));
+        assert!(body.contains("\"timestamp\""));
+    }
+
+    #[rocket::async_test]
+    async fn detailed_health_includes_service_status() {
+        let client = rocket_client().await;
+        let response = client.get("/api/health").dispatch().await;
+
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().await.expect("body");
+        assert!(body.contains("\"services\""));
+        assert!(body.contains("\"backend\""));
+        assert!(body.contains("\"crypto_verifier\""));
+        assert!(body.contains("\"storage\""));
+    }
 }
