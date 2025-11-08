@@ -39,6 +39,26 @@ USE_LOCAL_REDIS=${USE_LOCAL_REDIS:-true}
 REDIS_CONTAINER_STARTED=false
 REDIS_PROXY_PID=""
 
+# Function to kill processes using a specific port
+kill_port() {
+  local port=$1
+  local pids=$(lsof -ti:$port 2>/dev/null || true)
+  if [[ -n "$pids" ]]; then
+    echo "Killing processes using port $port: $pids"
+    kill -9 $pids 2>/dev/null || true
+    sleep 1
+  fi
+}
+
+# Kill any existing processes using our ports
+kill_port 8000  # Backend
+kill_port ${REDIS_TCP_PORT}  # Redis
+kill_port ${REDIS_HTTP_PORT}  # Redis proxy
+kill_port ${FRONTEND_PORT}  # Frontend (try to kill 5173)
+kill_port $((FRONTEND_PORT + 1))  # Frontend (try to kill 5174)
+kill_port $((FRONTEND_PORT + 2))  # Frontend (try to kill 5175)
+kill_port $((FRONTEND_PORT + 3))  # Frontend (try to kill 5176)
+
 # Start Vite in the background
 # Note: Frontend automatically detects development mode and uses direct backend URL
 # In production, frontend uses relative /api paths (same domain as deployed app)
