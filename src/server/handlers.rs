@@ -82,12 +82,20 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
 struct HealthResponse {
     status: String,
     timestamp: i64,
+    version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    commit: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct DetailedHealthResponse {
     status: String,
     timestamp: i64,
+    version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    commit_message: Option<String>,
     services: ServiceHealth,
 }
 
@@ -110,6 +118,8 @@ async fn health_api() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
         timestamp: current_timestamp(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        commit: option_env!("GIT_COMMIT").map(String::from),
     })
 }
 
@@ -152,6 +162,9 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
     Json(DetailedHealthResponse {
         status: overall_status.to_string(),
         timestamp: current_timestamp(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        commit: option_env!("GIT_COMMIT").map(String::from),
+        commit_message: option_env!("GIT_COMMIT_MESSAGE").map(String::from),
         services: ServiceHealth {
             backend: ServiceStatus {
                 status: "ok".to_string(),

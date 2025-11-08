@@ -4,6 +4,10 @@
 FROM rust:1.84 AS rust-builder
 WORKDIR /app
 
+# Build args for version info
+ARG GIT_COMMIT
+ARG GIT_COMMIT_MESSAGE
+
 RUN apt-get update \
     && apt-get install --no-install-recommends -y pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -24,7 +28,9 @@ COPY docs ./docs
 COPY README.md ./
 COPY blockchain ./blockchain
 
-# Build the actual application (only this layer rebuilds when code changes)
+# Build the actual application with version info (only this layer rebuilds when code changes)
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV GIT_COMMIT_MESSAGE=${GIT_COMMIT_MESSAGE}
 RUN cargo build --release --locked --bin copypaste
 
 # OCaml builder stage
@@ -34,6 +40,7 @@ FROM ocaml/opam:debian-12-ocaml-5.2 AS ocaml-builder
 RUN sudo apt-get update && sudo apt-get install -y \
     pkg-config \
     libssl-dev \
+    libgmp-dev \
     && sudo rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/ocaml-crypto-verifier
