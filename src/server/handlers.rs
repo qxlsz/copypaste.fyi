@@ -55,7 +55,6 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 api_preflight,
                 index,
                 about,
-                spa_fallback,
                 create,
                 create_api,
                 anchor_api,
@@ -71,7 +70,8 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 user_paste_count_api,
                 user_paste_list_api,
                 health_api,
-                health_detailed_api
+                health_detailed_api,
+                spa_fallback
             ],
         )
         .mount("/static", FileServer::from("static"))
@@ -998,7 +998,7 @@ async fn about() -> content::RawHtml<String> {
     content::RawHtml(include_str!("../../static/index.html").to_string())
 }
 
-#[get("/<_path..>")]
+#[get("/<_path..>", rank = 100)]
 async fn spa_fallback(_path: PathBuf) -> content::RawHtml<String> {
     content::RawHtml(include_str!("../../static/index.html").to_string())
 }
