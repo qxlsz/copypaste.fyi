@@ -215,7 +215,10 @@ fn vault_store_requires_valid_url() {
     std::env::remove_var("COPYPASTE_VAULT_TOKEN");
     std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "vault");
     std::env::set_var("COPYPASTE_VAULT_ADDR", "ftp://invalid-protocol.com");
-    std::env::set_var("COPYPASTE_VAULT_TOKEN", "this_token_is_long_enough_1234567890");
+    std::env::set_var(
+        "COPYPASTE_VAULT_TOKEN",
+        "this_token_is_long_enough_1234567890",
+    );
     let _ = std::panic::catch_unwind(|| create_paste_store());
     std::env::remove_var("COPYPASTE_PERSISTENCE_BACKEND");
     std::env::remove_var("COPYPASTE_VAULT_ADDR");

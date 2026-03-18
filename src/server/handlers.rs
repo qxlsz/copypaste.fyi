@@ -51,7 +51,10 @@ fn validate_workspace(workspace: &Option<String>) -> Result<(), String> {
                 MAX_WORKSPACE_LENGTH
             ));
         }
-        if !ws.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if !ws
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             return Err(
                 "workspace must contain only alphanumeric characters, hyphens, and underscores"
                     .to_string(),
@@ -172,7 +175,11 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
-    let crypto_status = match client.get(format!("{}/health", crypto_verifier_url)).send().await {
+    let crypto_status = match client
+        .get(format!("{}/health", crypto_verifier_url))
+        .send()
+        .await
+    {
         Ok(resp) if resp.status().is_success() => ServiceStatus {
             status: "ok".to_string(),
             message: Some("Crypto verifier responding".to_string()),
