@@ -330,17 +330,44 @@ GET /api/health
 
 ### Backend (Rust)
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `ROCKET_ADDRESS` | Bind address | 0.0.0.0 |
-| `ROCKET_PORT` | Bind port | 8000 |
-| `RUST_LOG` | Log level | info |
-| `CRYPTO_VERIFIER_URL` | OCaml service endpoint | http://localhost:8001 |
-| `COPYPASTE_REDIS_URL` | Redis URL (optional) | - |
-| `COPYPASTE_REDIS_KEY_PREFIX` | Redis key prefix | paste: |
-| `COPYPASTE_ONION_HOST` | Tor onion host | - |
-| `GIT_COMMIT` | Commit hash (Docker) | - |
-| `GIT_COMMIT_MESSAGE` | Commit message (Docker) | - |
+| Variable | Purpose | Default | Required When |
+|----------|---------|---------|---------------|
+| **Rocket Server** |
+| `ROCKET_ADDRESS` | Bind address | 0.0.0.0 | No |
+| `ROCKET_PORT` | Bind port | 8000 | No |
+| `RUST_LOG` | Log level (trace, debug, info, warn, error) | info | No |
+| **Persistence Backend** |
+| `COPYPASTE_PERSISTENCE_BACKEND` | Storage backend (memory, redis, vault) | memory | No |
+| **Redis Backend** (required when `COPYPASTE_PERSISTENCE_BACKEND=redis`) |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST API URL | - | **Yes** (if backend=redis) |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token | - | **Yes** (if backend=redis) |
+| `COPYPASTE_REDIS_KEY_PREFIX` | Redis key namespace prefix | paste: | No |
+| **Vault Backend** (required when `COPYPASTE_PERSISTENCE_BACKEND=vault`) |
+| `COPYPASTE_VAULT_ADDR` | Vault server URL (http:// or https://) | - | **Yes** (if backend=vault) |
+| `COPYPASTE_VAULT_TOKEN` | Vault auth token (min 20 chars) | - | **Yes** (if backend=vault) |
+| `COPYPASTE_VAULT_MOUNT` | KV secrets engine mount point | secret | No |
+| `COPYPASTE_VAULT_NAMESPACE` | Vault Enterprise namespace | - | No |
+| `COPYPASTE_VAULT_PREFIX` | Key path prefix within mount | copypaste | No |
+| **Blockchain Anchoring** (optional) |
+| `ANCHOR_RELAY_ENDPOINT` | Blockchain relay service URL | - | No |
+| `ANCHOR_RELAY_API_KEY` | Relay service API key | - | No |
+| **Tor/Onion Service** (optional) |
+| `COPYPASTE_ONION_HOST` | Tor onion service hostname | - | No |
+| `COPYPASTE_TOR_SUPPRESS_LOGS` | Suppress Tor-related log messages | true | No |
+| **Crypto Verification** |
+| `CRYPTO_VERIFIER_URL` | OCaml service endpoint for dual verification | http://localhost:8001 | No |
+| **Build Info** (set automatically in Docker builds) |
+| `GIT_COMMIT` | Git commit SHA | - | No |
+| `GIT_COMMIT_MESSAGE` | Git commit message | - | No |
+| `COPYPASTE_VERSION` | Application version | - | No |
+
+### Boolean Values
+
+The following environment variables accept boolean values:
+
+| Variable | Accepted Values |
+|----------|-----------------|
+| `COPYPASTE_TOR_SUPPRESS_LOGS` | `1`, `true`, `yes`, `on` (enable) / `0`, `false`, `no`, `off` (disable) |
 
 ### Frontend (React)
 

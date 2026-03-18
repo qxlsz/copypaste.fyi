@@ -544,22 +544,28 @@ pub type SharedPasteStore = Arc<dyn PasteStore>;
 pub fn create_paste_store() -> SharedPasteStore {
     match env::var("COPYPASTE_PERSISTENCE_BACKEND").map(|v| v.trim().to_lowercase()) {
         Ok(value) if value == "vault" => {
+            log::info!("Initializing persistence backend: vault");
             match vault::VaultPersistenceAdapter::from_env() {
                 Ok(adapter) => Arc::new(MemoryPasteStore::with_persistence(adapter)),
                 Err(e) => panic!("COPYPASTE_PERSISTENCE_BACKEND=vault but initialization failed: {}", e),
             }
         }
         Ok(value) if value == "redis" => {
+            log::info!("Initializing persistence backend: redis");
             match RedisPersistenceAdapter::from_env() {
                 Ok(adapter) => Arc::new(MemoryPasteStore::with_persistence(adapter)),
                 Err(e) => panic!("COPYPASTE_PERSISTENCE_BACKEND=redis but initialization failed: {}", e),
             }
         }
         Ok(value) if value == "memory" || value.is_empty() => {
+            log::info!("Initializing persistence backend: memory (in-memory, non-durable)");
             Arc::new(MemoryPasteStore::new())
         }
         Ok(value) => panic!("Unknown COPYPASTE_PERSISTENCE_BACKEND: '{}'. Valid values: memory, redis, vault", value),
-        Err(_) => Arc::new(MemoryPasteStore::new()),
+        Err(_) => {
+            log::info!("Initializing persistence backend: memory (default, in-memory, non-durable)");
+            Arc::new(MemoryPasteStore::new())
+        }
     }
 }
 
