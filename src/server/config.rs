@@ -394,6 +394,7 @@ address = "127.0.0.1"
 
     #[test]
     fn validation_rejects_invalid_log_format() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let path = write_temp_config("[logging]\nformat = \"xml\"\n");
         let result = Config::load(Some(path.to_str().unwrap()));
         let _ = std::fs::remove_file(&path);
@@ -408,6 +409,7 @@ address = "127.0.0.1"
 
     #[test]
     fn validation_rejects_zero_port() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let path = write_temp_config("[server]\nport = 0\n");
         let result = Config::load(Some(path.to_str().unwrap()));
         let _ = std::fs::remove_file(&path);

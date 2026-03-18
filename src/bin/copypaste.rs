@@ -1,9 +1,79 @@
 use std::io::{self, Read};
 
-use clap::Parser;
-use clap::{ArgGroup, ValueEnum};
+use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use urlencoding::encode;
+
+#[derive(Parser)]
+#[command(name = "copypaste", about = "Open-source paste sharing service")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Start the HTTP server
+    Serve {
+        /// Path to a TOML config file
+        #[arg(long)]
+        config: Option<String>,
+    },
+    /// Submit text to a copypaste instance and print the resulting URL
+    Send(SendArgs),
+    /// Config file management
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Print an annotated example config to stdout, or write it to --path
+    Init {
+        /// Write the generated config to this file instead of stdout
+        #[arg(long)]
+        path: Option<String>,
+    },
+}
+
+/// Arguments for the `send` subcommand.
+#[derive(Parser, Debug)]
+#[command(group(ArgGroup::new("input").args(["text", "stdin"]).required(true)))]
+struct SendArgs {
+    /// Text to paste. When omitted, stdin is read instead.
+    #[arg(conflicts_with = "stdin")]
+    text: Option<String>,
+
+    /// Read input from stdin.
+    #[arg(long)]
+    stdin: bool,
+
+    /// Base URL of the copypaste server (e.g. http://127.0.0.1:8000).
+    #[arg(long, default_value = "http://127.0.0.1:8000")]
+    host: String,
+
+    /// Output rendering format.
+    #[arg(long, value_enum, default_value_t = CliFormat::PlainText)]
+    format: CliFormat,
+
+    /// Retention window in minutes (0 = no expiry).
+    #[arg(long, default_value_t = 0)]
+    retention: u64,
+
+    /// Encryption algorithm to use for this paste.
+    #[arg(long, value_enum, default_value_t = CliEncryption::None)]
+    encryption_mode: CliEncryption,
+
+    /// Encryption key (required when encryption is not "none").
+    #[arg(long = "key")]
+    encryption_key: Option<String>,
+
+    /// Delete the paste immediately after the first successful view.
+    #[arg(long)]
+    burn_after_reading: bool,
+}
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq, Default)]
 enum CliFormat {
@@ -39,44 +109,6 @@ enum CliEncryption {
     XChaCha20Poly1305,
 }
 
-/// Submit text to a copypaste.fyi instance and print the resulting URL.
-#[derive(Parser, Debug)]
-#[command(author, version, about)]
-#[command(group(ArgGroup::new("input").args(["text", "stdin"]).required(true)))]
-struct Cli {
-    /// Text to paste. When omitted, stdin is read instead.
-    #[arg(conflicts_with = "stdin")]
-    text: Option<String>,
-
-    /// Read input from stdin.
-    #[arg(long)]
-    stdin: bool,
-
-    /// Base URL of the copypaste server (e.g. http://127.0.0.1:8000).
-    #[arg(long, default_value = "http://127.0.0.1:8000")]
-    host: String,
-
-    /// Output rendering format.
-    #[arg(long, value_enum, default_value_t = CliFormat::PlainText)]
-    format: CliFormat,
-
-    /// Retention window in minutes (0 = no expiry).
-    #[arg(long, default_value_t = 0)]
-    retention: u64,
-
-    /// Encryption algorithm to use for this paste.
-    #[arg(long, value_enum, default_value_t = CliEncryption::None)]
-    encryption_mode: CliEncryption,
-
-    /// Encryption key (required when encryption is not "none").
-    #[arg(long = "key")]
-    encryption_key: Option<String>,
-
-    /// Delete the paste immediately after the first successful view.
-    #[arg(long)]
-    burn_after_reading: bool,
-}
-
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 struct EncryptionPayload<'a> {
@@ -98,14 +130,45 @@ struct PastePayload<'a> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     let cli = Cli::parse();
-    let url = execute(cli)?;
-    println!("Paste link: {}", url);
-    Ok(())
+
+    match cli.command {
+        Command::Serve { config } => {
+            use copypaste::server::{config::Config, handlers};
+
+            let config = Config::load(config.as_deref()).map_err(|e| format!("{e}"))?;
+            config.bridge_to_env();
+
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(handlers::launch())
+        }
+        Command::Send(args) => {
+            let url = execute_send(args)?;
+            println!("Paste link: {}", url);
+            Ok(())
+        }
+        Command::Config { action } => match action {
+            ConfigAction::Init { path } => {
+                let content = copypaste::server::config::EXAMPLE_CONFIG;
+                match path {
+                    Some(p) => {
+                        std::fs::write(&p, content)?;
+                        println!("Config written to {p}");
+                    }
+                    None => print!("{content}"),
+                }
+                Ok(())
+            }
+        },
+    }
 }
 
-fn execute(cli: Cli) -> io::Result<String> {
-    let Cli {
+fn execute_send(args: SendArgs) -> io::Result<String> {
+    let SendArgs {
         text,
         stdin,
         host,
@@ -114,7 +177,7 @@ fn execute(cli: Cli) -> io::Result<String> {
         encryption_mode,
         encryption_key,
         burn_after_reading,
-    } = cli;
+    } = args;
 
     let content = if stdin {
         let mut buffer = String::new();
@@ -164,7 +227,6 @@ fn execute(cli: Cli) -> io::Result<String> {
     };
 
     let has_encryption = encryption.is_some();
-
     let retention = if retention == 0 {
         None
     } else {
@@ -244,7 +306,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn execute_submits_plain_text_and_returns_url() {
+    fn send_submits_plain_text_and_returns_url() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(POST).path("/").json_body_partial(
@@ -254,14 +316,14 @@ mod tests {
         });
 
         let base = server.base_url();
-        let cli = Cli::parse_from(["cpaste", "hello", "--host", base.as_str()]);
-        let url = execute(cli).expect("url");
+        let args = SendArgs::parse_from(["copypaste-send", "hello", "--host", base.as_str()]);
+        let url = execute_send(args).expect("url");
         assert_eq!(url, format!("{}/paste/abc123", base));
         mock.assert();
     }
 
     #[test]
-    fn execute_appends_encryption_key() {
+    fn send_appends_encryption_key() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(POST).path("/").json_body_partial(
@@ -271,8 +333,8 @@ mod tests {
         });
 
         let base = server.base_url();
-        let cli = Cli::parse_from([
-            "cpaste",
+        let args = SendArgs::parse_from([
+            "copypaste-send",
             "payload",
             "--host",
             base.as_str(),
@@ -281,15 +343,20 @@ mod tests {
             "--key",
             "super key",
         ]);
-        let url = execute(cli).expect("url");
+        let url = execute_send(args).expect("url");
         assert_eq!(url, format!("{}/secret?key=super%20key", base));
         mock.assert();
     }
 
     #[test]
-    fn execute_requires_key_for_encryption() {
-        let cli = Cli::parse_from(["cpaste", "payload", "--encryption-mode", "aes256_gcm"]);
-        let err = execute(cli).expect_err("missing key should fail");
+    fn send_requires_key_for_encryption() {
+        let args = SendArgs::parse_from([
+            "copypaste-send",
+            "payload",
+            "--encryption-mode",
+            "aes256_gcm",
+        ]);
+        let err = execute_send(args).expect_err("missing key should fail");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
         assert!(err
             .to_string()
@@ -297,14 +364,14 @@ mod tests {
     }
 
     #[test]
-    fn execute_rejects_empty_input() {
-        let cli = Cli::parse_from(["cpaste", " "]);
-        let err = execute(cli).expect_err("empty input should fail");
+    fn send_rejects_empty_input() {
+        let args = SendArgs::parse_from(["copypaste-send", " "]);
+        let err = execute_send(args).expect_err("empty input should fail");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
-    fn execute_reports_http_error() {
+    fn send_reports_http_error() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(POST).path("/");
@@ -312,8 +379,8 @@ mod tests {
         });
 
         let base = server.base_url();
-        let cli = Cli::parse_from(["cpaste", "hello", "--host", base.as_str()]);
-        let err = execute(cli).expect_err("http failure expected");
+        let args = SendArgs::parse_from(["copypaste-send", "hello", "--host", base.as_str()]);
+        let err = execute_send(args).expect_err("http failure expected");
         assert_eq!(err.kind(), io::ErrorKind::Other);
         assert!(err.to_string().contains("Request failed"));
         mock.assert();
