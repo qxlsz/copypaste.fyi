@@ -1,0 +1,9 @@
+[20:40:46] Running independent code review...
+DECISION: REQUEST_CHANGES
+
+SUMMARY: Three bugs found — one security-critical in the install script, one reproducibility issue in the Dockerfile, and one minor completions gap in the release workflow.
+
+FEEDBACK:
+- **[SECURITY] `scripts/install.sh` lines 60-63**: Checksum verification is broken. The script downloads and extracts the tarball via pipe on line 54 (`curl ... | tar xz -C "$TMPDIR"`), but then computes `$ACTUAL` by downloading the URL a *second* time (`curl -fsSL "$URL" | sha256sum`). The binary in `$TMPDIR` is never verified — the two downloads may differ and the security check is effectively a no-op. Fix: download to a temp file first (`curl -fsSL "$URL" -o "$TMPDIR/artifact.tar.gz"`), hash that file for verification, then extract it.
+- **[REPRODUCIBILITY] `Dockerfile` line 20**: `cargo build --release --bin copypaste` is missing `--locked`. Release images must use `--locked` to ensure dependency resolution is deterministic and matches `Cargo.lock`. Without it, `cargo` may silently resolve different dependency versions than what was tested.
+- **[MINOR] `.github/workflows/release.yml` line 53**: The shell completions condition `matrix.os == 'ubuntu-latest' || (matrix.os == 'macos-latest' && matrix.target == 'x86_64-apple-darwin')` excludes `aarch64-apple-darwin`. Since `macos-latest` runners are ARM-native, the aarch64 binary can generate completions. Change to `matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'` so all artifacts include completions.
