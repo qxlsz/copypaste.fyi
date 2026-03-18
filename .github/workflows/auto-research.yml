@@ -2,7 +2,7 @@ name: Auto Research
 
 on:
   schedule:
-    - cron: '0 9 * * 1' # Every Monday 9am UTC
+    - cron: '17 9 * * *' # Daily at 9:17am UTC
   workflow_dispatch: # Manual trigger
 
 permissions:
