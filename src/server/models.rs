@@ -1,3 +1,4 @@
+use crate::server::api_keys::ApiScope;
 use crate::{
     BundleMetadata, DailyCount, EncryptionAlgorithm, EncryptionUsage, FormatUsage, PasteFormat,
     StoreStats, WebhookProvider,
@@ -22,6 +23,12 @@ pub struct CreatePasteResponse {
     pub id: String,
     pub path: String,
     pub shareable_url: String,
+    /// Ownership token — only present when `live: true` was requested.
+    /// Store this securely; it authorises PUT and PATCH updates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    #[serde(default)]
+    pub is_live: bool,
 }
 
 #[derive(Serialize, Deserialize, Default, ToSchema)]
@@ -231,6 +238,26 @@ pub struct CreatePasteRequest {
     #[serde(default)]
     pub tor_access_only: bool,
     pub owner_pubkey_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    /// When `true`, paste starts in live mode — content can be updated via `PUT /api/pastes/{id}`.
+    #[serde(default)]
+    pub live: bool,
+}
+
+/// Request body for `PUT /api/pastes/{id}` (update live paste content).
+#[derive(Serialize, Deserialize, Default, ToSchema)]
+#[serde(default)]
+pub struct UpdatePasteRequest {
+    pub content: String,
+    #[serde(default)]
+    pub encryption: Option<EncryptionRequest>,
+}
+
+/// Request body for `PATCH /api/pastes/{id}` (finalize live paste).
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct FinalizePasteRequest {
+    pub live: bool,
 }
 
 #[derive(Serialize, Deserialize, Default, ToSchema)]
@@ -315,6 +342,48 @@ pub struct AuthLoginResponse {
 pub struct AuthLogoutResponse {
     pub success: bool,
 }
+
+// ── Admin key management ──────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+    #[serde(default)]
+    pub scope: ApiScope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiKeyResponse {
+    pub id: String,
+    pub name: String,
+    pub scope: ApiScope,
+    /// Plaintext key — shown **once**, store it securely.
+    pub key: String,
+    pub created_at: i64,
+}
+
+// ── Workspace listing ─────────────────────────────────────────────────────────
+
+#[derive(FromForm, Default)]
+pub struct WorkspacePasteQuery {
+    pub workspace: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePasteItem {
+    pub id: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    pub created_at: i64,
+}
+
+// ── Existing query ────────────────────────────────────────────────────────────
 
 #[derive(FromForm, Default)]
 pub struct PasteViewQuery {

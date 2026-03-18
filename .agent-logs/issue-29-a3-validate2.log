@@ -1,0 +1,418 @@
+[00:06:36] Running local validation...
+[00:06:36]   cargo fmt...
+[00:06:36]   cargo clippy...
+    Checking copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+error: unused import: `delete`
+  --> src/server/handlers.rs:12:14
+   |
+12 | use rocket::{delete, get, post, routes};
+   |              ^^^^^^
+   |
+   = note: `-D unused-imports` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(unused_imports)]`
+
+error: unused imports: `OptionalApiKeyAuth`, `RequireAdminAuth`, and `SharedApiKeyStore`
+  --> src/server/handlers.rs:19:23
+   |
+19 | use super::api_keys::{OptionalApiKeyAuth, RequireAdminAuth, SharedApiKeyStore};
+   |                       ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:350:34
+    |
+350 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:364:30
+    |
+364 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:382:37
+    |
+382 |             None => return Outcome::Failure((Status::Unauthorized, ())),
+    |                                     ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:399:34
+    |
+399 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:415:33
+    |
+415 |             Some(_) => Outcome::Failure((Status::Forbidden, ())),
+    |                                 ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:416:30
+    |
+416 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0063]: missing field `workspace` in initializer of `PasteMetadata`
+   --> src/server/render.rs:405:9
+    |
+405 |         PasteMetadata {
+    |         ^^^^^^^^^^^^^ missing `workspace`
+
+error[E0597]: `stmt` does not live long enough
+   --> src/server/api_keys.rs:229:13
+    |
+223 |               let mut stmt = conn
+    |                   -------- binding `stmt` declared here
+...
+229 |               stmt.query_map([], |row| {
+    |               -^^^
+    |               |
+    |  _____________borrowed value does not live long enough
+    | |
+230 | |                 Ok(Row {
+231 | |                     id: row.get(0)?,
+232 | |                     name: row.get(1)?,
+...   |
+239 | |             })
+240 | |             .ok()?
+    | |__________________- a temporary with access to the borrow is created here ...
+...
+243 |           };
+    |           -- ... and the borrow might be used here, when that temporary is dropped and runs the destructor for type `std::ops::ControlFlow<std::option::Option<std::convert::Infallible>, rusqlite::MappedRows<'_, {closure@src/server/api_keys.rs:229:32: 229:37}>>`
+    |           |
+    |           `stmt` dropped here while still borrowed
+    |
+    = note: the temporary is part of an expression at the end of a block;
+            consider forcing this temporary to be dropped sooner, before the block's local variables are dropped
+help: for example, you could save the expression's value in a new local variable `x` and then make `x` be the expression at the end of the block
+    |
+229 ~             let x = stmt.query_map([], |row| {
+230 |                 Ok(Row {
+...
+241 |             .filter_map(|r| r.ok())
+242 ~             .collect(); x
+    |
+
+Some errors have detailed explanations: E0597, E0599.
+For more information about an error, try `rustc --explain E0597`.
+error: could not compile `copypaste` (lib) due to 9 previous errors
+warning: build failed, waiting for other jobs to finish...
+Some errors have detailed explanations: E0063, E0597, E0599.
+For more information about an error, try `rustc --explain E0063`.
+error: could not compile `copypaste` (lib test) due to 10 previous errors
+[00:06:38]   FAIL: clippy
+[00:06:38]   cargo nextest...
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+warning: unused import: `delete`
+  --> src/server/handlers.rs:12:14
+   |
+12 | use rocket::{delete, get, post, routes};
+   |              ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `OptionalApiKeyAuth`, `RequireAdminAuth`, and `SharedApiKeyStore`
+  --> src/server/handlers.rs:19:23
+   |
+19 | use super::api_keys::{OptionalApiKeyAuth, RequireAdminAuth, SharedApiKeyStore};
+   |                       ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:350:34
+    |
+350 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:364:30
+    |
+364 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:382:37
+    |
+382 |             None => return Outcome::Failure((Status::Unauthorized, ())),
+    |                                     ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:399:34
+    |
+399 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:415:33
+    |
+415 |             Some(_) => Outcome::Failure((Status::Forbidden, ())),
+    |                                 ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:416:30
+    |
+416 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:350:34
+    |
+350 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:364:30
+    |
+364 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:382:37
+    |
+382 |             None => return Outcome::Failure((Status::Unauthorized, ())),
+    |                                     ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:399:34
+    |
+399 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:415:33
+    |
+415 |             Some(_) => Outcome::Failure((Status::Forbidden, ())),
+    |                                 ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:416:30
+    |
+416 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0597]: `stmt` does not live long enough
+   --> src/server/api_keys.rs:229:13
+    |
+223 |               let mut stmt = conn
+    |                   -------- binding `stmt` declared here
+...
+229 |               stmt.query_map([], |row| {
+    |               -^^^
+    |               |
+    |  _____________borrowed value does not live long enough
+    | |
+230 | |                 Ok(Row {
+231 | |                     id: row.get(0)?,
+232 | |                     name: row.get(1)?,
+...   |
+239 | |             })
+240 | |             .ok()?
+    | |__________________- a temporary with access to the borrow is created here ...
+...
+243 |           };
+    |           -- ... and the borrow might be used here, when that temporary is dropped and runs the destructor for type `ControlFlow<std::option::Option<Infallible>, MappedRows<'_, {closure@src/server/api_keys.rs:229:32: 229:37}>>`
+    |           |
+    |           `stmt` dropped here while still borrowed
+    |
+    = note: the temporary is part of an expression at the end of a block;
+            consider forcing this temporary to be dropped sooner, before the block's local variables are dropped
+help: for example, you could save the expression's value in a new local variable `x` and then make `x` be the expression at the end of the block
+    |
+229 ~             let x = stmt.query_map([], |row| {
+230 |                 Ok(Row {
+...
+241 |             .filter_map(|r| r.ok())
+242 ~             .collect(); x
+    |
+
+error[E0063]: missing field `workspace` in initializer of `PasteMetadata`
+   --> src/server/render.rs:405:9
+    |
+405 |         PasteMetadata {
+    |         ^^^^^^^^^^^^^ missing `workspace`
+
+Some errors have detailed explanations: E0597, E0599.
+For more information about an error, try `rustc --explain E0597`.
+warning: `copypaste` (lib) generated 2 warnings
+error: could not compile `copypaste` (lib) due to 7 previous errors; 2 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+Some errors have detailed explanations: E0063, E0597, E0599.
+For more information about an error, try `rustc --explain E0063`.
+warning: `copypaste` (lib test) generated 2 warnings (2 duplicates)
+error: could not compile `copypaste` (lib test) due to 8 previous errors; 2 warnings emitted
+error: command `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --workspace --all-features` exited with code 101
+[00:06:40]   FAIL: nextest
+[00:06:40]   cargo llvm-cov (75% min)...
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+warning: unused import: `delete`
+  --> src/server/handlers.rs:12:14
+   |
+12 | use rocket::{delete, get, post, routes};
+   |              ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `OptionalApiKeyAuth`, `RequireAdminAuth`, and `SharedApiKeyStore`
+  --> src/server/handlers.rs:19:23
+   |
+19 | use super::api_keys::{OptionalApiKeyAuth, RequireAdminAuth, SharedApiKeyStore};
+   |                       ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:350:34
+    |
+350 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:364:30
+    |
+364 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:382:37
+    |
+382 |             None => return Outcome::Failure((Status::Unauthorized, ())),
+    |                                     ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:399:34
+    |
+399 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:415:33
+    |
+415 |             Some(_) => Outcome::Failure((Status::Forbidden, ())),
+    |                                 ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:416:30
+    |
+416 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `Outcome<_, (Status, _), Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:350:34
+    |
+350 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:364:30
+    |
+364 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:382:37
+    |
+382 |             None => return Outcome::Failure((Status::Unauthorized, ())),
+    |                                     ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:399:34
+    |
+399 |             _ => return Outcome::Failure((Status::InternalServerError, ())),
+    |                                  ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:415:33
+    |
+415 |             Some(_) => Outcome::Failure((Status::Forbidden, ())),
+    |                                 ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0599]: no variant or associated item named `Failure` found for enum `rocket::outcome::Outcome<S, E, F>` in the current scope
+   --> src/server/api_keys.rs:416:30
+    |
+416 |             None => Outcome::Failure((Status::Unauthorized, ())),
+    |                              ^^^^^^^ variant or associated item not found in `rocket::outcome::Outcome<_, (rocket::http::Status, _), rocket::http::Status>`
+
+error[E0063]: missing field `workspace` in initializer of `PasteMetadata`
+   --> src/server/render.rs:405:9
+    |
+405 |         PasteMetadata {
+    |         ^^^^^^^^^^^^^ missing `workspace`
+
+error[E0597]: `stmt` does not live long enough
+   --> src/server/api_keys.rs:229:13
+    |
+223 |               let mut stmt = conn
+    |                   -------- binding `stmt` declared here
+...
+229 |               stmt.query_map([], |row| {
+    |               -^^^
+    |               |
+    |  _____________borrowed value does not live long enough
+    | |
+230 | |                 Ok(Row {
+231 | |                     id: row.get(0)?,
+232 | |                     name: row.get(1)?,
+...   |
+239 | |             })
+240 | |             .ok()?
+    | |__________________- a temporary with access to the borrow is created here ...
+...
+243 |           };
+    |           -- ... and the borrow might be used here, when that temporary is dropped and runs the destructor for type `ControlFlow<std::option::Option<Infallible>, MappedRows<'_, {closure@src/server/api_keys.rs:229:32: 229:37}>>`
+    |           |
+    |           `stmt` dropped here while still borrowed
+    |
+    = note: the temporary is part of an expression at the end of a block;
+            consider forcing this temporary to be dropped sooner, before the block's local variables are dropped
+help: for example, you could save the expression's value in a new local variable `x` and then make `x` be the expression at the end of the block
+    |
+229 ~             let x = stmt.query_map([], |row| {
+230 |                 Ok(Row {
+...
+241 |             .filter_map(|r| r.ok())
+242 ~             .collect(); x
+    |
+
+Some errors have detailed explanations: E0597, E0599.
+For more information about an error, try `rustc --explain E0597`.
+warning: `copypaste` (lib) generated 2 warnings
+error: could not compile `copypaste` (lib) due to 7 previous errors; 2 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+Some errors have detailed explanations: E0063, E0597, E0599.
+For more information about an error, try `rustc --explain E0063`.
+warning: `copypaste` (lib test) generated 2 warnings (2 duplicates)
+error: could not compile `copypaste` (lib test) due to 8 previous errors; 2 warnings emitted
+error: command `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --workspace --all-features --target-dir /Users/qxlsz/projects/copypaste.fyi/target/llvm-cov-target` exited with code 101
+error: process didn't exit successfully: `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo nextest run --manifest-path /Users/qxlsz/projects/copypaste.fyi/Cargo.toml --target-dir /Users/qxlsz/projects/copypaste.fyi/target/llvm-cov-target --workspace --all-features` (exit status: 101)
+[00:06:42]   FAIL: coverage
+[00:06:42]   frontend tests...
+
+> frontend@0.0.0 test
+> vitest --run
+
+
+[1m[46m RUN [49m[22m [36mv4.0.6 [39m[90m/Users/qxlsz/projects/copypaste.fyi/frontend[39m
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+(node:84105) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/theme/__tests__/themeStorage.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 1[2mms[22m[39m
+ [32m✓[39m src/stores/__tests__/pasteComposer.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 1[2mms[22m[39m
+[90mstdout[2m | src/App.test.tsx
+[22m[39m🚀 Frontend API_BASE: /api
+🚀 Development mode: [33mtrue[39m
+🚀 VITE_API_BASE env: [90mundefined[39m
+
+(node:84103) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/App.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 00:06:42
+[2m   Duration [22m 1.37s[2m (transform 159ms, setup 0ms, collect 913ms, tests 43ms, environment 814ms, prepare 11ms)[22m
+
+[00:06:44]   frontend lint...
+
+> frontend@0.0.0 lint
+> eslint . --max-warnings=0
+

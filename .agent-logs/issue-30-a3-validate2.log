@@ -1,0 +1,151 @@
+[00:31:33] Running local validation...
+[00:31:33]   cargo fmt...
+[00:31:34]   cargo clippy...
+    Checking copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+error[E0422]: cannot find struct, variant or union type `update_paste_api` in this scope
+  --> src/server/handlers.rs:65:17
+   |
+65 |                 update_paste_api,
+   |                 ^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `finalize_paste_api` in this scope
+  --> src/server/handlers.rs:66:17
+   |
+66 |                 finalize_paste_api,
+   |                 ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error: unused imports: `patch` and `put`
+  --> src/server/handlers.rs:12:19
+   |
+12 | use rocket::{get, patch, post, put, routes};
+   |                   ^^^^^        ^^^
+   |
+   = note: `-D unused-imports` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(unused_imports)]`
+
+error: unused imports: `FinalizePasteRequest` and `UpdatePasteRequest`
+  --> src/server/handlers.rs:29:66
+   |
+29 |     AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, FinalizePasteRequest,
+   |                                                                  ^^^^^^^^^^^^^^^^^^^^
+30 |     PasteViewQuery, PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+31 |     UpdatePasteRequest, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
+   |     ^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0422`.
+error: could not compile `copypaste` (lib) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `copypaste` (lib test) due to 4 previous errors
+[00:31:45]   FAIL: clippy
+[00:31:45]   cargo nextest...
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+error[E0422]: cannot find struct, variant or union type `update_paste_api` in this scope
+  --> src/server/handlers.rs:65:17
+   |
+65 |                 update_paste_api,
+   |                 ^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `finalize_paste_api` in this scope
+  --> src/server/handlers.rs:66:17
+   |
+66 |                 finalize_paste_api,
+   |                 ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+warning: unused imports: `patch` and `put`
+  --> src/server/handlers.rs:12:19
+   |
+12 | use rocket::{get, patch, post, put, routes};
+   |                   ^^^^^        ^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `FinalizePasteRequest` and `UpdatePasteRequest`
+  --> src/server/handlers.rs:29:66
+   |
+29 |     AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, FinalizePasteRequest,
+   |                                                                  ^^^^^^^^^^^^^^^^^^^^
+30 |     PasteViewQuery, PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+31 |     UpdatePasteRequest, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
+   |     ^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0422`.
+warning: `copypaste` (lib) generated 2 warnings
+error: could not compile `copypaste` (lib) due to 2 previous errors; 2 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+warning: `copypaste` (lib test) generated 2 warnings (2 duplicates)
+error: could not compile `copypaste` (lib test) due to 2 previous errors; 2 warnings emitted
+error: command `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --workspace --all-features` exited with code 101
+[00:31:58]   FAIL: nextest
+[00:31:58]   cargo llvm-cov (75% min)...
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+error[E0422]: cannot find struct, variant or union type `update_paste_api` in this scope
+  --> src/server/handlers.rs:65:17
+   |
+65 |                 update_paste_api,
+   |                 ^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `finalize_paste_api` in this scope
+  --> src/server/handlers.rs:66:17
+   |
+66 |                 finalize_paste_api,
+   |                 ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+warning: unused imports: `patch` and `put`
+  --> src/server/handlers.rs:12:19
+   |
+12 | use rocket::{get, patch, post, put, routes};
+   |                   ^^^^^        ^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `FinalizePasteRequest` and `UpdatePasteRequest`
+  --> src/server/handlers.rs:29:66
+   |
+29 |     AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, FinalizePasteRequest,
+   |                                                                  ^^^^^^^^^^^^^^^^^^^^
+30 |     PasteViewQuery, PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+31 |     UpdatePasteRequest, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
+   |     ^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0422`.
+warning: `copypaste` (lib) generated 2 warnings
+error: could not compile `copypaste` (lib) due to 2 previous errors; 2 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+warning: `copypaste` (lib test) generated 2 warnings (2 duplicates)
+error: could not compile `copypaste` (lib test) due to 2 previous errors; 2 warnings emitted
+error: command `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --workspace --all-features --target-dir /Users/qxlsz/projects/copypaste.fyi/target/llvm-cov-target` exited with code 101
+error: process didn't exit successfully: `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo nextest run --manifest-path /Users/qxlsz/projects/copypaste.fyi/Cargo.toml --target-dir /Users/qxlsz/projects/copypaste.fyi/target/llvm-cov-target --workspace --all-features` (exit status: 101)
+[00:32:13]   FAIL: coverage
+[00:32:13]   frontend tests...
+
+> frontend@0.0.0 test
+> vitest --run
+
+
+[1m[46m RUN [49m[22m [36mv4.0.6 [39m[90m/Users/qxlsz/projects/copypaste.fyi/frontend[39m
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+(node:96131) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/theme/__tests__/themeStorage.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/stores/__tests__/pasteComposer.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[90mstdout[2m | src/App.test.tsx
+[22m[39m🚀 Frontend API_BASE: /api
+🚀 Development mode: [33mtrue[39m
+🚀 VITE_API_BASE env: [90mundefined[39m
+
+(node:96130) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/App.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 282[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 00:32:14
+[2m   Duration [22m 7.47s[2m (transform 1.11s, setup 0ms, collect 5.51s, tests 299ms, environment 4.09s, prepare 62ms)[22m
+
+[00:32:22]   frontend lint...
+
+> frontend@0.0.0 lint
+> eslint . --max-warnings=0
+

@@ -1,0 +1,163 @@
+[00:24:09] Running local validation...
+[00:24:09]   cargo fmt...
+Diff in /Users/qxlsz/projects/copypaste.fyi/src/server/handlers.rs:28:
+     AnchorRequest, AnchorResponse, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse,
+     AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, PasteViewQuery,
+     PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+[31m-    UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
+(B[m[31m-    WebhookRequest,
+(B[m[32m+    UserPasteCountResponse, UserPasteListItem, UserPasteListResponse, WebhookRequest,
+(B[m };
+ use super::render::{
+     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
+[00:24:10]   FAIL: cargo fmt
+[00:24:10]   cargo clippy...
+    Checking copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+error: field `last_used_at` is never read
+   --> src/server/api_keys.rs:215:13
+    |
+209 |         struct Row {
+    |                --- field in this struct
+...
+215 |             last_used_at: Option<i64>,
+    |             ^^^^^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: this `impl` can be derived
+  --> src/server/api_keys.rs:43:1
+   |
+43 | / impl Default for ApiScope {
+44 | |     fn default() -> Self {
+45 | |         ApiScope::Write
+46 | |     }
+47 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.91.0/index.html#derivable_impls
+   = note: `-D clippy::derivable-impls` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::derivable_impls)]`
+help: replace the manual implementation with a derive attribute and mark the default variant
+   |
+23 + #[derive(Default)]
+24 ~ pub enum ApiScope {
+25 |     Read,
+26 ~     #[default]
+27 ~     Write,
+   |
+
+error: could not compile `copypaste` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `copypaste` (lib test) due to 2 previous errors
+[00:24:23]   FAIL: clippy
+[00:24:23]   cargo nextest...
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+warning: field `last_used_at` is never read
+   --> src/server/api_keys.rs:215:13
+    |
+209 |         struct Row {
+    |                --- field in this struct
+...
+215 |             last_used_at: Option<i64>,
+    |             ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `copypaste` (lib) generated 1 warning
+error[E0063]: missing fields `is_live` and `owner_token_hash` in initializer of `StoredPaste`
+   --> src/main.rs:187:21
+    |
+187 |         let paste = StoredPaste {
+    |                     ^^^^^^^^^^^ missing `is_live` and `owner_token_hash`
+
+error[E0063]: missing fields `is_live` and `owner_token_hash` in initializer of `StoredPaste`
+   --> src/main.rs:238:21
+    |
+238 |         let paste = StoredPaste {
+    |                     ^^^^^^^^^^^ missing `is_live` and `owner_token_hash`
+
+error[E0063]: missing fields `is_live` and `owner_token_hash` in initializer of `StoredPaste`
+   --> src/main.rs:340:21
+    |
+340 |         let paste = StoredPaste {
+    |                     ^^^^^^^^^^^ missing `is_live` and `owner_token_hash`
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `copypaste` (bin "copypaste" test) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+warning: `copypaste` (lib test) generated 1 warning (1 duplicate)
+error: command `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --workspace --all-features` exited with code 101
+[00:24:58]   FAIL: nextest
+[00:24:58]   cargo llvm-cov (75% min)...
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+warning: field `last_used_at` is never read
+   --> src/server/api_keys.rs:215:13
+    |
+209 |         struct Row {
+    |                --- field in this struct
+...
+215 |             last_used_at: Option<i64>,
+    |             ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `copypaste` (lib) generated 1 warning
+error[E0063]: missing fields `is_live` and `owner_token_hash` in initializer of `StoredPaste`
+   --> src/main.rs:187:21
+    |
+187 |         let paste = StoredPaste {
+    |                     ^^^^^^^^^^^ missing `is_live` and `owner_token_hash`
+
+error[E0063]: missing fields `is_live` and `owner_token_hash` in initializer of `StoredPaste`
+   --> src/main.rs:238:21
+    |
+238 |         let paste = StoredPaste {
+    |                     ^^^^^^^^^^^ missing `is_live` and `owner_token_hash`
+
+error[E0063]: missing fields `is_live` and `owner_token_hash` in initializer of `StoredPaste`
+   --> src/main.rs:340:21
+    |
+340 |         let paste = StoredPaste {
+    |                     ^^^^^^^^^^^ missing `is_live` and `owner_token_hash`
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `copypaste` (bin "copypaste" test) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+warning: `copypaste` (lib test) generated 1 warning (1 duplicate)
+error: command `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --workspace --all-features --target-dir /Users/qxlsz/projects/copypaste.fyi/target/llvm-cov-target` exited with code 101
+error: process didn't exit successfully: `/Users/qxlsz/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo nextest run --manifest-path /Users/qxlsz/projects/copypaste.fyi/Cargo.toml --target-dir /Users/qxlsz/projects/copypaste.fyi/target/llvm-cov-target --workspace --all-features` (exit status: 101)
+[00:25:31]   FAIL: coverage
+[00:25:31]   frontend tests...
+
+> frontend@0.0.0 test
+> vitest --run
+
+
+[1m[46m RUN [49m[22m [36mv4.0.6 [39m[90m/Users/qxlsz/projects/copypaste.fyi/frontend[39m
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+(node:92809) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/theme/__tests__/themeStorage.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/stores/__tests__/pasteComposer.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[90mstdout[2m | src/App.test.tsx
+[22m[39m🚀 Frontend API_BASE: /api
+🚀 Development mode: [33mtrue[39m
+🚀 VITE_API_BASE env: [90mundefined[39m
+
+(node:92807) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/App.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 329[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 00:25:33
+[2m   Duration [22m 7.77s[2m (transform 1.02s, setup 0ms, collect 5.40s, tests 346ms, environment 4.62s, prepare 67ms)[22m
+
+[00:25:41]   frontend lint...
+
+> frontend@0.0.0 lint
+> eslint . --max-warnings=0
+

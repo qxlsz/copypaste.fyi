@@ -608,12 +608,7 @@ async fn create_api(
     );
 
     let created = create_paste_internal(store.inner(), body, &onion).await?;
-    let response = CreatePasteResponse {
-        id: created.id,
-        path: created.path.clone(),
-        shareable_url: created.path,
-    };
-    Ok(Json(response))
+    Ok(Json(created))
 }
 
 #[utoipa::path(
@@ -960,6 +955,21 @@ async fn create_paste_internal(
         .retention_minutes
         .map(|minutes| current_timestamp() + (minutes as i64 * 60));
 
+    // Handle live paste ownership token
+    let (is_live, owner_token_hash, plaintext_token) = if body.live {
+        let token: String = rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+        let mut hasher = Sha256::new();
+        hasher.update(token.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        (true, Some(hash), Some(token))
+    } else {
+        (false, None, None)
+    };
+
     // Create the paste
     let paste = StoredPaste {
         content,
@@ -975,6 +985,8 @@ async fn create_paste_internal(
         persistence: metadata.persistence.clone(),
         webhook: metadata.webhook.clone(),
         metadata,
+        is_live,
+        owner_token_hash,
     };
 
     // Store the paste
@@ -985,6 +997,8 @@ async fn create_paste_internal(
         id: id.clone(),
         path: path.clone(),
         shareable_url: path,
+        token: plaintext_token,
+        is_live,
     })
 }
 

@@ -63,6 +63,8 @@ mod tests {
             not_after: None,
             persistence: None,
             webhook: None,
+            is_live: false,
+            owner_token_hash: None,
         }
     }
 
