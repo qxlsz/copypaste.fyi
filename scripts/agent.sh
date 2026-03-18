@@ -422,7 +422,7 @@ All local validation passed. Agent review: approved."
 
       # MERGE
       log "Merging PR #${pr_number}..."
-      if gh pr merge "$pr_number" --repo "$REPO" --squash \
+      if gh pr merge "$pr_number" --repo "$REPO" --merge \
           --subject "${prefix}: resolve #${issue_number} — ${title}" --delete-branch; then
         gh issue close "$issue_number" --repo "$REPO" \
           --comment "Resolved in PR #${pr_number}. Merged to main."
@@ -433,7 +433,7 @@ All local validation passed. Agent review: approved."
         log "Merge failed. Trying rebase..."
         git fetch origin main
         if git rebase origin/main && git push --force origin "$branch"; then
-          if gh pr merge "$pr_number" --repo "$REPO" --squash \
+          if gh pr merge "$pr_number" --repo "$REPO" --merge \
               --subject "${prefix}: resolve #${issue_number} — ${title}" --delete-branch; then
             gh issue close "$issue_number" --repo "$REPO" \
               --comment "Resolved in PR #${pr_number}. Merged to main (rebased)."
