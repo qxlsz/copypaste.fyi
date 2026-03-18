@@ -1,6 +1,7 @@
 pub mod attestation;
 pub mod blockchain;
 pub mod bundles;
+pub mod config;
 pub mod cors;
 pub mod crypto;
 pub mod handlers;

@@ -1,9 +1,83 @@
-use copypaste::server::handlers;
+use clap::{Parser, Subcommand};
+use copypaste::server::{config::Config, handlers};
 
-#[rocket::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Parser)]
+#[command(name = "copypaste", about = "Open-source paste sharing service")]
+struct Cli {
+    /// Path to a TOML config file (overrides auto-discovery)
+    #[arg(long)]
+    config: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Start the HTTP server (default when no subcommand is given)
+    Serve {
+        /// Path to a TOML config file
+        #[arg(long)]
+        config: Option<String>,
+    },
+    /// Config file management
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Print an annotated example config to stdout, or write it to --path
+    Init {
+        /// Write the generated config to this file instead of stdout
+        #[arg(long)]
+        path: Option<String>,
+    },
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    handlers::launch().await
+
+    let cli = Cli::parse();
+
+    // Resolve the config path: `serve --config` > top-level `--config`.
+    let config_path: Option<&str> = match &cli.command {
+        Some(Command::Serve { config }) => config.as_deref().or(cli.config.as_deref()),
+        _ => cli.config.as_deref(),
+    };
+
+    // Handle subcommands that don't need a running server.
+    if let Some(Command::Config { action }) = &cli.command {
+        match action {
+            ConfigAction::Init { path } => {
+                let content = copypaste::server::config::EXAMPLE_CONFIG;
+                match path {
+                    Some(p) => {
+                        std::fs::write(p, content)?;
+                        println!("Config written to {p}");
+                    }
+                    None => print!("{content}"),
+                }
+                return Ok(());
+            }
+        }
+    }
+
+    // Load config synchronously — before the async executor starts.
+    let config = Config::load(config_path).map_err(|e| format!("{e}"))?;
+
+    // Bridge TOML config values to the env vars that existing server code reads.
+    // This must happen before the Tokio executor starts so that set_var is safe:
+    // we are still single-threaded here and there are no concurrent env readers.
+    config.bridge_to_env();
+
+    // Start the multi-threaded Tokio runtime (equivalent to #[rocket::main]).
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(handlers::launch())
 }
 
 #[cfg(test)]

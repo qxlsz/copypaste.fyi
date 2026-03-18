@@ -1,0 +1,12 @@
+[21:52:40] Running independent code review...
+DECISION: REQUEST_CHANGES
+
+SUMMARY: The config loading, TOML parsing, validation, and storage bridging are well-implemented and all tests pass. One blocking security bug remains from the first review: `auth.token` from the config file is still never applied to the runtime. Two additional minor issues.
+
+FEEDBACK:
+
+- **[BLOCKING] `launch_with_config` bridges `storage.backend` but not `auth.token`** (`src/server/handlers.rs:91-149`). The first review explicitly called this out as part of the blocking namespace-mismatch issue and it was only half-fixed. If a self-hoster sets `auth.token = "my-secret"` in their config file (with no env vars), the env var `COPYPASTE_AUTH_TOKEN` is never set and auth is never enforced — a silent security failure. The fix mirrors the storage bridge: add `if std::env::var("COPYPASTE_AUTH_TOKEN").is_err() && !config.auth.token.is_empty() { std::env::set_var("COPYPASTE_AUTH_TOKEN", &config.auth.token); }` before `create_paste_store()`. This is especially important because the EXAMPLE_CONFIG actively documents `auth.token` as working protection.
+
+- **[MINOR] No test for env var override behavior** (`src/server/config.rs` tests section). The acceptance criteria explicitly require "Tests for config loading, env override, defaults, validation." The test suite covers loading, defaults, and validation but has zero tests for `apply_env_overrides`. A minimal test would: write a TOML file with `port = 9000`, set `COPYPASTE_PORT=7777`, call `Config::load(...)`, and assert `config.server.port == 7777`. Without this test, the env override logic (which is the core of the feature) can break silently.
+
+- **[MINOR] `std::env::set_var` called from an async context** (`src/server/handlers.rs:98-107`). `set_var` is not thread-safe and calling it inside an async function that runs on a multi-threaded Tokio runtime is technically UB. Rust 1.80+ also raises a lint warning for this pattern. This is low practical risk here since the calls happen before the server starts handling requests, but it should be noted. The idiomatic fix is to perform all env bridging synchronously in `main()` before `#[rocket::main]` starts the Tokio executor — or accept the minor risk and add a `// SAFETY: called before Rocket spawns worker threads` comment so reviewers know it was considered.

@@ -638,6 +638,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "toml",
  "urlencoding",
  "utoipa",
  "utoipa-scalar",
