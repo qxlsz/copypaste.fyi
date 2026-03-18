@@ -143,7 +143,9 @@ impl AnchorRelayer for NoopAnchorRelayer {
 pub fn default_anchor_relayer() -> SharedAnchorRelayer {
     match env::var("ANCHOR_RELAY_ENDPOINT") {
         Ok(endpoint) if !endpoint.trim().is_empty() => {
-            let api_key = env::var("ANCHOR_RELAY_API_KEY").ok();
+            let api_key = env::var("ANCHOR_RELAY_API_KEY")
+                .ok()
+                .filter(|k| !k.trim().is_empty());
             Arc::new(HttpAnchorRelayer::new(endpoint, api_key))
         }
         _ => Arc::new(NoopAnchorRelayer),

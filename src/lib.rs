@@ -542,23 +542,24 @@ impl PasteStore for MemoryPasteStore {
 pub type SharedPasteStore = Arc<dyn PasteStore>;
 
 pub fn create_paste_store() -> SharedPasteStore {
-    match env::var("COPYPASTE_PERSISTENCE_BACKEND") {
-        Ok(value) if value.eq_ignore_ascii_case("vault") => {
-            if let Ok(adapter) = vault::VaultPersistenceAdapter::from_env() {
-                return Arc::new(MemoryPasteStore::with_persistence(adapter));
+    match env::var("COPYPASTE_PERSISTENCE_BACKEND").map(|v| v.trim().to_lowercase()) {
+        Ok(value) if value == "vault" => {
+            match vault::VaultPersistenceAdapter::from_env() {
+                Ok(adapter) => Arc::new(MemoryPasteStore::with_persistence(adapter)),
+                Err(e) => panic!("COPYPASTE_PERSISTENCE_BACKEND=vault but initialization failed: {}", e),
             }
-            Arc::new(MemoryPasteStore::new())
         }
-        Ok(value) if value.eq_ignore_ascii_case("redis") => {
-            if let Ok(adapter) = RedisPersistenceAdapter::from_env() {
-                return Arc::new(MemoryPasteStore::with_persistence(adapter));
+        Ok(value) if value == "redis" => {
+            match RedisPersistenceAdapter::from_env() {
+                Ok(adapter) => Arc::new(MemoryPasteStore::with_persistence(adapter)),
+                Err(e) => panic!("COPYPASTE_PERSISTENCE_BACKEND=redis but initialization failed: {}", e),
             }
+        }
+        Ok(value) if value == "memory" || value.is_empty() => {
             Arc::new(MemoryPasteStore::new())
         }
-        Ok(value) if value.eq_ignore_ascii_case("memory") || value.trim().is_empty() => {
-            Arc::new(MemoryPasteStore::new())
-        }
-        _ => Arc::new(MemoryPasteStore::new()),
+        Ok(value) => panic!("Unknown COPYPASTE_PERSISTENCE_BACKEND: '{}'. Valid values: memory, redis, vault", value),
+        Err(_) => Arc::new(MemoryPasteStore::new()),
     }
 }
 
@@ -582,11 +583,27 @@ pub mod vault {
     }
 
     impl VaultPersistenceAdapter {
+        const MIN_TOKEN_LENGTH: usize = 20;
+
         pub fn from_env() -> Result<Arc<dyn PersistenceAdapter>, String> {
             let addr = env::var("COPYPASTE_VAULT_ADDR")
                 .map_err(|_| "COPYPASTE_VAULT_ADDR missing".to_string())?;
+            let addr = addr.trim();
+            if !addr.starts_with("http://") && !addr.starts_with("https://") {
+                return Err(format!(
+                    "COPYPASTE_VAULT_ADDR must be a valid URL (http:// or https://), got: {}",
+                    addr
+                ));
+            }
             let token = env::var("COPYPASTE_VAULT_TOKEN")
                 .map_err(|_| "COPYPASTE_VAULT_TOKEN missing".to_string())?;
+            if token.len() < Self::MIN_TOKEN_LENGTH {
+                return Err(format!(
+                    "COPYPASTE_VAULT_TOKEN is too short ({} chars, minimum {} chars)",
+                    token.len(),
+                    Self::MIN_TOKEN_LENGTH
+                ));
+            }
             let mount = env::var("COPYPASTE_VAULT_MOUNT").unwrap_or_else(|_| "secret".to_string());
             let namespace = env::var("COPYPASTE_VAULT_NAMESPACE").ok();
             let key_prefix =

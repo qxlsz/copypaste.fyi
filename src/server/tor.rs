@@ -159,7 +159,19 @@ impl TorConfig {
             .filter(|value| !value.is_empty());
 
         let suppress_logs = env::var("COPYPASTE_TOR_SUPPRESS_LOGS")
-            .map(|value| !matches!(value.trim(), "0" | "false" | "off"))
+            .map(|value| {
+                match value.trim().to_lowercase().as_str() {
+                    "1" | "true" | "yes" | "on" => true,
+                    "0" | "false" | "no" | "off" => false,
+                    other => {
+                        eprintln!(
+                            "Warning: COPYPASTE_TOR_SUPPRESS_LOGS='{}' unrecognized, defaulting to true. Accepted values: 1, true, yes, on, 0, false, no, off",
+                            other
+                        );
+                        true
+                    }
+                }
+            })
             .unwrap_or(true);
 
         Self {

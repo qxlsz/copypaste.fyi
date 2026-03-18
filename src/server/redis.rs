@@ -204,6 +204,13 @@ impl RedisPersistenceAdapter {
     pub fn from_env() -> Result<Arc<dyn PersistenceAdapter>, String> {
         let base_url = env::var("UPSTASH_REDIS_REST_URL")
             .map_err(|_| "UPSTASH_REDIS_REST_URL missing".to_string())?;
+        let base_url = base_url.trim();
+        if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+            return Err(format!(
+                "UPSTASH_REDIS_REST_URL must be a valid URL (http:// or https://), got: {}",
+                base_url
+            ));
+        }
         let token = env::var("UPSTASH_REDIS_REST_TOKEN")
             .map_err(|_| "UPSTASH_REDIS_REST_TOKEN missing".to_string())?;
         let key_prefix =
