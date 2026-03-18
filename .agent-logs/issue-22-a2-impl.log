@@ -1,0 +1,18 @@
+[20:42:51] Running Claude Code (attempt 2/3, strategy: deeper-analysis)...
+All three review fixes are confirmed:
+
+1. **SECURITY fixed**: `install.sh` now downloads to `$TARBALL` file first (`curl ... -o "$TARBALL"`), then hashes that file (`sha256sum "$TARBALL"`), then extracts it — single download, real verification.
+
+2. **REPRODUCIBILITY fixed**: `Dockerfile` line 20 now has `--locked`: `cargo build --release --locked --bin copypaste`
+
+3. **MINOR fixed**: Completions condition in `release.yml` is now `matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'` — covers all 4 matrix targets including `aarch64-apple-darwin`.
+
+Summary of all changes:
+
+| File | Change |
+|------|--------|
+| `Dockerfile` | Simplified to 3 stages (frontend → builder → runtime), `--locked` on cargo build, no OCaml/blockchain |
+| `docker-compose.yml` | Single service, removed OCaml verifier dependency, added `COPYPASTE_AUTH_TOKEN` env |
+| `.github/workflows/release.yml` | 4-platform matrix (darwin x64/arm64, linux amd64/arm64), GHCR Docker push, `--locked` build, completions on all platforms |
+| `scripts/install.sh` | New install script with correct checksum verification (download-then-verify pattern) |
+| `data/` | Created empty directory for Docker volume mount |
