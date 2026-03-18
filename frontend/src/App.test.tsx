@@ -1,40 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 
-import { App } from "./App";
-import { ThemeProvider } from "./theme/ThemeProvider";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: false },
-    mutations: { retry: false },
-  },
-});
-
-const renderApp = () => {
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <ThemeProvider>
-          <App />
-        </ThemeProvider>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-};
+import App from "./App";
 
 describe("App", () => {
   it("renders without crashing", () => {
-    expect(() => renderApp()).not.toThrow();
+    expect(() => render(<App />)).not.toThrow();
   });
 
-  it("renders the basic layout elements", () => {
-    renderApp();
-
-    // Check that the header with branding is present
-    expect(screen.getByText("copypaste.fyi")).toBeInTheDocument();
+  it("renders the header branding", () => {
+    render(<App />);
+    expect(screen.getByText("copypaste")).toBeInTheDocument();
   });
 });
