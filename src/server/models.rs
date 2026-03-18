@@ -3,35 +3,9 @@ use crate::{
     BundleMetadata, DailyCount, EncryptionAlgorithm, EncryptionUsage, FormatUsage, PasteFormat,
     StoreStats, WebhookProvider,
 };
-use rocket::form::{FromForm, ValidationResult};
+use rocket::form::FromForm;
 use rocket::serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-const MAX_WORKSPACE_LENGTH: usize = 128;
-
-impl FromForm<'_> for CreatePasteRequest {
-    fn validate(&self) -> ValidationResult<'_> {
-        if let Some(ref workspace) = self.workspace {
-            if workspace.len() > MAX_WORKSPACE_LENGTH {
-                return Err(rocket::form::Error::validation(format!(
-                    "workspace exceeds maximum length of {}",
-                    MAX_WORKSPACE_LENGTH
-                ))
-                .into());
-            }
-            if !workspace
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-            {
-                return Err(rocket::form::Error::validation(
-                    "workspace must contain only alphanumeric characters, hyphens, and underscores",
-                )
-                .into());
-            }
-        }
-        Ok(())
-    }
-}
 
 use crate::server::attestation::AttestationRequest;
 use crate::server::blockchain::{AnchorManifest, AnchorReceipt};

@@ -41,6 +41,26 @@ use super::webhook::{trigger_webhook, WebhookEvent};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+const MAX_WORKSPACE_LENGTH: usize = 128;
+
+fn validate_workspace(workspace: &Option<String>) -> Result<(), String> {
+    if let Some(ref ws) = workspace {
+        if ws.len() > MAX_WORKSPACE_LENGTH {
+            return Err(format!(
+                "workspace exceeds maximum length of {}",
+                MAX_WORKSPACE_LENGTH
+            ));
+        }
+        if !ws.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            return Err(
+                "workspace must contain only alphanumeric characters, hyphens, and underscores"
+                    .to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     let tor_config = TorConfig::from_env();
 
@@ -883,6 +903,11 @@ async fn create_paste_internal(
     // Validate content
     if body.content.trim().is_empty() {
         return Err((Status::BadRequest, "Content cannot be empty".into()));
+    }
+
+    // Validate workspace
+    if let Err(e) = validate_workspace(&body.workspace) {
+        return Err((Status::BadRequest, e));
     }
 
     // Resolve content (handle encryption)
