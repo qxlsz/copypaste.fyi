@@ -1,0 +1,19 @@
+name: Auto Research
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday 9am UTC
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  issues: write
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run competitive research
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/auto-research.sh
