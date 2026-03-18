@@ -217,6 +217,8 @@ mod tests {
             persistence: metadata.persistence.clone(),
             webhook: metadata.webhook.clone(),
             metadata,
+            is_live: false,
+            owner_token_hash: None,
         };
         let manifest = AnchorManifest::from_paste("abc123", &paste);
         let hash = manifest_hash(&manifest).expect("hash");

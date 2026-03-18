@@ -1,0 +1,9 @@
+[00:33:24] Running Claude Code (attempt 1/3, strategy: straightforward)...
+Done. The CI workflow has been replaced with 4 parallel jobs:
+
+- **`fmt`** — Rust formatting check only
+- **`rust`** — clippy + nextest (one compilation, `Swatinem/rust-cache@v2`)
+- **`coverage`** — llvm-cov nextest with 75% threshold (separate compilation for instrumentation)
+- **`frontend`** — npm lint + test (runs in parallel with all Rust jobs)
+
+Also added: `cancel-in-progress` concurrency control and `paths-ignore` for docs/markdown files. The redundant `cargo build --release` is gone.

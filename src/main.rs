@@ -198,6 +198,8 @@ mod tests {
             persistence: metadata.persistence.clone(),
             webhook: metadata.webhook.clone(),
             metadata,
+            is_live: false,
+            owner_token_hash: None,
         };
 
         let id = store.create_paste(paste).await;
@@ -251,6 +253,8 @@ mod tests {
             persistence: metadata.persistence.clone(),
             webhook: metadata.webhook.clone(),
             metadata,
+            is_live: false,
+            owner_token_hash: None,
         };
 
         let id = store.create_paste(paste).await;
@@ -353,6 +357,8 @@ mod tests {
             persistence: metadata.persistence.clone(),
             webhook: metadata.webhook.clone(),
             metadata,
+            is_live: false,
+            owner_token_hash: None,
         };
 
         let id = store.create_paste(paste).await;

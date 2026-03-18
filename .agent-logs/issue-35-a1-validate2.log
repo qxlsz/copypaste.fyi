@@ -1,0 +1,287 @@
+[00:36:03] Running local validation...
+[00:36:03]   cargo fmt...
+[00:36:03]   cargo clippy...
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.64s
+[00:36:04]   cargo nextest...
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.50s
+────────────
+ Nextest run ID 834875e3-9f08-4781-83ae-9d64ad327248 with nextest profile: default
+    Starting 105 tests across 5 binaries
+        PASS [   0.061s] (  1/105) copypaste server::api_keys::tests::scope_hierarchy
+        PASS [   0.067s] (  2/105) copypaste server::attestation::tests::requirement_from_request_rejects_invalid_digits
+        PASS [   0.068s] (  3/105) copypaste server::api_keys::tests::revoke_nonexistent_key_returns_false
+        PASS [   0.088s] (  4/105) copypaste server::api_keys::tests::scope_display_and_parse_roundtrip
+        PASS [   0.060s] (  5/105) copypaste server::attestation::tests::shared_secret_hashes_to_base64
+        PASS [   0.064s] (  6/105) copypaste server::attestation::tests::totp_verification_accepts_valid_code
+        PASS [   0.136s] (  7/105) copypaste server::api_keys::tests::expired_key_cannot_be_verified
+        PASS [   0.054s] (  8/105) copypaste server::attestation::tests::totp_verification_rejects_invalid_code
+        PASS [   0.083s] (  9/105) copypaste server::attestation::tests::requirement_from_request_validates_parameters
+        PASS [   0.037s] ( 10/105) copypaste server::blockchain::tests::manifest_hash_is_stable
+        PASS [   0.035s] ( 11/105) copypaste server::config::tests::defaults_are_sensible
+        PASS [   0.039s] ( 12/105) copypaste server::config::tests::env_var_overrides_toml_value
+        PASS [   0.038s] ( 13/105) copypaste server::config::tests::load_from_toml_file
+        PASS [   0.036s] ( 14/105) copypaste server::config::tests::load_returns_defaults_when_no_file_and_no_env
+        PASS [   0.035s] ( 15/105) copypaste server::config::tests::load_with_no_path_succeeds_with_defaults
+        PASS [   0.037s] ( 16/105) copypaste server::config::tests::validation_rejects_invalid_log_format
+        PASS [   0.052s] ( 17/105) copypaste server::config::tests::validation_rejects_zero_port
+        PASS [   0.049s] ( 18/105) copypaste server::handlers::tests::apply_time_lock_rejects_inverted_window
+        PASS [   0.049s] ( 19/105) copypaste server::handlers::tests::apply_time_lock_validates_order
+        PASS [   0.230s] ( 20/105) copypaste server::api_keys::tests::revoke_key_prevents_verification
+        PASS [   0.232s] ( 21/105) copypaste server::api_keys::tests::list_keys_shows_all_created
+        PASS [   0.232s] ( 22/105) copypaste server::api_keys::tests::create_and_verify_key
+        PASS [   0.233s] ( 23/105) copypaste server::api_keys::tests::verify_updates_last_used_at
+        PASS [   0.279s] ( 24/105) copypaste server::api_keys::tests::verify_invalid_key_returns_none
+        PASS [   0.068s] ( 25/105) copypaste server::handlers::tests::persistence_locator_validates_inputs
+        PASS [   0.073s] ( 26/105) copypaste server::handlers::tests::webhook_config_requires_url
+        PASS [   0.077s] ( 27/105) copypaste server::handlers::tests::health_endpoint_returns_ok_status
+        PASS [   0.107s] ( 28/105) copypaste server::handlers::tests::create_api_returns_json_and_persists_paste
+        PASS [   0.049s] ( 29/105) copypaste server::render::tests::render_expired_contains_message
+        PASS [   0.053s] ( 30/105) copypaste server::render::tests::render_attestation_prompt_totp_and_secret
+        PASS [   0.061s] ( 31/105) copypaste server::render::tests::format_helpers_escape_and_render
+        PASS [   0.056s] ( 32/105) copypaste server::render::tests::layout_wraps_title_and_body
+        PASS [   0.054s] ( 33/105) copypaste server::render::tests::render_key_and_error_prompts
+        PASS [   0.051s] ( 34/105) copypaste server::render::tests::render_time_locked_variants
+        PASS [   0.051s] ( 35/105) copypaste server::stego::tests::embed_message_writes_bits_until_payload_complete
+        PASS [   0.054s] ( 36/105) copypaste server::render::tests::render_paste_view_formats_metadata
+        PASS [   0.046s] ( 37/105) copypaste server::stego::tests::parse_data_uri_rejects_invalid_inputs
+        PASS [   0.047s] ( 38/105) copypaste server::stego::tests::parse_data_uri_decodes_payload
+        PASS [   0.049s] ( 39/105) copypaste server::stego::tests::embed_payload_rejects_large_payload_for_small_carrier
+        PASS [   0.044s] ( 40/105) copypaste server::time::tests::evaluate_time_lock_detects_too_late
+        PASS [   0.048s] ( 41/105) copypaste server::time::tests::evaluate_time_lock_detects_too_early
+        PASS [   0.048s] ( 42/105) copypaste server::time::tests::evaluate_time_lock_allows_within_window
+        PASS [   0.048s] ( 43/105) copypaste server::time::tests::format_timestamp_falls_back_for_invalid_input
+        PASS [   0.046s] ( 44/105) copypaste server::time::tests::format_timestamp_renders_utc_string
+        PASS [   0.049s] ( 45/105) copypaste server::time::tests::parse_timestamp_accepts_rfc3339
+        PASS [   0.051s] ( 46/105) copypaste server::time::tests::parse_timestamp_rejects_invalid_input
+        PASS [   0.052s] ( 47/105) copypaste server::time::tests::parse_timestamp_accepts_unix_seconds
+        PASS [   0.048s] ( 48/105) copypaste server::tor::tests::is_onion_host_handles_configured_and_suffix_cases
+        PASS [   0.056s] ( 49/105) copypaste server::tor::tests::onion_requests_set_flags_and_log_suppression
+        PASS [   0.056s] ( 50/105) copypaste server::tor::tests::plain_requests_leave_flags_unset
+        PASS [   0.059s] ( 51/105) copypaste server::tor::tests::suppress_logs_respected_when_disabled
+        PASS [   0.052s] ( 52/105) copypaste server::tor::tests::tor_config_respects_env_vars
+        PASS [   0.053s] ( 53/105) copypaste server::tor::tests::tor_config_defaults_when_env_missing
+        PASS [   0.051s] ( 54/105) copypaste server::webhook::tests::apply_template_handles_missing_label
+        PASS [   0.046s] ( 55/105) copypaste server::webhook::tests::template_is_applied_with_placeholders
+        PASS [   0.052s] ( 56/105) copypaste server::webhook::tests::default_consumed_message_with_label
+        PASS [   0.052s] ( 57/105) copypaste server::webhook::tests::default_view_message_without_label
+        PASS [   0.054s] ( 58/105) copypaste tests::creates_and_reads_plain_paste
+        PASS [   0.050s] ( 59/105) copypaste tests::delete_paste_invokes_persistence_adapter
+        PASS [   0.051s] ( 60/105) copypaste tests::expired_paste_is_removed
+        PASS [   0.051s] ( 61/105) copypaste tests::finalize_paste_clears_is_live
+        PASS [   0.051s] ( 62/105) copypaste tests::finalize_paste_not_found_returns_error
+        PASS [   0.050s] ( 63/105) copypaste tests::get_paste_reports_expired_from_persistence
+        PASS [   0.049s] ( 64/105) copypaste tests::get_paste_returns_not_found_on_adapter_error
+        PASS [   0.049s] ( 65/105) copypaste tests::get_paste_uses_persistence_fallback
+        PASS [   0.049s] ( 66/105) copypaste tests::stats_reports_counts_and_breakdowns
+        PASS [   0.051s] ( 67/105) copypaste tests::stores_encrypted_content
+        PASS [   0.051s] ( 68/105) copypaste tests::update_paste_not_found_returns_error
+        PASS [   0.051s] ( 69/105) copypaste tests::update_paste_replaces_content
+        PASS [   0.051s] ( 70/105) copypaste::crypto_tests decrypt_plain_content
+        PASS [   0.055s] ( 71/105) copypaste::crypto_tests decrypt_encrypted_missing_key
+        PASS [   0.049s] ( 72/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_kyber_hybrid
+        PASS [   0.910s] ( 73/105) copypaste server::stego::tests::embed_payload_builtin_carrier_produces_png
+        PASS [   0.063s] ( 74/105) copypaste::lib_tests store_expired_returns_error
+        PASS [   0.051s] ( 75/105) copypaste::lib_tests store_handles_chacha_variant
+        PASS [   0.047s] ( 76/105) copypaste::lib_tests store_handles_encrypted_variant
+        PASS [   0.052s] ( 77/105) copypaste::lib_tests store_round_trip_plain
+        PASS [   1.876s] ( 78/105) copypaste server::redis::tests::post_command_sends_authorized_request
+        PASS [   1.901s] ( 79/105) copypaste server::handlers::tests::stats_summary_endpoint_returns_counts
+        PASS [   1.949s] ( 80/105) copypaste server::handlers::tests::detailed_health_endpoint_checks_services
+        PASS [   1.933s] ( 81/105) copypaste server::redis::tests::get_value_handles_found_and_not_found
+        PASS [   0.073s] ( 82/105) copypaste::bin/copypaste tests::bundle_creation_requires_encryption
+        PASS [   1.959s] ( 83/105) copypaste server::handlers::tests::show_route_triggers_burn_after_reading_flow
+        PASS [   0.048s] ( 84/105) copypaste::bin/copypaste tests::format_json_pretty_prints
+        PASS [   1.962s] ( 85/105) copypaste server::redis::tests::save_and_load_flow_roundtrips_payload
+        PASS [   0.068s] ( 86/105) copypaste::bin/copypaste tests::health_endpoint_responds_quickly
+        PASS [   0.069s] ( 87/105) copypaste::bin/copypaste tests::post_plain_text_returns_id
+        PASS [   2.082s] ( 88/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_aes_gcm
+        PASS [   2.031s] ( 89/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_chacha20
+        PASS [   0.063s] ( 90/105) copypaste::bin/copypaste tests::time_locked_paste_is_protected
+        PASS [   0.066s] ( 91/105) copypaste::bin/copypaste tests::shared_secret_attestation_enforced
+        PASS [   2.052s] ( 92/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_xchacha20
+        PASS [   0.054s] ( 93/105) copypaste::bin/cpaste tests::execute_rejects_empty_input
+        PASS [   2.094s] ( 94/105) copypaste::bin/copypaste tests::bundle_creation_renders_children
+        PASS [   0.058s] ( 95/105) copypaste::bin/cpaste tests::execute_requires_key_for_encryption
+        PASS [   1.946s] ( 96/105) copypaste::bin/copypaste tests::chacha_roundtrip
+        PASS [   1.927s] ( 97/105) copypaste::bin/copypaste tests::detailed_health_includes_service_status
+        PASS [   1.952s] ( 98/105) copypaste::bin/copypaste tests::decrypt_requires_key_for_encrypted_content
+        PASS [   1.939s] ( 99/105) copypaste::bin/copypaste tests::encrypt_then_decrypt_roundtrip
+        PASS [   1.927s] (100/105) copypaste::bin/copypaste tests::post_encrypted_requires_key
+        PASS [   1.874s] (101/105) copypaste::bin/copypaste tests::raw_endpoint_requires_key_for_encrypted_content
+        PASS [   1.507s] (102/105) copypaste::bin/copypaste tests::xchacha_roundtrip
+        PASS [   1.509s] (103/105) copypaste::bin/cpaste tests::execute_appends_encryption_key
+        PASS [   1.467s] (104/105) copypaste::bin/cpaste tests::execute_reports_http_error
+        PASS [   1.044s] (105/105) copypaste::bin/cpaste tests::execute_submits_plain_text_and_returns_url
+────────────
+     Summary [   4.739s] 105 tests run: 105 passed, 0 skipped
+[00:36:43]   cargo llvm-cov (75% min)...
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling copypaste v0.1.0 (/Users/qxlsz/projects/copypaste.fyi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.38s
+────────────
+ Nextest run ID 03a5bf1c-4d1c-4880-9994-517cb7827d9a with nextest profile: default
+    Starting 105 tests across 5 binaries
+        PASS [   0.070s] (  1/105) copypaste server::api_keys::tests::scope_display_and_parse_roundtrip
+        PASS [   0.073s] (  2/105) copypaste server::api_keys::tests::scope_hierarchy
+        PASS [   0.099s] (  3/105) copypaste server::attestation::tests::requirement_from_request_rejects_invalid_digits
+        PASS [   0.129s] (  4/105) copypaste server::api_keys::tests::revoke_nonexistent_key_returns_false
+        PASS [   0.067s] (  5/105) copypaste server::attestation::tests::shared_secret_hashes_to_base64
+        PASS [   0.075s] (  6/105) copypaste server::attestation::tests::requirement_from_request_validates_parameters
+        PASS [   0.047s] (  7/105) copypaste server::attestation::tests::totp_verification_accepts_valid_code
+        PASS [   0.046s] (  8/105) copypaste server::attestation::tests::totp_verification_rejects_invalid_code
+        PASS [   0.182s] (  9/105) copypaste server::api_keys::tests::expired_key_cannot_be_verified
+        PASS [   0.052s] ( 10/105) copypaste server::config::tests::defaults_are_sensible
+        PASS [   0.052s] ( 11/105) copypaste server::config::tests::env_var_overrides_toml_value
+        PASS [   0.063s] ( 12/105) copypaste server::blockchain::tests::manifest_hash_is_stable
+        PASS [   0.048s] ( 13/105) copypaste server::config::tests::load_from_toml_file
+        PASS [   0.049s] ( 14/105) copypaste server::config::tests::validation_rejects_invalid_log_format
+        PASS [   0.048s] ( 15/105) copypaste server::config::tests::validation_rejects_zero_port
+        PASS [   0.077s] ( 16/105) copypaste server::config::tests::load_returns_defaults_when_no_file_and_no_env
+        PASS [   0.061s] ( 17/105) copypaste server::config::tests::load_with_no_path_succeeds_with_defaults
+        PASS [   0.046s] ( 18/105) copypaste server::handlers::tests::apply_time_lock_rejects_inverted_window
+        PASS [   0.048s] ( 19/105) copypaste server::handlers::tests::apply_time_lock_validates_order
+        PASS [   0.053s] ( 20/105) copypaste server::handlers::tests::persistence_locator_validates_inputs
+        PASS [   0.063s] ( 21/105) copypaste server::handlers::tests::health_endpoint_returns_ok_status
+        PASS [   0.078s] ( 22/105) copypaste server::handlers::tests::create_api_returns_json_and_persists_paste
+        PASS [   0.049s] ( 23/105) copypaste server::handlers::tests::webhook_config_requires_url
+        PASS [   0.383s] ( 24/105) copypaste server::api_keys::tests::verify_updates_last_used_at
+        PASS [   0.096s] ( 25/105) copypaste server::handlers::tests::show_route_triggers_burn_after_reading_flow
+        PASS [   0.146s] ( 26/105) copypaste server::handlers::tests::detailed_health_endpoint_checks_services
+        PASS [   0.433s] ( 27/105) copypaste server::api_keys::tests::list_keys_shows_all_created
+        PASS [   0.048s] ( 28/105) copypaste server::render::tests::format_helpers_escape_and_render
+        PASS [   0.110s] ( 29/105) copypaste server::redis::tests::get_value_handles_found_and_not_found
+        PASS [   0.048s] ( 30/105) copypaste server::render::tests::layout_wraps_title_and_body
+        PASS [   0.049s] ( 31/105) copypaste server::render::tests::render_attestation_prompt_totp_and_secret
+        PASS [   0.047s] ( 32/105) copypaste server::render::tests::render_expired_contains_message
+        PASS [   0.047s] ( 33/105) copypaste server::render::tests::render_key_and_error_prompts
+        PASS [   0.115s] ( 34/105) copypaste server::redis::tests::post_command_sends_authorized_request
+        PASS [   0.120s] ( 35/105) copypaste server::redis::tests::save_and_load_flow_roundtrips_payload
+        PASS [   0.051s] ( 36/105) copypaste server::render::tests::render_paste_view_formats_metadata
+        PASS [   0.051s] ( 37/105) copypaste server::render::tests::render_time_locked_variants
+        PASS [   0.046s] ( 38/105) copypaste server::stego::tests::embed_message_writes_bits_until_payload_complete
+        PASS [   0.049s] ( 39/105) copypaste server::stego::tests::embed_payload_rejects_large_payload_for_small_carrier
+        PASS [   0.047s] ( 40/105) copypaste server::stego::tests::parse_data_uri_decodes_payload
+        PASS [   0.047s] ( 41/105) copypaste server::stego::tests::parse_data_uri_rejects_invalid_inputs
+        PASS [   0.558s] ( 42/105) copypaste server::api_keys::tests::revoke_key_prevents_verification
+        PASS [   0.558s] ( 43/105) copypaste server::api_keys::tests::create_and_verify_key
+        PASS [   0.266s] ( 44/105) copypaste server::handlers::tests::stats_summary_endpoint_returns_counts
+        PASS [   0.059s] ( 45/105) copypaste server::time::tests::evaluate_time_lock_allows_within_window
+        PASS [   0.058s] ( 46/105) copypaste server::time::tests::evaluate_time_lock_detects_too_late
+        PASS [   0.052s] ( 47/105) copypaste server::time::tests::parse_timestamp_accepts_unix_seconds
+        PASS [   0.068s] ( 48/105) copypaste server::time::tests::format_timestamp_renders_utc_string
+        PASS [   0.068s] ( 49/105) copypaste server::time::tests::format_timestamp_falls_back_for_invalid_input
+        PASS [   0.051s] ( 50/105) copypaste server::time::tests::parse_timestamp_rejects_invalid_input
+        PASS [   0.094s] ( 51/105) copypaste server::time::tests::parse_timestamp_accepts_rfc3339
+        PASS [   0.129s] ( 52/105) copypaste server::time::tests::evaluate_time_lock_detects_too_early
+        PASS [   0.059s] ( 53/105) copypaste server::tor::tests::plain_requests_leave_flags_unset
+        PASS [   0.084s] ( 54/105) copypaste server::tor::tests::is_onion_host_handles_configured_and_suffix_cases
+        PASS [   0.083s] ( 55/105) copypaste server::tor::tests::onion_requests_set_flags_and_log_suppression
+        PASS [   0.061s] ( 56/105) copypaste server::tor::tests::suppress_logs_respected_when_disabled
+        PASS [   0.059s] ( 57/105) copypaste server::tor::tests::tor_config_defaults_when_env_missing
+        PASS [   0.063s] ( 58/105) copypaste server::webhook::tests::apply_template_handles_missing_label
+        PASS [   0.075s] ( 59/105) copypaste server::tor::tests::tor_config_respects_env_vars
+        PASS [   0.049s] ( 60/105) copypaste tests::expired_paste_is_removed
+        PASS [   0.076s] ( 61/105) copypaste server::webhook::tests::default_consumed_message_with_label
+        PASS [   0.076s] ( 62/105) copypaste server::webhook::tests::default_view_message_without_label
+        PASS [   0.072s] ( 63/105) copypaste server::webhook::tests::template_is_applied_with_placeholders
+        PASS [   0.055s] ( 64/105) copypaste tests::finalize_paste_clears_is_live
+        PASS [   0.059s] ( 65/105) copypaste tests::finalize_paste_not_found_returns_error
+        PASS [   0.106s] ( 66/105) copypaste tests::creates_and_reads_plain_paste
+        PASS [   0.108s] ( 67/105) copypaste tests::delete_paste_invokes_persistence_adapter
+        PASS [   0.050s] ( 68/105) copypaste tests::get_paste_uses_persistence_fallback
+        PASS [   0.049s] ( 69/105) copypaste tests::stats_reports_counts_and_breakdowns
+        PASS [   0.074s] ( 70/105) copypaste tests::get_paste_reports_expired_from_persistence
+        PASS [   0.065s] ( 71/105) copypaste tests::get_paste_returns_not_found_on_adapter_error
+        PASS [   0.047s] ( 72/105) copypaste tests::update_paste_not_found_returns_error
+        PASS [   0.041s] ( 73/105) copypaste::crypto_tests decrypt_encrypted_missing_key
+        PASS [   0.045s] ( 74/105) copypaste::crypto_tests decrypt_plain_content
+        PASS [   0.057s] ( 75/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_kyber_hybrid
+        PASS [   0.045s] ( 76/105) copypaste::lib_tests store_expired_returns_error
+        PASS [   0.044s] ( 77/105) copypaste::lib_tests store_handles_chacha_variant
+        PASS [   0.131s] ( 78/105) copypaste tests::stores_encrypted_content
+        PASS [   0.117s] ( 79/105) copypaste tests::update_paste_replaces_content
+        PASS [   0.047s] ( 80/105) copypaste::lib_tests store_handles_encrypted_variant
+        PASS [   0.050s] ( 81/105) copypaste::lib_tests store_round_trip_plain
+        PASS [   0.941s] ( 82/105) copypaste server::api_keys::tests::verify_invalid_key_returns_none
+        PASS [   0.161s] ( 83/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_xchacha20
+        PASS [   0.184s] ( 84/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_aes_gcm
+        PASS [   0.197s] ( 85/105) copypaste::crypto_tests encrypt_decrypt_roundtrip_chacha20
+        PASS [   0.101s] ( 86/105) copypaste::bin/copypaste tests::bundle_creation_requires_encryption
+        PASS [   0.062s] ( 87/105) copypaste::bin/copypaste tests::format_json_pretty_prints
+        PASS [   0.067s] ( 88/105) copypaste::bin/copypaste tests::health_endpoint_responds_quickly
+        PASS [   0.058s] ( 89/105) copypaste::bin/copypaste tests::post_plain_text_returns_id
+        PASS [   0.170s] ( 90/105) copypaste::bin/copypaste tests::chacha_roundtrip
+        PASS [   0.146s] ( 91/105) copypaste::bin/copypaste tests::encrypt_then_decrypt_roundtrip
+        PASS [   0.203s] ( 92/105) copypaste::bin/copypaste tests::bundle_creation_renders_children
+        PASS [   0.180s] ( 93/105) copypaste::bin/copypaste tests::decrypt_requires_key_for_encrypted_content
+        PASS [   0.162s] ( 94/105) copypaste::bin/copypaste tests::detailed_health_includes_service_status
+        PASS [   0.087s] ( 95/105) copypaste::bin/copypaste tests::shared_secret_attestation_enforced
+        PASS [   0.082s] ( 96/105) copypaste::bin/copypaste tests::time_locked_paste_is_protected
+        PASS [   0.063s] ( 97/105) copypaste::bin/cpaste tests::execute_requires_key_for_encryption
+        PASS [   0.069s] ( 98/105) copypaste::bin/cpaste tests::execute_rejects_empty_input
+        PASS [   0.156s] ( 99/105) copypaste::bin/copypaste tests::post_encrypted_requires_key
+        PASS [   0.119s] (100/105) copypaste::bin/copypaste tests::raw_endpoint_requires_key_for_encrypted_content
+        PASS [   0.142s] (101/105) copypaste::bin/copypaste tests::xchacha_roundtrip
+        PASS [   0.140s] (102/105) copypaste::bin/cpaste tests::execute_reports_http_error
+        PASS [   0.141s] (103/105) copypaste::bin/cpaste tests::execute_appends_encryption_key
+        PASS [   0.098s] (104/105) copypaste::bin/cpaste tests::execute_submits_plain_text_and_returns_url
+        PASS [   1.308s] (105/105) copypaste server::stego::tests::embed_payload_builtin_carrier_produces_png
+────────────
+     Summary [   1.798s] 105 tests run: 105 passed, 0 skipped
+warning: 10 functions have mismatched data
+Filename                      Regions    Missed Regions     Cover   Functions  Missed Functions  Executed       Lines      Missed Lines     Cover    Branches   Missed Branches     Cover
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+bin/cpaste.rs                     297                49    83.50%          14                 3    78.57%         170                35    79.41%           0                 0         -
+lib.rs                            766               192    74.93%          77                25    67.53%         505               116    77.03%           0                 0         -
+main.rs                           608                51    91.61%          33                 2    93.94%         344                26    92.44%           0                 0         -
+server/api_keys.rs                510                63    87.65%          47                12    74.47%         291                23    92.10%           0                 0         -
+server/attestation.rs             292                38    86.99%          12                 0   100.00%         181                21    88.40%           0                 0         -
+server/blockchain.rs              127                64    49.61%          14                10    28.57%         102                54    47.06%           0                 0         -
+server/bundles.rs                  57                 8    85.96%           3                 0   100.00%          51                 5    90.20%           0                 0         -
+server/config.rs                  310                83    73.23%          22                 2    90.91%         227                58    74.45%           0                 0         -
+server/cors.rs                      8                 3    62.50%           3                 1    66.67%          11                 3    72.73%           0                 0         -
+server/crypto.rs                  738               199    73.04%          37                23    37.84%         410               112    72.68%           0                 0         -
+server/handlers.rs               1171               484    58.67%          81                46    43.21%         813               338    58.43%           0                 0         -
+server/models.rs                   34                 6    82.35%          10                 6    40.00%          33                 6    81.82%           0                 0         -
+server/redis.rs                   446                70    84.30%          37                11    70.27%         267                43    83.90%           0                 0         -
+server/render.rs                  462                43    90.69%          31                 3    90.32%         411                17    95.86%           0                 0         -
+server/stego.rs                   419               189    54.89%          21                 8    61.90%         242               102    57.85%           0                 0         -
+server/time.rs                    100                 2    98.00%          17                 0   100.00%          77                 0   100.00%           0                 0         -
+server/tor.rs                     212                 1    99.53%          27                 0   100.00%         145                 0   100.00%           0                 0         -
+server/webhook.rs                 142                 8    94.37%          11                 0   100.00%          98                 4    95.92%           0                 0         -
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                            6699              1553    76.82%         497               152    69.42%        4378               963    78.00%           0                 0         -
+[00:38:02]   frontend tests...
+
+> frontend@0.0.0 test
+> vitest --run
+
+
+[1m[46m RUN [49m[22m [36mv4.0.6 [39m[90m/Users/qxlsz/projects/copypaste.fyi/frontend[39m
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+(node:99711) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/theme/__tests__/themeStorage.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/stores/__tests__/pasteComposer.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[90mstdout[2m | src/App.test.tsx
+[22m[39m🚀 Frontend API_BASE: /api
+🚀 Development mode: [33mtrue[39m
+🚀 VITE_API_BASE env: [90mundefined[39m
+
+(node:99710) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m src/App.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 282[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 00:38:04
+[2m   Duration [22m 9.22s[2m (transform 1.12s, setup 0ms, collect 6.19s, tests 299ms, environment 5.36s, prepare 104ms)[22m
+
+[00:38:14]   frontend lint...
+
+> frontend@0.0.0 lint
+> eslint . --max-warnings=0
+
+[00:38:23] All validation passed.

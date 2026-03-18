@@ -22,6 +22,8 @@ async fn store_round_trip_plain() {
         persistence: metadata.persistence.clone(),
         webhook: metadata.webhook.clone(),
         metadata,
+        is_live: false,
+        owner_token_hash: None,
     };
 
     let id = store.create_paste(paste.clone()).await;
@@ -50,6 +52,8 @@ async fn store_expired_returns_error() {
         persistence: metadata.persistence.clone(),
         webhook: metadata.webhook.clone(),
         metadata,
+        is_live: false,
+        owner_token_hash: None,
     };
 
     let id = store.create_paste(paste).await;
@@ -79,6 +83,8 @@ async fn store_handles_encrypted_variant() {
         persistence: metadata.persistence.clone(),
         webhook: metadata.webhook.clone(),
         metadata,
+        is_live: false,
+        owner_token_hash: None,
     };
 
     let id = store.create_paste(paste).await;
@@ -112,6 +118,8 @@ async fn store_handles_chacha_variant() {
         persistence: metadata.persistence.clone(),
         webhook: metadata.webhook.clone(),
         metadata,
+        is_live: false,
+        owner_token_hash: None,
     };
 
     let id = store.create_paste(paste).await;

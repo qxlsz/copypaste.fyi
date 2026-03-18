@@ -137,6 +137,12 @@ pub struct StoredPaste {
     pub not_after: Option<i64>,
     pub persistence: Option<PersistenceLocator>,
     pub webhook: Option<WebhookConfig>,
+    /// Whether this paste is still being updated (live log sharing).
+    #[serde(default)]
+    pub is_live: bool,
+    /// SHA-256 hash of the ownership token (only set when is_live was true at creation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_token_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
@@ -188,6 +194,8 @@ pub struct PasteMetadata {
     pub tor_access_only: bool,
     pub owner_pubkey_hash: Option<String>,
     pub access_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
@@ -269,6 +277,10 @@ pub trait PasteStore: Send + Sync + 'static {
     async fn delete_paste(&self, id: &str) -> bool;
     async fn get_all_paste_ids(&self) -> Vec<String>;
     async fn stats(&self) -> StoreStats;
+    /// Replace the content of a live paste (requires ownership token verification at handler level).
+    async fn update_paste(&self, id: &str, content: StoredContent) -> Result<(), PasteError>;
+    /// Mark a live paste as finalized (no longer live).
+    async fn finalize_paste(&self, id: &str) -> Result<(), PasteError>;
 }
 
 #[derive(Error, Debug)]
@@ -494,6 +506,36 @@ impl PasteStore for MemoryPasteStore {
     async fn get_all_paste_ids(&self) -> Vec<String> {
         let map = self.entries.read().await;
         map.keys().cloned().collect()
+    }
+
+    async fn update_paste(&self, id: &str, content: StoredContent) -> Result<(), PasteError> {
+        let mut map = self.entries.write().await;
+        match map.get_mut(id) {
+            Some(paste) if !is_expired(paste) => {
+                paste.content = content;
+                Ok(())
+            }
+            Some(_) => {
+                map.remove(id);
+                Err(PasteError::Expired(id.to_string()))
+            }
+            None => Err(PasteError::NotFound(id.to_string())),
+        }
+    }
+
+    async fn finalize_paste(&self, id: &str) -> Result<(), PasteError> {
+        let mut map = self.entries.write().await;
+        match map.get_mut(id) {
+            Some(paste) if !is_expired(paste) => {
+                paste.is_live = false;
+                Ok(())
+            }
+            Some(_) => {
+                map.remove(id);
+                Err(PasteError::Expired(id.to_string()))
+            }
+            None => Err(PasteError::NotFound(id.to_string())),
+        }
     }
 }
 
@@ -766,6 +808,8 @@ mod tests {
             persistence: None,
             webhook: None,
             metadata: PasteMetadata::default(),
+            is_live: false,
+            owner_token_hash: None,
         }
     }
 
@@ -789,6 +833,8 @@ mod tests {
             persistence: metadata.persistence.clone(),
             webhook: metadata.webhook.clone(),
             metadata,
+            is_live: false,
+            owner_token_hash: None,
         };
 
         let id = store.create_paste(paste).await;
@@ -820,6 +866,8 @@ mod tests {
             persistence: metadata.persistence.clone(),
             webhook: metadata.webhook.clone(),
             metadata,
+            is_live: false,
+            owner_token_hash: None,
         };
 
         let id = store.create_paste(paste).await;
@@ -855,6 +903,8 @@ mod tests {
             persistence: metadata.persistence.clone(),
             webhook: metadata.webhook.clone(),
             metadata,
+            is_live: false,
+            owner_token_hash: None,
         };
 
         let id = store.create_paste(paste).await;
@@ -935,6 +985,70 @@ mod tests {
             .await
             .expect_err("adapter error should surface as not found");
         assert!(matches!(err, PasteError::NotFound(id) if id == "missing-id"));
+    }
+
+    #[tokio::test]
+    async fn update_paste_replaces_content() {
+        let store = MemoryPasteStore::default();
+        let paste = build_paste(StoredContent::Plain {
+            text: "original".into(),
+        });
+        let id = store.create_paste(paste).await;
+
+        store
+            .update_paste(
+                &id,
+                StoredContent::Plain {
+                    text: "updated".into(),
+                },
+            )
+            .await
+            .expect("update should succeed");
+
+        let fetched = store.get_paste(&id).await.expect("paste should exist");
+        match fetched.content {
+            StoredContent::Plain { text } => assert_eq!(text, "updated"),
+            _ => panic!("unexpected content variant"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_paste_not_found_returns_error() {
+        let store = MemoryPasteStore::default();
+        let err = store
+            .update_paste("nonexistent", StoredContent::Plain { text: "x".into() })
+            .await
+            .expect_err("should fail");
+        assert!(matches!(err, PasteError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn finalize_paste_clears_is_live() {
+        let store = MemoryPasteStore::default();
+        let mut paste = build_paste(StoredContent::Plain {
+            text: "live log".into(),
+        });
+        paste.is_live = true;
+        let id = store.create_paste(paste).await;
+
+        assert!(store.get_paste(&id).await.unwrap().is_live);
+
+        store
+            .finalize_paste(&id)
+            .await
+            .expect("finalize should succeed");
+
+        assert!(!store.get_paste(&id).await.unwrap().is_live);
+    }
+
+    #[tokio::test]
+    async fn finalize_paste_not_found_returns_error() {
+        let store = MemoryPasteStore::default();
+        let err = store
+            .finalize_paste("nonexistent")
+            .await
+            .expect_err("should fail");
+        assert!(matches!(err, PasteError::NotFound(_)));
     }
 
     #[tokio::test]

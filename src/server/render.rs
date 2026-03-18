@@ -433,6 +433,7 @@ mod tests {
             tor_access_only: true,
             owner_pubkey_hash: Some("owner_hash".to_string()),
             access_count: 3,
+            workspace: None,
         }
     }
 
