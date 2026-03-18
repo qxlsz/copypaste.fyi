@@ -1,0 +1,15 @@
+[01:16:00] Running Claude Code (attempt 3/3, strategy: decompose)...
+All done. Here's a summary of what was done:
+
+**Changes committed:**
+
+- `Cargo.toml` — all crates.io metadata (name `copypaste`, description, license, repository, homepage, keywords, categories, exclude list, `[[bin]]` pointing to `src/bin/copypaste.rs`)
+- `src/bin/copypaste.rs` — unified binary (serve/send/config subcommands); replaced old `cpaste.rs` + `main.rs`
+- `.github/workflows/release.yml` — added `publish-crates` job that runs `cargo publish --no-verify` after builds complete
+- `README.md` — crates.io badges + `cargo install copypaste` as first install method
+- `CONTRIBUTING.md` — new file documenting release process and `CARGO_REGISTRY_TOKEN` setup
+- `src/server/config.rs` — added `ENV_LOCK` to both `validation_rejects_invalid_log_format` and `validation_rejects_zero_port` to fix the flaky test race condition
+
+**Test results:** 105/105 Rust tests pass, 9/9 frontend tests pass, lint clean.
+
+**Manual step remaining:** A maintainer needs to create a `CARGO_REGISTRY_TOKEN` at crates.io and add it to GitHub repo secrets (documented in `CONTRIBUTING.md`).
