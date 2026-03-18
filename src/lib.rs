@@ -614,7 +614,7 @@ pub mod vault {
 
             let adapter = VaultPersistenceAdapter {
                 client,
-                addr,
+                addr: addr.to_string(),
                 token,
                 mount,
                 namespace,
