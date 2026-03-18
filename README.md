@@ -4,6 +4,8 @@
 
 Simple, open-source paste sharing for teams and individuals.
 
+[![crates.io](https://img.shields.io/crates/v/copypaste.svg)](https://crates.io/crates/copypaste)
+[![Downloads](https://img.shields.io/crates/d/copypaste.svg)](https://crates.io/crates/copypaste)
 [![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)](#run-with-docker-compose)
 [![Rust](https://img.shields.io/badge/rust-1.82+-orange?logo=rust)](#run-locally)
 
@@ -18,7 +20,7 @@ Key traits:
 - 🧠 **Zero complexity** – in-memory storage with minimal dependencies.
 - ⚡ **Fast** – Rocket-based async backend with Tokio.
 - 🐳 **Container friendly** – ready-to-run Docker image and compose service.
-- 🔗 **Scriptable** – companion CLI (`cpaste`) for shell automation.
+- 🔗 **Scriptable** – companion CLI (`copypaste send`) for shell automation.
 - 🧨 **One-time links** – optional burn-after-reading destroys pastes after the first successful view.
 - 🔐 **Post-quantum ready** – Kyber hybrid encryption for future-proof security.
 - 🛡️ **Privacy awareness** – real-time privacy journey tracker showing HTTPS, Tor, VPN, DNT, and encryption status.
@@ -99,7 +101,7 @@ The SPA communicates with the Rocket REST API for creation and viewing, while th
 - **Cryptographic Verification:** OCaml service with `mirage-crypto` for independent security validation
 - **Frontend:** React 19 + Vite 7, TanStack Query, Tailwind CSS
 - **Storage:** Ephemeral in-memory `PasteStore`
-- **CLI:** `cpaste` using `reqwest`
+- **CLI:** `copypaste send` using `reqwest`
 - **Tooling:** Cargo fmt/clippy/nextest, Vitest, ESLint
 
 ## Roadmap
@@ -131,6 +133,26 @@ Model authentication and policy flows in TLA+ and ProVerif to mechanically prove
 
 - Rust toolchain (1.82+) installed via [rustup](https://rustup.rs/) – for local builds
 - Docker (24+) and Docker Compose v2 – for containerized setup
+
+### Via cargo (all platforms)
+
+```bash
+cargo install copypaste
+copypaste serve &
+echo "hello world" | copypaste send --stdin
+```
+
+### Via Homebrew (macOS/Linux)
+
+```bash
+brew install qxlsz/tap/copypaste
+```
+
+### Via install script (Linux/macOS)
+
+```bash
+curl -sSf https://raw.githubusercontent.com/qxlsz/copypaste.fyi/main/scripts/install.sh | sh
+```
 
 ### Repository setup
 
@@ -269,7 +291,7 @@ curl http://127.0.0.1:8000/p/AbCdEf12/raw
 
 Encrypted pastes require the key query parameter: `/p/{id}/raw?key=<secret>`.
 
-> 💡 Looking for CLI automation? See [CLI Usage (`cpaste`)](#cli-usage-cpaste) for examples that wrap these endpoints.
+> 💡 Looking for CLI automation? See [CLI Usage (`copypaste send`)](#cli-usage-copypaste-send) for examples that wrap these endpoints.
 
 ### Formatting options
 
@@ -343,22 +365,22 @@ docker compose up --build
 
 Compose mounts the `static/` directory for live UI updates. Data is stored in-memory inside the container; restart clears pastes.
 
-### CLI Usage (`cpaste`)
+### CLI Usage (`copypaste send`)
 
-Build the standalone CLI and point it at any copypaste.fyi instance.
+Build the binary and point it at any copypaste.fyi instance.
 
 ```bash
 # Build the binary
-cargo build --bin cpaste --release
+cargo build --bin copypaste --release
 
 # Send text directly (defaults to http://127.0.0.1:8000)
-./target/release/cpaste -- "Hello from CLI"
+./target/release/copypaste send "Hello from CLI"
 
 # Switch hosts as needed
-./target/release/cpaste --host https://copypaste.fyi -- "notes"
+./target/release/copypaste send --host https://copypaste.fyi "notes"
 
 # Stream from stdin
-echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000 --
+echo "log output" | ./target/release/copypaste send --stdin
 ```
 
 **Flags & arguments**
@@ -373,7 +395,7 @@ echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000
 | `--burn-after-reading` | Delete the paste immediately after the first successful view (one-time link). |
 | positional text | When `--stdin` is not provided, supply the text to paste as a positional argument. |
 
-`cpaste --help` displays the full command reference.
+`copypaste send --help` displays the full command reference.
 
 ### Packaging CLI for Releases
 
@@ -384,8 +406,8 @@ The repository includes a helper to bundle the CLI binary for GitHub releases.
 ./scripts/package_cli.sh 0.2.0
 
 # Artifacts created:
-# - dist/cpaste-0.2.0.tar.gz
-# - dist/cpaste-0.2.0.tar.gz.sha256
+# - dist/copypaste-0.2.0.tar.gz
+# - dist/copypaste-0.2.0.tar.gz.sha256
 
 # Suggested workflow:
 # 1. git tag -a v0.2.0 -m "Release v0.2.0"
@@ -413,9 +435,8 @@ copypaste.fyi/
 │   └── Dockerfile
 ├── src/
 │   ├── lib.rs          # PasteStore trait + memory implementation
-│   ├── main.rs         # Rocket application entry point
 │   └── bin/
-│       └── cpaste.rs   # CLI client
+│       └── copypaste.rs  # Unified binary: serve, send, config
 ├── static/
 │   └── index.html      # Frontend interface
 └── .github/workflows/  # CI/CD pipelines

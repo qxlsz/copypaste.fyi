@@ -1,7 +1,24 @@
 [package]
 name = "copypaste"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+description = "Self-hostable, Rust-powered paste tool — replaces pastebin, transfer.sh, and ix.io"
+license = "MIT"
+repository = "https://github.com/qxlsz/copypaste.fyi"
+homepage = "https://copypaste.fyi"
+documentation = "https://github.com/qxlsz/copypaste.fyi/blob/main/README.md"
+keywords = ["paste", "clipboard", "cli", "file-sharing", "self-hosted"]
+categories = ["command-line-utilities", "web-programming"]
+readme = "README.md"
+exclude = [
+    "ocaml-crypto-verifier/",
+    "blockchain/",
+    "docs/",
+    ".github/",
+    "scripts/",
+    "frontend/",
+]
+autobins = false
 
 [dependencies]
 async-trait = "0.1"
@@ -49,8 +66,4 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "copypaste"
-path = "src/main.rs"
-
-[[bin]]
-name = "cpaste"
-path = "src/bin/cpaste.rs"
+path = "src/bin/copypaste.rs"
