@@ -15,6 +15,7 @@ use rocket::{
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 
 // ── Scope ────────────────────────────────────────────────────────────────────
 
@@ -383,7 +384,7 @@ impl<'r> FromRequest<'r> for RequireAdminAuth {
 
         // Bootstrap: allow COPYPASTE_ADMIN_TOKEN env var as admin token
         if let Ok(admin_token) = std::env::var("COPYPASTE_ADMIN_TOKEN") {
-            if !admin_token.is_empty() && token == admin_token {
+            if !admin_token.is_empty() && token.as_bytes().ct_eq(admin_token.as_bytes()).into() {
                 return Outcome::Success(RequireAdminAuth(AuthenticatedKey {
                     key_id: "env-admin".to_string(),
                     name: "admin".to_string(),
