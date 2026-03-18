@@ -19,8 +19,10 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       root.classList.remove("dark");
     }
     root.dataset.theme = theme;
-    if (typeof window !== "undefined") {
+    try {
       window.localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      // localStorage unavailable (SSR, test env, private browsing)
     }
   }, [theme]);
 
@@ -34,7 +36,12 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (event: MediaQueryListEvent) => {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
+      let stored: string | null = null;
+      try {
+        stored = window.localStorage.getItem(STORAGE_KEY);
+      } catch {
+        // localStorage unavailable
+      }
       if (stored === "light" || stored === "dark") {
         return;
       }
