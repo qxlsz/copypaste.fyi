@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
+import { Toaster } from "sonner";
+
 import { ThemeContext } from "./ThemeContext";
 import type { Theme } from "./ThemeContext";
 import { STORAGE_KEY, getInitialTheme } from "./themeStorage";
@@ -74,6 +76,9 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   );
 
   return (
-    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+    <ThemeContext.Provider value={value}>
+      {children}
+      <Toaster position="top-right" theme={theme} richColors closeButton />
+    </ThemeContext.Provider>
   );
 };
