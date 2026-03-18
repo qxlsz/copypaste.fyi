@@ -200,13 +200,76 @@ EOF
 done
 
 # ---------------------------------------------------------------------------
+# arXiv — recent PQC / cryptography papers relevant to Phase 3
+# ---------------------------------------------------------------------------
+
+cat >> "$REPORT_FILE" <<'EOF'
+
+---
+
+## 5. arXiv — Recent PQC & Cryptography Papers
+
+*Searches cs.CR (Cryptography and Security) for papers on ML-KEM, lattice-based
+crypto, post-quantum, and hybrid KEM published in the last 90 days.*
+
+| Date | Title | Authors | arXiv ID |
+|------|-------|---------|----------|
+EOF
+
+arxiv_search() {
+  local query="$1"
+  local label="$2"
+  # arXiv API: free, no auth required, returns Atom XML
+  local url="https://export.arxiv.org/api/query?search_query=${query}&sortBy=submittedDate&sortOrder=descending&max_results=8"
+  local raw
+  raw=$(curl -s --max-time 15 "$url" 2>/dev/null) || { echo "  _(arXiv unavailable)_" >> "$REPORT_FILE"; return; }
+
+  # Parse Atom XML with basic text processing (no xmllint dependency)
+  # Each <entry> block contains <published>, <title>, <author><name>, <id>
+  echo "$raw" | awk '
+    BEGIN { RS="</entry>"; FS="\n"; title=""; date=""; authors=""; arxiv_id="" }
+    /<entry>/ {
+      # Extract date (first 10 chars of <published>)
+      match($0, /<published>([^T]+)/, arr); date=arr[1]
+      # Extract title (strip tags, trim whitespace)
+      match($0, /<title>([^<]+)</, arr); title=arr[1]
+      gsub(/^[ \t]+|[ \t]+$/, "", title)
+      # Extract first author
+      match($0, /<name>([^<]+)</, arr); authors=arr[1]
+      # Extract arXiv ID (last part of <id> URL)
+      match($0, /<id>http[^/]+\/abs\/([^<]+)</, arr); arxiv_id=arr[1]
+      if (title != "" && arxiv_id != "") {
+        # Truncate long titles
+        if (length(title) > 90) title=substr(title, 1, 87) "..."
+        printf "| %s | %s | %s et al. | [%s](https://arxiv.org/abs/%s) |\n", \
+          date, title, authors, arxiv_id, arxiv_id
+      }
+    }
+  ' >> "$REPORT_FILE" 2>/dev/null || true
+}
+
+echo "Fetching arXiv PQC papers ..." >&2
+
+# ML-KEM / CRYSTALS-Kyber
+arxiv_search "cat:cs.CR+AND+%28ml-kem+OR+kyber+OR+%22module+lattice%22%29" "ML-KEM"
+sleep 3
+
+# Post-quantum / hybrid KEM
+arxiv_search "cat:cs.CR+AND+%28%22post-quantum%22+AND+%22hybrid+kem%22%29" "Hybrid KEM"
+sleep 3
+
+# Lattice-based cryptography (broader)
+arxiv_search "cat:cs.CR+AND+%22lattice-based+cryptography%22" "Lattice"
+sleep 2
+
+# ---------------------------------------------------------------------------
 # Actionable takeaways
 # ---------------------------------------------------------------------------
 
 cat >> "$REPORT_FILE" <<'EOF'
 ---
 
-## 5. Actionable Takeaways for copypaste.fyi
+## 6. Actionable Takeaways for copypaste.fyi
 
 Review the data above and consider:
 
@@ -215,6 +278,7 @@ Review the data above and consider:
 - **Rust CLI patterns**: What do the gold-standard Rust projects do for CI, release automation, cross-compilation, and shell completions?
 - **Awesome-list presence**: Is copypaste.fyi listed on any awesome list yet? If not, submit PRs once the project is mature.
 - **SEO & discoverability**: Check if competitors use GitHub Topics effectively — we should too.
+- **PQC papers**: Any new attacks on ML-KEM? Papers on X-Wing / hybrid KEM? Relevant to Phase 3 post-quantum roadmap (issue #41).
 
 ---
 
