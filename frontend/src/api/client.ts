@@ -32,6 +32,7 @@ const jsonFetch = async <T>(
       ...init,
       headers: {
         "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
         ...(init?.headers ?? {}),
       },
       signal: controller.signal,
@@ -39,8 +40,27 @@ const jsonFetch = async <T>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText);
-      throw new Error(`Request failed: ${response.status} ${errorText}`);
+      const body = await response.text().catch(() => "");
+      if (response.status >= 500) {
+        if (import.meta.env.DEV) {
+          console.error(`[API] ${response.status} error:`, body);
+        }
+        throw new Error("Something went wrong. Please try again later.");
+      }
+      // For 4xx: use structured API error message if schema conforms {code, message}
+      let userMessage = `Request failed (${response.status})`;
+      try {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        if (
+          typeof parsed.message === "string" &&
+          typeof parsed.code === "string"
+        ) {
+          userMessage = parsed.message;
+        }
+      } catch {
+        // body is not JSON — use generic message
+      }
+      throw new Error(userMessage);
     }
 
     if (response.status === 204) {
