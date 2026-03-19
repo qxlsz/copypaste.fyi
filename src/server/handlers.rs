@@ -15,7 +15,9 @@ use sha2::{Digest, Sha256};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rand::Rng;
 
-use super::api_keys::{RequireAdminAuth, SharedApiKeyStore, SqliteApiKeyStore};
+use super::api_keys::{
+    RateLimiter, RequireAdminAuth, SharedApiKeyStore, SharedRateLimiter, SqliteApiKeyStore,
+};
 use super::attestation::{self, AttestationVerdict};
 use super::blockchain::{
     default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
@@ -49,12 +51,14 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     let api_key_store: SharedApiKeyStore = std::sync::Arc::new(
         SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"),
     );
+    let rate_limiter: SharedRateLimiter = std::sync::Arc::new(RateLimiter::new());
 
     rocket::build()
         .manage(store)
         .manage(default_anchor_relayer())
         .manage(tor_config)
         .manage(api_key_store)
+        .manage(rate_limiter)
         .attach(Cors)
         .mount(
             "/",

@@ -100,6 +100,13 @@ pub fn requirement_from_request(
                 return Err("TOTP step must be greater than zero".into());
             }
             let allowed_drift = allowed_drift.unwrap_or(1);
+            // Cap to prevent O(N) DoS and multi-hour replay windows (BUG-006).
+            const MAX_ALLOWED_DRIFT: u32 = 2;
+            if allowed_drift > MAX_ALLOWED_DRIFT {
+                return Err(format!(
+                    "TOTP allowed_drift must be at most {MAX_ALLOWED_DRIFT}"
+                ));
+            }
             AttestationRequirement::Totp {
                 secret: secret.to_string(),
                 digits,
@@ -256,6 +263,37 @@ mod tests {
 
         let err = requirement_from_request(&request).expect_err("digits > 10 should fail");
         assert!(err.contains("digits"));
+    }
+
+    #[test]
+    fn requirement_from_request_rejects_excessive_drift() {
+        let request = AttestationRequest::Totp {
+            secret: SECRET.into(),
+            digits: Some(6),
+            step: Some(30),
+            allowed_drift: Some(3),
+            issuer: None,
+        };
+        let err = requirement_from_request(&request).expect_err("drift > 2 should fail");
+        assert!(err.contains("allowed_drift"));
+    }
+
+    #[test]
+    fn requirement_from_request_accepts_drift_at_cap() {
+        let request = AttestationRequest::Totp {
+            secret: SECRET.into(),
+            digits: Some(6),
+            step: Some(30),
+            allowed_drift: Some(2),
+            issuer: None,
+        };
+        let requirement = requirement_from_request(&request).expect("drift == 2 should succeed");
+        match requirement {
+            AttestationRequirement::Totp { allowed_drift, .. } => {
+                assert_eq!(allowed_drift, 2);
+            }
+            _ => panic!("unexpected variant"),
+        }
     }
 
     #[test]

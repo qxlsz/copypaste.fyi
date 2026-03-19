@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -15,6 +16,62 @@ use rocket::{
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
+
+// ── Rate limiter ──────────────────────────────────────────────────────────────
+
+const MAX_FAILED_ATTEMPTS: u32 = 10;
+const RATE_LIMIT_WINDOW_SECS: u64 = 300; // 5 minutes
+
+/// Per-IP sliding-window failed-attempt counter (BUG-002).
+pub struct RateLimiter {
+    fails: Mutex<HashMap<String, (u32, Instant)>>,
+}
+
+pub type SharedRateLimiter = Arc<RateLimiter>;
+
+impl RateLimiter {
+    pub fn new() -> Self {
+        Self {
+            fails: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Returns `true` if the IP has exceeded the failure threshold within the window.
+    pub fn is_limited(&self, ip: &str) -> bool {
+        let map = self.fails.lock().unwrap();
+        map.get(ip)
+            .map(|(count, since)| {
+                since.elapsed().as_secs() <= RATE_LIMIT_WINDOW_SECS && *count >= MAX_FAILED_ATTEMPTS
+            })
+            .unwrap_or(false)
+    }
+
+    /// Records a failed authentication attempt.
+    pub fn record_failure(&self, ip: &str) {
+        let mut map = self.fails.lock().unwrap();
+        let now = Instant::now();
+        let entry = map.entry(ip.to_string()).or_insert((0, now));
+        if entry.1.elapsed().as_secs() > RATE_LIMIT_WINDOW_SECS {
+            // Window expired — reset counter, counting this failure
+            *entry = (1, now);
+        } else {
+            entry.0 += 1;
+        }
+    }
+
+    /// Clears the failure counter for an IP on successful authentication.
+    pub fn clear_ip(&self, ip: &str) {
+        self.fails.lock().unwrap().remove(ip);
+    }
+}
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // ── Scope ────────────────────────────────────────────────────────────────────
 
@@ -105,17 +162,28 @@ impl SqliteApiKeyStore {
 
     fn init_schema(&self) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
+        // Create the table with key_prefix for new databases.
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS api_keys (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                scope       TEXT NOT NULL,
-                key_hash    TEXT NOT NULL,
-                created_at  INTEGER NOT NULL,
+                id           TEXT PRIMARY KEY,
+                name         TEXT NOT NULL,
+                scope        TEXT NOT NULL,
+                key_hash     TEXT NOT NULL,
+                key_prefix   TEXT NOT NULL DEFAULT '',
+                created_at   INTEGER NOT NULL,
                 last_used_at INTEGER,
-                expires_at  INTEGER
-            );",
+                expires_at   INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);",
         )?;
+        // Migration for existing databases: add key_prefix if absent.
+        // ALTER TABLE fails silently when the column already exists.
+        let _ = conn
+            .execute_batch("ALTER TABLE api_keys ADD COLUMN key_prefix TEXT NOT NULL DEFAULT '';");
+        // Recreate index in case it was absent on the existing table.
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);",
+        );
         Ok(())
     }
 
@@ -129,6 +197,7 @@ impl SqliteApiKeyStore {
     ) -> Result<(StoredApiKey, String), String> {
         let raw_key = generate_api_key();
         let key_hash = hash_key(&raw_key)?;
+        let prefix = key_prefix_for(&raw_key);
 
         let id = nanoid!(12);
         let now = current_ts();
@@ -144,13 +213,14 @@ impl SqliteApiKeyStore {
 
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO api_keys (id, name, scope, key_hash, created_at, last_used_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO api_keys (id, name, scope, key_hash, key_prefix, created_at, last_used_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 &key.id,
                 &key.name,
                 &key.scope.to_string(),
                 &key_hash,
+                &prefix,
                 key.created_at,
                 key.last_used_at,
                 key.expires_at,
@@ -200,29 +270,57 @@ impl SqliteApiKeyStore {
     }
 
     /// Verify a raw API key; returns metadata if valid (not expired, hash matches).
+    ///
+    /// The SQLite mutex is released before running Argon2 to avoid holding the
+    /// lock during the expensive (~100 ms) hash verification (BUG-010 fix).
     pub fn verify_key(&self, raw_key: &str) -> Option<StoredApiKey> {
-        #[allow(dead_code)]
         struct Row {
             id: String,
             name: String,
             scope: String,
             key_hash: String,
             created_at: i64,
-            last_used_at: Option<i64>,
             expires_at: Option<i64>,
         }
 
         let now = current_ts();
-        let conn = self.conn.lock().unwrap();
+        let prefix = key_prefix_for(raw_key);
 
-        let rows: Vec<Row> = {
-            let mut stmt = conn
+        // Acquire lock, fetch candidates, then release before Argon2 (BUG-010).
+        let candidates: Vec<Row> = {
+            let conn = self.conn.lock().unwrap();
+
+            // Fast path: indexed lookup by key_prefix (BUG-003 fix).
+            let fast: Vec<Row> = conn
                 .prepare(
-                    "SELECT id, name, scope, key_hash, created_at, last_used_at, expires_at
-                     FROM api_keys",
+                    "SELECT id, name, scope, key_hash, created_at, expires_at
+                     FROM api_keys WHERE key_prefix = ?1",
                 )
-                .ok()?;
-            let collected: Vec<Row> = stmt
+                .ok()?
+                .query_map(params![&prefix], |row| {
+                    Ok(Row {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        scope: row.get(2)?,
+                        key_hash: row.get(3)?,
+                        created_at: row.get(4)?,
+                        expires_at: row.get(5)?,
+                    })
+                })
+                .ok()?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            if !fast.is_empty() {
+                fast
+            } else {
+                // Backward-compat fallback: scan legacy rows with empty prefix.
+                // These are keys created before the key_prefix migration.
+                conn.prepare(
+                    "SELECT id, name, scope, key_hash, created_at, expires_at
+                     FROM api_keys WHERE key_prefix = ''",
+                )
+                .ok()?
                 .query_map([], |row| {
                     Ok(Row {
                         id: row.get(0)?,
@@ -230,17 +328,18 @@ impl SqliteApiKeyStore {
                         scope: row.get(2)?,
                         key_hash: row.get(3)?,
                         created_at: row.get(4)?,
-                        last_used_at: row.get(5)?,
-                        expires_at: row.get(6)?,
+                        expires_at: row.get(5)?,
                     })
                 })
                 .ok()?
                 .filter_map(|r| r.ok())
-                .collect();
-            collected
+                .collect()
+            }
+            // conn (and the mutex) is dropped here.
         };
 
-        let matched = rows.into_iter().find(|row| {
+        // Argon2 verification WITHOUT holding the SQLite mutex (BUG-010).
+        let matched = candidates.into_iter().find(|row| {
             if let Some(exp) = row.expires_at {
                 if exp < now {
                     return false;
@@ -249,10 +348,14 @@ impl SqliteApiKeyStore {
             verify_key_hash(raw_key, &row.key_hash)
         })?;
 
-        let _ = conn.execute(
-            "UPDATE api_keys SET last_used_at = ?1 WHERE id = ?2",
-            params![now, &matched.id],
-        );
+        // Re-acquire lock briefly to update last_used_at.
+        {
+            let conn = self.conn.lock().unwrap();
+            let _ = conn.execute(
+                "UPDATE api_keys SET last_used_at = ?1 WHERE id = ?2",
+                params![now, &matched.id],
+            );
+        }
 
         Some(StoredApiKey {
             id: matched.id,
@@ -262,6 +365,28 @@ impl SqliteApiKeyStore {
             last_used_at: Some(now),
             expires_at: matched.expires_at,
         })
+    }
+
+    /// Insert a key with an empty `key_prefix` to simulate a pre-migration row.
+    /// Test-only helper for verifying the backward-compat fallback path.
+    #[cfg(test)]
+    pub fn insert_legacy_key_for_test(
+        &self,
+        id: &str,
+        name: &str,
+        scope: ApiScope,
+        raw_key: &str,
+    ) -> Result<(), String> {
+        let key_hash = hash_key(raw_key)?;
+        let now = current_ts();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO api_keys (id, name, scope, key_hash, key_prefix, created_at)
+             VALUES (?1, ?2, ?3, ?4, '', ?5)",
+            params![id, name, &scope.to_string(), &key_hash, now],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
     }
 }
 
@@ -280,6 +405,14 @@ fn generate_api_key() -> String {
         .take(32)
         .collect();
     format!("cp_{}", URL_SAFE_NO_PAD.encode(&bytes))
+}
+
+/// Computes a fast-lookup prefix: SHA-256 of the first 16 bytes of the key,
+/// hex-encoded. Used as an indexed column to narrow Argon2 candidates to O(1).
+fn key_prefix_for(raw_key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(&raw_key.as_bytes()[..raw_key.len().min(16)]);
+    hex::encode(hasher.finalize())
 }
 
 fn argon2_instance() -> Argon2<'static> {
@@ -343,6 +476,19 @@ impl<'r> FromRequest<'r> for OptionalApiKeyAuth {
             Some(t) => t.to_owned(),
         };
 
+        let client_ip = req.client_ip().map(|ip| ip.to_string()).unwrap_or_default();
+
+        // Rate limit check (BUG-002).
+        let rl_arc = match req.guard::<&State<SharedRateLimiter>>().await {
+            Outcome::Success(rl) => Some(rl.inner().clone()),
+            _ => None,
+        };
+        if let Some(rl) = &rl_arc {
+            if rl.is_limited(&client_ip) {
+                return Outcome::Error((Status::TooManyRequests, ()));
+            }
+        }
+
         let store = match req.guard::<&State<SharedApiKeyStore>>().await {
             Outcome::Success(s) => s,
             _ => return Outcome::Error((Status::InternalServerError, ())),
@@ -354,12 +500,22 @@ impl<'r> FromRequest<'r> for OptionalApiKeyAuth {
             .unwrap_or(None);
 
         match result {
-            Some(key) => Outcome::Success(OptionalApiKeyAuth(Some(AuthenticatedKey {
-                key_id: key.id,
-                name: key.name,
-                scope: key.scope,
-            }))),
-            None => Outcome::Error((Status::Unauthorized, ())),
+            Some(key) => {
+                if let Some(rl) = &rl_arc {
+                    rl.clear_ip(&client_ip);
+                }
+                Outcome::Success(OptionalApiKeyAuth(Some(AuthenticatedKey {
+                    key_id: key.id,
+                    name: key.name,
+                    scope: key.scope,
+                })))
+            }
+            None => {
+                if let Some(rl) = &rl_arc {
+                    rl.record_failure(&client_ip);
+                }
+                Outcome::Error((Status::Unauthorized, ()))
+            }
         }
     }
 }
@@ -381,9 +537,26 @@ impl<'r> FromRequest<'r> for RequireAdminAuth {
             Some(t) => t.to_owned(),
         };
 
-        // Bootstrap: allow COPYPASTE_ADMIN_TOKEN env var as admin token
+        let client_ip = req.client_ip().map(|ip| ip.to_string()).unwrap_or_default();
+
+        // Rate limit check (BUG-002).
+        let rl_arc = match req.guard::<&State<SharedRateLimiter>>().await {
+            Outcome::Success(rl) => Some(rl.inner().clone()),
+            _ => None,
+        };
+        if let Some(rl) = &rl_arc {
+            if rl.is_limited(&client_ip) {
+                return Outcome::Error((Status::TooManyRequests, ()));
+            }
+        }
+
+        // Bootstrap: allow COPYPASTE_ADMIN_TOKEN env var as admin token.
+        // Constant-time comparison prevents timing oracle (BUG-001).
         if let Ok(admin_token) = std::env::var("COPYPASTE_ADMIN_TOKEN") {
-            if !admin_token.is_empty() && token == admin_token {
+            if !admin_token.is_empty() && token.as_bytes().ct_eq(admin_token.as_bytes()).into() {
+                if let Some(rl) = &rl_arc {
+                    rl.clear_ip(&client_ip);
+                }
                 return Outcome::Success(RequireAdminAuth(AuthenticatedKey {
                     key_id: "env-admin".to_string(),
                     name: "admin".to_string(),
@@ -404,14 +577,27 @@ impl<'r> FromRequest<'r> for RequireAdminAuth {
 
         match result {
             Some(key) if key.scope.is_admin() => {
+                if let Some(rl) = &rl_arc {
+                    rl.clear_ip(&client_ip);
+                }
                 Outcome::Success(RequireAdminAuth(AuthenticatedKey {
                     key_id: key.id,
                     name: key.name,
                     scope: key.scope,
                 }))
             }
-            Some(_) => Outcome::Error((Status::Forbidden, ())),
-            None => Outcome::Error((Status::Unauthorized, ())),
+            Some(_) => {
+                if let Some(rl) = &rl_arc {
+                    rl.record_failure(&client_ip);
+                }
+                Outcome::Error((Status::Forbidden, ()))
+            }
+            None => {
+                if let Some(rl) = &rl_arc {
+                    rl.record_failure(&client_ip);
+                }
+                Outcome::Error((Status::Unauthorized, ()))
+            }
         }
     }
 }
@@ -515,5 +701,85 @@ mod tests {
 
         let verified = s.verify_key(&raw).unwrap();
         assert!(verified.last_used_at.is_some());
+    }
+
+    /// Verifies that keys created before the key_prefix migration (stored with
+    /// key_prefix = '') can still be verified via the backward-compat fallback
+    /// scan. This covers the upgrade path that the previous attempt missed.
+    #[test]
+    fn verify_legacy_key_backward_compat() {
+        let s = store();
+        let raw = "cp_legacykeyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        s.insert_legacy_key_for_test("legacy-001", "legacy-key", ApiScope::Write, raw)
+            .expect("insert legacy key");
+
+        // Must verify successfully even though key_prefix = ''
+        let verified = s
+            .verify_key(raw)
+            .expect("legacy key with empty prefix should verify");
+        assert_eq!(verified.id, "legacy-001");
+        assert_eq!(verified.scope, ApiScope::Write);
+    }
+
+    /// After migration, a new key coexists with a legacy key; each resolves correctly.
+    #[test]
+    fn new_and_legacy_keys_coexist() {
+        let s = store();
+
+        // Insert a legacy key (empty prefix)
+        let legacy_raw = "cp_legacykeyBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+        s.insert_legacy_key_for_test("legacy-002", "old-key", ApiScope::Read, legacy_raw)
+            .unwrap();
+
+        // Create a new key (has prefix)
+        let (new_info, new_raw) = s.create_key("new-key", ApiScope::Admin, None).unwrap();
+
+        // Both must verify
+        let legacy_verified = s.verify_key(legacy_raw).expect("legacy key verifies");
+        assert_eq!(legacy_verified.id, "legacy-002");
+
+        let new_verified = s.verify_key(&new_raw).expect("new key verifies");
+        assert_eq!(new_verified.id, new_info.id);
+    }
+
+    // ── Rate limiter unit tests ────────────────────────────────────────────────
+
+    #[test]
+    fn rate_limiter_blocks_after_max_failures() {
+        let rl = RateLimiter::new();
+        let ip = "192.168.1.1";
+
+        for _ in 0..MAX_FAILED_ATTEMPTS {
+            assert!(!rl.is_limited(ip));
+            rl.record_failure(ip);
+        }
+        assert!(rl.is_limited(ip));
+    }
+
+    #[test]
+    fn rate_limiter_clears_on_success() {
+        let rl = RateLimiter::new();
+        let ip = "10.0.0.1";
+
+        for _ in 0..MAX_FAILED_ATTEMPTS {
+            rl.record_failure(ip);
+        }
+        assert!(rl.is_limited(ip));
+
+        rl.clear_ip(ip);
+        assert!(!rl.is_limited(ip));
+    }
+
+    #[test]
+    fn rate_limiter_does_not_block_different_ips() {
+        let rl = RateLimiter::new();
+        let ip_a = "1.1.1.1";
+        let ip_b = "2.2.2.2";
+
+        for _ in 0..MAX_FAILED_ATTEMPTS {
+            rl.record_failure(ip_a);
+        }
+        assert!(rl.is_limited(ip_a));
+        assert!(!rl.is_limited(ip_b));
     }
 }
