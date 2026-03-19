@@ -20,7 +20,7 @@ primary_region = 'iad'
   protocol = "tcp"
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
 
   [[services.ports]]
@@ -32,16 +32,23 @@ primary_region = 'iad'
     port = 443
     handlers = ["tls", "http"]
 
-[[services]]
-  internal_port = 8001
-  protocol = "tcp"
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ["crypto-verifier"]
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+    protocol = "http"
+    restart_limit = 3
 
-  [[services.ports]]
-    port = 8001
+  [[services.concurrency]]
+    type = "connections"
+    soft_limit = 200
+    hard_limit = 250
+
+# crypto-verifier is internal-only: reachable via localhost:8001 within the
+# same Fly.io VM. Removing the public [[services]] block for port 8001 to
+# prevent direct internet access to the OCaml crypto verifier.
 
 [processes]
   app = 'copypaste'
@@ -49,3 +56,10 @@ primary_region = 'iad'
 
 [[vm]]
   size = 'shared-cpu-1x'
+  memory = '256mb'
+  processes = ["app"]
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '128mb'
+  processes = ["crypto-verifier"]

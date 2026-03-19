@@ -1,11 +1,51 @@
 services:
   copypaste:
     build: .
+    user: "65532:65532"
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/data
+      - data:/data
     environment:
       COPYPASTE_AUTH_TOKEN: "${COPYPASTE_AUTH_TOKEN:-}"
       ROCKET_LOG_LEVEL: "${ROCKET_LOG_LEVEL:-normal}"
+      CRYPTO_VERIFIER_URL: "http://crypto-verifier:8001"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+    depends_on:
+      crypto-verifier:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - copypaste-net
+
+  crypto-verifier:
+    build:
+      context: ./ocaml-crypto-verifier
+      dockerfile: Dockerfile
+    expose:
+      - "8001"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+    restart: unless-stopped
+    networks:
+      - copypaste-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
+
+networks:
+  copypaste-net:
+    driver: bridge
+
+volumes:
+  data:
