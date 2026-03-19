@@ -15,7 +15,7 @@ export interface User {
   createdAt: number;
 }
 
-interface AuthState {
+export interface AuthState {
   user: User | null;
   token: string | null;
   isLoading: boolean;
@@ -31,6 +31,22 @@ interface AuthState {
 
 export type KeyFormat = "hex" | "base64" | "pem" | "raw";
 
+// Exported for testing — strips privkey from the persisted state so it is
+// never written to localStorage.
+export const partializeAuthState = (state: {
+  user: User | null;
+  token: string | null;
+}) => ({
+  user: state.user
+    ? {
+        pubkeyHash: state.user.pubkeyHash,
+        pubkey: state.user.pubkey,
+        createdAt: state.user.createdAt,
+      }
+    : null,
+  token: state.token,
+});
+
 export const useAuth = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -40,13 +56,8 @@ export const useAuth = create<AuthState>()(
 
       generateKeys: async () => {
         try {
-          console.log("🔑 Generating private key...");
           const privkey = ed25519.utils.randomPrivateKey();
-
-          console.log("🔓 Deriving public key...");
           const pubkey = await ed25519.getPublicKey(privkey);
-
-          console.log("✅ Key generation successful");
           const createdAt = Date.now();
 
           return {
@@ -55,7 +66,7 @@ export const useAuth = create<AuthState>()(
             createdAt,
           };
         } catch (error) {
-          console.error("❌ Key generation failed:", error);
+          if (import.meta.env.DEV) console.error("Key generation failed:", error);
           throw new Error(
             `Key generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
           );
@@ -80,15 +91,13 @@ export const useAuth = create<AuthState>()(
 
           return derivedPubkey.every((byte, i) => byte === pubkeyBytes[i]);
         } catch (error) {
-          console.error("Key pair validation failed:", error);
+          if (import.meta.env.DEV) console.error("Key pair validation failed:", error);
           return false;
         }
       },
 
       importKey: async (keyData: string, format: KeyFormat) => {
         try {
-          console.log("🔑 Importing key with format:", format);
-
           let privkeyBytes: Uint8Array;
 
           switch (format) {
@@ -177,7 +186,6 @@ export const useAuth = create<AuthState>()(
           // Validate the key is valid for Ed25519
           try {
             const pubkey = await ed25519.getPublicKey(privkeyBytes);
-            console.log("✅ Key import successful");
 
             return {
               pubkey: btoa(String.fromCharCode(...pubkey)),
@@ -187,7 +195,7 @@ export const useAuth = create<AuthState>()(
             throw new Error("Invalid Ed25519 private key");
           }
         } catch (error) {
-          console.error("❌ Key import failed:", error);
+          if (import.meta.env.DEV) console.error("Key import failed:", error);
           throw new Error(
             `Key import failed: ${error instanceof Error ? error.message : "Unknown error"}`,
           );
@@ -205,7 +213,6 @@ export const useAuth = create<AuthState>()(
             throw new Error("HTTPS is required for cryptographic operations");
           }
 
-          console.log("🔑 Processing private key...");
           const privkeyBytes = privkey
             ? new Uint8Array(
                 atob(privkey)
@@ -214,14 +221,11 @@ export const useAuth = create<AuthState>()(
               )
             : ed25519.utils.randomPrivateKey();
 
-          console.log("🔓 Deriving public key...");
           const pubkeyBytes = await ed25519.getPublicKey(privkeyBytes);
           const pubkey = btoa(String.fromCharCode(...pubkeyBytes));
 
-          console.log("📡 Fetching auth challenge...");
           const { challenge } = await fetchAuthChallenge();
 
-          console.log("✍️  Signing challenge...");
           const challengeBytes = new TextEncoder().encode(challenge);
           const signatureBytes = await ed25519.sign(
             challengeBytes,
@@ -229,14 +233,12 @@ export const useAuth = create<AuthState>()(
           );
           const signature = btoa(String.fromCharCode(...signatureBytes));
 
-          console.log("🔐 Logging in with signature...");
           const { token, pubkeyHash } = await loginWithSignature(
             challenge,
             signature,
             pubkey,
           );
 
-          console.log("✅ Login successful");
           const existingCreatedAt = get().user?.createdAt;
           const createdAt = existingCreatedAt ?? Date.now();
           const user: User = {
@@ -249,7 +251,7 @@ export const useAuth = create<AuthState>()(
           set({ user, token, isLoading: false });
           toast.success("Logged in successfully");
         } catch (error) {
-          console.error("❌ Login failed:", error);
+          if (import.meta.env.DEV) console.error("Login failed:", error);
           set({ isLoading: false });
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
@@ -267,10 +269,7 @@ export const useAuth = create<AuthState>()(
     }),
     {
       name: "auth-storage",
-      partialize: (state) => ({
-        user: state.user,
-        token: state.token,
-      }),
+      partialize: partializeAuthState,
     },
   ),
 );
