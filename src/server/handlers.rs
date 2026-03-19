@@ -146,7 +146,15 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
     let crypto_verifier_url = std::env::var("CRYPTO_VERIFIER_URL")
         .unwrap_or_else(|_| "http://localhost:8001".to_string());
 
-    let crypto_status = match reqwest::get(format!("{}/health", crypto_verifier_url)).await {
+    let crypto_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap_or_default();
+    let crypto_status = match crypto_client
+        .get(format!("{}/health", crypto_verifier_url))
+        .send()
+        .await
+    {
         Ok(resp) if resp.status().is_success() => ServiceStatus {
             status: "ok".to_string(),
             message: Some("Crypto verifier responding".to_string()),
@@ -161,12 +169,12 @@ async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHe
         },
     };
 
-    let overall_status = if storage_status.status == "ok" {
+    let overall_status = if storage_status.status == "ok" && crypto_status.status == "ok" {
         "ok"
-    } else if storage_status.status == "unavailable" {
-        "degraded"
+    } else if storage_status.status == "unavailable" || crypto_status.status == "unavailable" {
+        "unavailable"
     } else {
-        "ok"
+        "degraded"
     };
 
     Json(DetailedHealthResponse {
@@ -877,6 +885,16 @@ async fn create_paste_internal(
     // Validate content
     if body.content.trim().is_empty() {
         return Err((Status::BadRequest, "Content cannot be empty".into()));
+    }
+
+    // Validate workspace
+    if let Some(ref ws) = body.workspace {
+        if ws.len() > 128 {
+            return Err((
+                Status::BadRequest,
+                "Workspace identifier must not exceed 128 bytes".into(),
+            ));
+        }
     }
 
     // Resolve content (handle encryption)

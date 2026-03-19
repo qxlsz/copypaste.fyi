@@ -377,3 +377,56 @@ async fn detailed_health_includes_service_status() {
     assert!(body.contains("\"crypto_verifier\""));
     assert!(body.contains("\"storage\""));
 }
+
+#[rocket::async_test]
+async fn detailed_health_overall_status_reflects_crypto_verifier() {
+    // Point CRYPTO_VERIFIER_URL at an unreachable address so crypto_status is "unavailable".
+    // The timeout (2 s) ensures the request fails quickly in CI.
+    std::env::set_var("CRYPTO_VERIFIER_URL", "http://127.0.0.1:19999");
+    let client = rocket_client().await;
+    let response = client.get("/api/health").dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    let body = response.into_string().await.expect("body");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+    // overall_status must not be "ok" when crypto verifier is unreachable
+    assert_ne!(
+        v["status"].as_str().unwrap_or(""),
+        "ok",
+        "overall_status should not be ok when crypto verifier is unavailable"
+    );
+    std::env::remove_var("CRYPTO_VERIFIER_URL");
+}
+
+#[rocket::async_test]
+async fn workspace_too_long_rejected() {
+    let client = rocket_client().await;
+    let long_ws = "a".repeat(129);
+    let body = serde_json::json!({
+        "content": "hello",
+        "workspace": long_ws
+    });
+    let response = client
+        .post("/api/pastes")
+        .header(rocket::http::ContentType::JSON)
+        .body(body.to_string())
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn workspace_at_max_length_accepted() {
+    let client = rocket_client().await;
+    let max_ws = "a".repeat(128);
+    let body = serde_json::json!({
+        "content": "hello",
+        "workspace": max_ws
+    });
+    let response = client
+        .post("/api/pastes")
+        .header(rocket::http::ContentType::JSON)
+        .body(body.to_string())
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+}
