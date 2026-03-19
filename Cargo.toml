@@ -54,6 +54,7 @@ ed25519-dalek = { version = "2.0", features = ["serde"] }
 toml = "0.8"
 rusqlite = { version = "0.31", features = ["bundled"] }
 argon2 = "0.5"
+subtle = "2"
 
 [dev-dependencies]
 httpmock = "0.7"
