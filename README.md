@@ -4,12 +4,24 @@
 
 Simple, open-source paste sharing for teams and individuals.
 
+[![CI](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml/badge.svg)](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A575%25-brightgreen)](#)
+[![Docker](https://ghcr-badge.egpl.dev/qxlsz/copypaste.fyi/size?tag=latest)](https://github.com/qxlsz/copypaste.fyi/pkgs/container/copypaste.fyi)
 [![crates.io](https://img.shields.io/crates/v/copypaste.svg)](https://crates.io/crates/copypaste)
-[![Downloads](https://img.shields.io/crates/d/copypaste.svg)](https://crates.io/crates/copypaste)
-[![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)](#run-with-docker-compose)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.82+-orange?logo=rust)](#run-locally)
 
 </div>
+
+## Quickstart
+
+```bash
+docker run --rm -p 8000:8000 ghcr.io/qxlsz/copypaste.fyi:latest
+
+curl -s -XPOST localhost:8000/api/pastes \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Hello!","burn_after_reading":true}' | jq .shareableUrl
+```
 
 ## Overview
 
@@ -23,6 +35,7 @@ Key traits:
 - 🔗 **Scriptable** – companion CLI (`copypaste send`) for shell automation.
 - 🧨 **One-time links** – optional burn-after-reading destroys pastes after the first successful view.
 - 🔐 **Post-quantum ready** – Kyber hybrid encryption for future-proof security.
+- 🧬 **Defense-in-depth crypto** – encryption independently verified by an OCaml service (mirage-crypto), not just Rust.
 - 🛡️ **Privacy awareness** – real-time privacy journey tracker showing HTTPS, Tor, VPN, DNT, and encryption status.
 
 ## Architecture
@@ -106,26 +119,12 @@ The SPA communicates with the Rocket REST API for creation and viewing, while th
 
 ## Roadmap
 
-### ✅ Post-quantum cryptography (Implemented)
-Kyber hybrid encryption with AES-256-GCM is now available for quantum-resistant key exchange alongside classical algorithms.
-
-### Zero-knowledge proof integration
-Enable verifiable claims about encrypted paste properties (length, format, content type) without requiring decryption.
-
-### Homomorphic search capabilities
-Allow searching within encrypted pastes and applying transformations to ciphertext for advanced data processing workflows.
-
-### Threshold access control
-Multi-signature schemes for sensitive pastes requiring approval from multiple authorized parties.
-
-### Federated deployments
-Peer discovery and replication protocol so sovereign operators can exchange encrypted pastes with policy attestation.
-
-### HSM-backed custodianship
-Optional PKCS#11 and AWS CloudHSM adapters for environments that require hardware-rooted signing and key custody.
-
-### Formal verification
-Model authentication and policy flows in TLA+ and ProVerif to mechanically prove forward secrecy and non-repudiation.
+- [x] Post-quantum crypto (Kyber hybrid AES-256-GCM)
+- [x] OCaml dual-language cryptographic verification
+- [x] Redis persistence backend
+- [ ] `cargo install copypaste` (crates.io release)
+- [ ] Shell completions (bash/zsh/fish)
+- [ ] `awesome-selfhosted` listing
 
 ## Getting Started
 
@@ -396,6 +395,22 @@ echo "log output" | ./target/release/copypaste send --stdin
 | positional text | When `--stdin` is not provided, supply the text to paste as a positional argument. |
 
 `copypaste send --help` displays the full command reference.
+
+### Shell function (`~/.bashrc` / `~/.zshrc`)
+
+Drop this into your shell profile to pipe any content to a running instance:
+
+```bash
+function paste() {
+  jq -Rs '{"content": .}' | \
+    curl -s -XPOST https://your-instance/api/pastes \
+      -H 'Content-Type: application/json' --data @- | jq -r '.shareableUrl'
+}
+# Usage: cat file.txt | paste
+#        echo "note" | paste
+```
+
+`jq -Rs` reads stdin as a raw string and builds the JSON payload safely, preventing corruption from quotes, backslashes, or `$` in the pasted content.
 
 ### Packaging CLI for Releases
 
