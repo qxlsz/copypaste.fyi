@@ -8,6 +8,7 @@ use rand::rngs::OsRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::convert::TryInto;
+use zeroize::Zeroizing;
 
 // Real Kyber imports
 use pqc_kyber::*;
@@ -35,7 +36,7 @@ pub async fn encrypt_content(
             text: text.to_owned(),
         }),
         EncryptionAlgorithm::Aes256Gcm => {
-            let cipher = Aes256Gcm::new_from_slice(&derived)
+            let cipher = Aes256Gcm::new_from_slice(&*derived)
                 .map_err(|_| "failed to initialise cipher".to_string())?;
             let mut nonce_bytes = [0u8; 12];
             OsRng.fill_bytes(&mut nonce_bytes);
@@ -48,15 +49,9 @@ pub async fn encrypt_content(
             let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
 
-            // Optional OCaml verification (doesn't affect success/failure)
-            let _ = verify_encryption_with_ocaml(
-                algorithm,
-                text,
-                &ciphertext_b64,
-                key,
-                Some(&nonce_b64),
-            )
-            .await;
+            // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
+            verify_encryption_with_ocaml(algorithm, text, &ciphertext_b64, key, Some(&nonce_b64))
+                .await?;
 
             Ok(StoredContent::Encrypted {
                 algorithm,
@@ -66,7 +61,7 @@ pub async fn encrypt_content(
             })
         }
         EncryptionAlgorithm::ChaCha20Poly1305 => {
-            let cipher = ChaCha20Poly1305::new_from_slice(&derived)
+            let cipher = ChaCha20Poly1305::new_from_slice(&*derived)
                 .map_err(|_| "failed to initialise cipher".to_string())?;
             let mut nonce_bytes = [0u8; 12];
             OsRng.fill_bytes(&mut nonce_bytes);
@@ -79,15 +74,9 @@ pub async fn encrypt_content(
             let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
 
-            // Optional OCaml verification
-            let _ = verify_encryption_with_ocaml(
-                algorithm,
-                text,
-                &ciphertext_b64,
-                key,
-                Some(&nonce_b64),
-            )
-            .await;
+            // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
+            verify_encryption_with_ocaml(algorithm, text, &ciphertext_b64, key, Some(&nonce_b64))
+                .await?;
 
             Ok(StoredContent::Encrypted {
                 algorithm,
@@ -97,7 +86,7 @@ pub async fn encrypt_content(
             })
         }
         EncryptionAlgorithm::XChaCha20Poly1305 => {
-            let cipher = XChaCha20Poly1305::new_from_slice(&derived)
+            let cipher = XChaCha20Poly1305::new_from_slice(&*derived)
                 .map_err(|_| "failed to initialise cipher".to_string())?;
             let mut nonce_bytes = [0u8; 24];
             OsRng.fill_bytes(&mut nonce_bytes);
@@ -110,15 +99,9 @@ pub async fn encrypt_content(
             let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
 
-            // Optional OCaml verification
-            let _ = verify_encryption_with_ocaml(
-                algorithm,
-                text,
-                &ciphertext_b64,
-                key,
-                Some(&nonce_b64),
-            )
-            .await;
+            // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
+            verify_encryption_with_ocaml(algorithm, text, &ciphertext_b64, key, Some(&nonce_b64))
+                .await?;
 
             Ok(StoredContent::Encrypted {
                 algorithm,
@@ -133,7 +116,7 @@ pub async fn encrypt_content(
 
             // Generate a simulated PQ public/private keypair (32 bytes each)
             let mut pq_public_key = [0u8; 32];
-            let mut pq_private_key = [0u8; 32];
+            let mut pq_private_key = Zeroizing::new([0u8; 32]);
             // Use deterministic key generation based on the user key for testing
             let mut key_hasher = Sha256::new();
             key_hasher.update(b"pq_public_key");
@@ -148,7 +131,7 @@ pub async fn encrypt_content(
             pq_private_key.copy_from_slice(&hash[..32]);
 
             // Simulate PQ KEM encapsulation - use deterministic values
-            let mut kem_shared_secret = [0u8; 32];
+            let mut kem_shared_secret = Zeroizing::new([0u8; 32]);
             let mut kem_ciphertext = [0u8; 64];
             let mut secret_hasher = Sha256::new();
             secret_hasher.update(b"kem_shared_secret");
@@ -168,12 +151,12 @@ pub async fn encrypt_content(
 
             // Use Kyber shared secret directly with user passphrase for additional security
             let mut hasher = Sha256::new();
-            hasher.update(kem_shared_secret);
+            hasher.update(*kem_shared_secret);
             hasher.update(key.as_bytes());
-            let aes_key = hasher.finalize();
+            let aes_key: Zeroizing<[u8; 32]> = Zeroizing::new(hasher.finalize().into());
 
             // Encrypt with AES-GCM using the hybrid-derived key
-            let cipher = Aes256Gcm::new_from_slice(&aes_key)
+            let cipher = Aes256Gcm::new_from_slice(&*aes_key)
                 .map_err(|_| "failed to initialise AES cipher".to_string())?;
             let nonce = AesNonce::from(nonce_bytes);
 
@@ -184,7 +167,7 @@ pub async fn encrypt_content(
             // Store hybrid data: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
             let pq_ciphertext_b64 = BASE64_STANDARD.encode(kem_ciphertext);
             let pq_public_key_b64 = BASE64_STANDARD.encode(pq_public_key);
-            let pq_private_key_b64 = BASE64_STANDARD.encode(pq_private_key);
+            let pq_private_key_b64 = BASE64_STANDARD.encode(*pq_private_key);
             let aes_ciphertext_b64 = BASE64_STANDARD.encode(ciphertext_aes);
             let aes_nonce_b64 = BASE64_STANDARD.encode(nonce_bytes);
 
@@ -287,18 +270,20 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         log::error!("Failed to decode AES nonce: {}", e);
                         DecryptError::InvalidKey
                     })?;
-                let pq_private_key = general_purpose::STANDARD
-                    .decode(pq_private_key_b64)
-                    .map_err(|e| {
-                        log::error!("Failed to decode PQ private key: {}", e);
-                        DecryptError::InvalidKey
-                    })?;
+                let pq_private_key: Zeroizing<Vec<u8>> = Zeroizing::new(
+                    general_purpose::STANDARD
+                        .decode(pq_private_key_b64)
+                        .map_err(|e| {
+                            log::error!("Failed to decode PQ private key: {}", e);
+                            DecryptError::InvalidKey
+                        })?,
+                );
 
                 log::debug!("Decoded components - AES ciphertext: {} bytes, nonce: {} bytes, PQ private key: {} bytes",
                           aes_ciphertext.len(), aes_nonce.len(), pq_private_key.len());
 
                 // Simulate PQ KEM decapsulation (same deterministic approach as encryption)
-                let mut shared_secret = [0u8; 32];
+                let mut shared_secret = Zeroizing::new([0u8; 32]);
                 let mut secret_hasher = Sha256::new();
                 secret_hasher.update(b"kem_shared_secret");
                 secret_hasher.update(key_str.as_bytes());
@@ -308,14 +293,14 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
 
                 // Recreate the AES key (same as encryption)
                 let mut key_hasher = Sha256::new();
-                key_hasher.update(shared_secret);
+                key_hasher.update(*shared_secret);
                 key_hasher.update(key_str.as_bytes());
-                let aes_key = key_hasher.finalize();
+                let aes_key: Zeroizing<[u8; 32]> = Zeroizing::new(key_hasher.finalize().into());
 
                 log::debug!("Generated AES key");
 
                 // Decrypt with AES-GCM
-                let cipher = Aes256Gcm::new_from_slice(&aes_key).map_err(|e| {
+                let cipher = Aes256Gcm::new_from_slice(&*aes_key).map_err(|e| {
                     log::error!("Failed to create AES cipher: {:?}", e);
                     DecryptError::InvalidKey
                 })?;
@@ -359,7 +344,7 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                     String::from_utf8(cipher_bytes).map_err(|_| DecryptError::InvalidKey)
                 }
                 EncryptionAlgorithm::Aes256Gcm => {
-                    let cipher = Aes256Gcm::new_from_slice(&derived)
+                    let cipher = Aes256Gcm::new_from_slice(&*derived)
                         .map_err(|_| DecryptError::InvalidKey)?;
                     let nonce_array: [u8; 12] = nonce_bytes_vec
                         .try_into()
@@ -374,7 +359,7 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         })
                 }
                 EncryptionAlgorithm::ChaCha20Poly1305 => {
-                    let cipher = ChaCha20Poly1305::new_from_slice(&derived)
+                    let cipher = ChaCha20Poly1305::new_from_slice(&*derived)
                         .map_err(|_| DecryptError::InvalidKey)?;
                     let nonce_array: [u8; 12] = nonce_bytes_vec
                         .try_into()
@@ -389,7 +374,7 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         })
                 }
                 EncryptionAlgorithm::XChaCha20Poly1305 => {
-                    let cipher = XChaCha20Poly1305::new_from_slice(&derived)
+                    let cipher = XChaCha20Poly1305::new_from_slice(&*derived)
                         .map_err(|_| DecryptError::InvalidKey)?;
                     let nonce_array: [u8; 24] = nonce_bytes_vec
                         .try_into()
@@ -412,11 +397,11 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
     }
 }
 
-fn derive_key_material(key: &str, salt: &[u8]) -> [u8; 32] {
+fn derive_key_material(key: &str, salt: &[u8]) -> Zeroizing<[u8; 32]> {
     let mut hasher = Sha256::new();
     hasher.update(salt);
     hasher.update(key.as_bytes());
-    hasher.finalize().into()
+    Zeroizing::new(hasher.finalize().into())
 }
 
 #[derive(Serialize)]
@@ -437,13 +422,23 @@ struct SignatureVerificationRequest {
     public_key: String,
 }
 
-/// Optional verification using OCaml crypto verifier service
+/// Optional/configurable verification using OCaml crypto verifier service.
+///
+/// By default this is defense-in-depth only: all failure paths are logged but do NOT block
+/// paste operations. Set `COPYPASTE_REQUIRE_CRYPTO_VERIFICATION=true` to enable strict mode
+/// where verifier failures (network errors, non-2xx responses, or `valid: false`) cause the
+/// operation to return an error. The verifier URL is configured via `CRYPTO_VERIFIER_URL`
+/// (default: `http://localhost:8001`).
 async fn verify_with_ocaml_crypto_service(
     verification_type: &str,
     request_body: String,
 ) -> Result<(), String> {
     let verifier_url = std::env::var("CRYPTO_VERIFIER_URL")
         .unwrap_or_else(|_| "http://localhost:8001".to_string());
+
+    let require_verification = std::env::var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
 
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -455,7 +450,13 @@ async fn verify_with_ocaml_crypto_service(
                 "Failed to create HTTP client for crypto verification: {}",
                 e
             );
-            return Ok(()); // Don't fail the operation if verifier is unavailable
+            if require_verification {
+                return Err(format!(
+                    "Crypto verification unavailable (client build failed): {}",
+                    e
+                ));
+            }
+            return Ok(());
         }
     };
 
@@ -469,7 +470,8 @@ async fn verify_with_ocaml_crypto_service(
         .await
     {
         Ok(response) => {
-            if response.status().is_success() {
+            let status = response.status();
+            if status.is_success() {
                 match response.json::<serde_json::Value>().await {
                     Ok(json) => {
                         if json.get("valid").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -480,28 +482,50 @@ async fn verify_with_ocaml_crypto_service(
                                 .get("details")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("Unknown verification error");
-                            log::warn!("Cryptographic verification failed: {}", details);
-                            // Don't fail the operation - OCaml verification is supplementary
-                            Ok(())
+                            log::error!(
+                                "OCaml crypto verifier returned valid=false for {}: {}",
+                                verification_type,
+                                details
+                            );
+                            if require_verification {
+                                Err(format!("Crypto verification failed: {}", details))
+                            } else {
+                                Ok(())
+                            }
                         }
                     }
                     Err(e) => {
                         log::warn!("Failed to parse OCaml verification response: {}", e);
-                        Ok(())
+                        if require_verification {
+                            Err(format!("Crypto verification response parse failed: {}", e))
+                        } else {
+                            Ok(())
+                        }
                     }
                 }
             } else {
                 log::warn!(
                     "OCaml verification service returned HTTP {}: {}",
-                    response.status(),
-                    response.status().canonical_reason().unwrap_or("Unknown")
+                    status,
+                    status.canonical_reason().unwrap_or("Unknown")
                 );
-                Ok(())
+                if require_verification {
+                    Err(format!(
+                        "Crypto verification service returned HTTP {}",
+                        status
+                    ))
+                } else {
+                    Ok(())
+                }
             }
         }
         Err(e) => {
             log::warn!("OCaml crypto verification service unavailable: {}", e);
-            Ok(()) // Don't fail the main operation
+            if require_verification {
+                Err(format!("Crypto verification service unreachable: {}", e))
+            } else {
+                Ok(()) // Don't fail the main operation
+            }
         }
     }
 }

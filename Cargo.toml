@@ -55,6 +55,7 @@ toml = "0.8"
 rusqlite = { version = "0.31", features = ["bundled"] }
 argon2 = "0.5"
 subtle = "2"
+zeroize = { version = "1", features = ["alloc"] }
 
 [dev-dependencies]
 httpmock = "0.7"
