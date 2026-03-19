@@ -1,3 +1,4 @@
+use base64::Engine;
 use copypaste::server::crypto::decrypt_content;
 use copypaste::{EncryptionAlgorithm, StoredContent};
 
@@ -153,4 +154,106 @@ fn decrypt_encrypted_missing_key() {
 
     let result = decrypt_content(&content, None);
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn decrypt_wrong_key_aes_gcm_returns_invalid_key() {
+    let plaintext = "secret data";
+    let correct_key = "correct-key-12345678901234567890123456789";
+
+    let encrypted = copypaste::server::crypto::encrypt_content(
+        plaintext,
+        correct_key,
+        EncryptionAlgorithm::Aes256Gcm,
+    )
+    .await
+    .expect("encryption should succeed");
+
+    let result = decrypt_content(
+        &encrypted,
+        Some("wrong-key-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+    );
+    assert!(result.is_err(), "decryption with wrong key must fail");
+}
+
+#[tokio::test]
+async fn decrypt_tampered_ciphertext_aes_gcm_returns_invalid_key() {
+    let plaintext = "tamper me";
+    let key = "tamper-key-12345678901234567890123456789";
+
+    let encrypted =
+        copypaste::server::crypto::encrypt_content(plaintext, key, EncryptionAlgorithm::Aes256Gcm)
+            .await
+            .expect("encryption should succeed");
+
+    // Flip a byte in the ciphertext to break the AEAD tag
+    let tampered = match encrypted {
+        StoredContent::Encrypted {
+            algorithm,
+            mut ciphertext,
+            nonce,
+            salt,
+        } => {
+            let mut decoded = base64::engine::general_purpose::STANDARD
+                .decode(&ciphertext)
+                .expect("valid base64");
+            decoded[0] ^= 0xff;
+            ciphertext = base64::engine::general_purpose::STANDARD.encode(&decoded);
+            StoredContent::Encrypted {
+                algorithm,
+                ciphertext,
+                nonce,
+                salt,
+            }
+        }
+        _ => panic!("expected encrypted"),
+    };
+
+    let result = decrypt_content(&tampered, Some(key));
+    assert!(
+        result.is_err(),
+        "decryption of tampered ciphertext must fail"
+    );
+}
+
+#[tokio::test]
+async fn decrypt_truncated_ciphertext_aes_gcm_returns_invalid_key() {
+    let plaintext = "truncate this";
+    let key = "truncate-key-12345678901234567890123456";
+
+    let encrypted =
+        copypaste::server::crypto::encrypt_content(plaintext, key, EncryptionAlgorithm::Aes256Gcm)
+            .await
+            .expect("encryption should succeed");
+
+    // Truncate the ciphertext (removes the AEAD authentication tag)
+    let truncated = match encrypted {
+        StoredContent::Encrypted {
+            algorithm,
+            mut ciphertext,
+            nonce,
+            salt,
+        } => {
+            let mut decoded = base64::engine::general_purpose::STANDARD
+                .decode(&ciphertext)
+                .expect("valid base64");
+            // Remove the last 16 bytes (GCM authentication tag length)
+            let new_len = decoded.len().saturating_sub(16);
+            decoded.truncate(new_len);
+            ciphertext = base64::engine::general_purpose::STANDARD.encode(&decoded);
+            StoredContent::Encrypted {
+                algorithm,
+                ciphertext,
+                nonce,
+                salt,
+            }
+        }
+        _ => panic!("expected encrypted"),
+    };
+
+    let result = decrypt_content(&truncated, Some(key));
+    assert!(
+        result.is_err(),
+        "decryption of truncated ciphertext must fail"
+    );
 }

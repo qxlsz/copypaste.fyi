@@ -40,7 +40,7 @@ use super::render::{
     render_paste_view, render_time_locked, StoredPasteView,
 };
 use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
-use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp};
+use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp, TimeLockState};
 use super::tor::{OnionAccess, TorConfig};
 use super::webhook::{trigger_webhook, WebhookEvent};
 use serde::{Deserialize, Serialize};
@@ -843,8 +843,10 @@ async fn show_raw(
             }
 
             let now = current_timestamp();
-            if evaluate_time_lock(&paste.metadata, now).is_some() {
-                return Err(Status::Locked);
+            match evaluate_time_lock(&paste.metadata, now) {
+                Some(TimeLockState::TooEarly(_)) => return Err(Status::Locked),
+                Some(TimeLockState::TooLate(_)) => return Err(Status::Gone),
+                None => {}
             }
 
             if let Some(requirement) = paste.metadata.attestation.as_ref() {
@@ -1955,5 +1957,416 @@ mod tests {
         let deleted: RevokeApiKeyResponse =
             serde_json::from_str(&delete_resp.into_string().unwrap()).unwrap();
         assert!(deleted.revoked);
+    }
+
+    // ── Auth system adversarial tests ─────────────────────────────────────────
+
+    #[test]
+    fn auth_login_invalid_pubkey_length_returns_bad_request() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // A pubkey that decodes to wrong byte length (not 32 bytes)
+        let short_pubkey = BASE64_STANDARD.encode(b"tooshort");
+        let resp = client
+            .post("/api/auth/login")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "pubkey": short_pubkey,
+                    "signature": BASE64_STANDARD.encode([0u8; 64]),
+                    "challenge": "testchallenge"
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(resp.status(), Status::BadRequest);
+    }
+
+    #[test]
+    fn auth_login_valid_pubkey_wrong_signature_returns_unauthorized() {
+        use ed25519_dalek::SigningKey;
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // Generate a valid keypair from deterministic random bytes
+        let secret_bytes: [u8; 32] = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
+        ];
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let verifying_key = signing_key.verifying_key();
+        let pubkey_b64 = BASE64_STANDARD.encode(verifying_key.as_bytes());
+
+        // Send a valid pubkey but all-zeros signature (wrong signature)
+        let wrong_sig_b64 = BASE64_STANDARD.encode([0u8; 64]);
+
+        let resp = client
+            .post("/api/auth/login")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "pubkey": pubkey_b64,
+                    "signature": wrong_sig_b64,
+                    "challenge": "random-challenge-string-32-chars!!"
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(resp.status(), Status::Unauthorized);
+    }
+
+    // ── Tor access control tests ──────────────────────────────────────────────
+
+    #[test]
+    fn tor_only_paste_rejected_on_clearnet_show_route() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // Create a tor-only paste
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "secret tor paste",
+                    "format": "plain_text",
+                    "tor_access_only": true
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        // GET without onion header → 403 Forbidden
+        let resp = client.get(format!("/{}", created.id)).dispatch();
+        assert_eq!(resp.status(), Status::Forbidden);
+    }
+
+    #[test]
+    fn tor_only_paste_rejected_on_clearnet_raw_route() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "secret tor raw paste",
+                    "format": "plain_text",
+                    "tor_access_only": true
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        // GET /raw/{id} without onion header → 403 Forbidden
+        let resp = client.get(format!("/raw/{}", created.id)).dispatch();
+        assert_eq!(resp.status(), Status::Forbidden);
+    }
+
+    // ── Admin auth with missing env var ────────────────────────────────────────
+
+    #[test]
+    fn admin_auth_with_no_env_var_rejects_arbitrary_bearer_token() {
+        std::env::remove_var("COPYPASTE_ADMIN_TOKEN");
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // Send a non-empty bearer token; no env var and no key in DB → rejected
+        let resp = client
+            .get("/api/admin/keys")
+            .header(rocket::http::Header::new(
+                "Authorization",
+                "Bearer notarealtoken",
+            ))
+            .dispatch();
+        // No admin key in DB and env var is unset → Unauthorized (no matching key)
+        assert_eq!(resp.status(), Status::Unauthorized);
+    }
+
+    // ── Time lock HTTP enforcement ─────────────────────────────────────────────
+
+    #[test]
+    fn show_route_time_lock_before_not_before_renders_locked_page() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "future paste",
+                    "format": "plain_text",
+                    "time_lock": { "not_before": "9999-01-01T00:00:00Z" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        let resp = client.get(format!("/{}", created.id)).dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        assert!(body.contains("Time-locked paste") || body.contains("unlocks after"));
+    }
+
+    #[test]
+    fn show_route_time_lock_after_not_after_renders_elapsed_page() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "expired window paste",
+                    "format": "plain_text",
+                    "time_lock": { "not_after": "2000-01-01T00:00:00Z" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        let resp = client.get(format!("/{}", created.id)).dispatch();
+        // After not_after, the access window has closed
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        assert!(body.contains("Time window elapsed") || body.contains("Access window closed"));
+    }
+
+    #[test]
+    fn raw_route_time_lock_after_not_after_returns_gone() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "expired window raw",
+                    "format": "plain_text",
+                    "time_lock": { "not_after": "2000-01-01T00:00:00Z" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        // After not_after has elapsed, raw endpoint must return 410 Gone (not 423 Locked)
+        let resp = client.get(format!("/raw/{}", created.id)).dispatch();
+        assert_eq!(resp.status(), Status::Gone);
+    }
+
+    // ── Attestation handler-level integration ────────────────────────────────
+
+    #[test]
+    fn show_route_attestation_without_code_renders_prompt() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "attested content",
+                    "format": "plain_text",
+                    "attestation": { "kind": "shared_secret", "secret": "s3cr3t" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        // No credentials → HTML prompt (200 OK, not the content)
+        let resp = client.get(format!("/{}", created.id)).dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        assert!(!body.contains("attested content"), "content must not leak");
+        assert!(body.contains("form") || body.contains("attest") || body.contains("password"));
+    }
+
+    #[test]
+    fn show_route_attestation_wrong_secret_renders_prompt() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "attested content",
+                    "format": "plain_text",
+                    "attestation": { "kind": "shared_secret", "secret": "correct_secret" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        // Wrong credentials → still renders prompt (not the content)
+        let resp = client
+            .get(format!("/{0}?attest=wrongsecret", created.id))
+            .dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        assert!(
+            !body.contains("attested content"),
+            "content must not leak on wrong secret"
+        );
+    }
+
+    #[test]
+    fn show_route_attestation_correct_secret_shows_content() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "attested secret content",
+                    "format": "plain_text",
+                    "attestation": { "kind": "shared_secret", "secret": "correct_secret" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        // Correct credentials → content is shown
+        let resp = client
+            .get(format!("/{0}?attest=correct_secret", created.id))
+            .dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        assert!(
+            body.contains("attested secret content"),
+            "correct secret must grant access"
+        );
+    }
+
+    // ── User paste enumeration (documents the unauthenticated access bug) ─────
+
+    #[test]
+    fn user_paste_list_accessible_without_auth_for_any_hash() {
+        // Documents the current behavior: /api/user/pastes accepts any pubkey_hash
+        // without authentication — an attacker can enumerate pastes for any hash.
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // Create a paste with a known owner hash
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "owner-only paste",
+                    "format": "plain_text",
+                    "owner_pubkey_hash": "victim_hash_abc123"
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+
+        // Query without any auth using the victim's hash — currently returns 200 + data
+        let resp = client
+            .get("/api/user/pastes?pubkey_hash=victim_hash_abc123")
+            .dispatch();
+        // This reveals the bug: unauthenticated enumeration succeeds
+        // When fixed, this should return 401 Unauthorized
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(!parsed["pastes"].as_array().unwrap().is_empty());
+    }
+
+    // ── Live paste owner token hash ───────────────────────────────────────────
+
+    #[test]
+    fn live_paste_owner_token_hash_is_sha256_of_plaintext_token() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(Arc::clone(&store));
+        let client = Client::tracked(rocket).expect("client");
+
+        let create_resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "live paste content",
+                    "format": "plain_text",
+                    "live": true
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+
+        let plaintext_token = created
+            .token
+            .expect("live paste must include plaintext token");
+        assert!(!plaintext_token.is_empty());
+
+        // Retrieve the stored paste and verify the hash
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let stored = rt
+            .block_on(store.get_paste(&created.id))
+            .expect("paste should exist");
+
+        let stored_hash = stored
+            .owner_token_hash
+            .expect("live paste must store token hash");
+
+        // The stored hash must be the SHA-256 hex of the plaintext token
+        let mut hasher = Sha256::new();
+        hasher.update(plaintext_token.as_bytes());
+        let expected_hash = format!("{:x}", hasher.finalize());
+        assert_eq!(
+            stored_hash, expected_hash,
+            "owner_token_hash must be SHA-256 of plaintext token"
+        );
     }
 }
