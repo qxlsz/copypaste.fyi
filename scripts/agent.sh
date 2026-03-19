@@ -400,15 +400,19 @@ All local validation passed. Agent review: approved."
         checks=$(gh pr checks "$pr_number" --repo "$REPO" --json name,bucket 2>/dev/null || echo "[]")
         [[ "$checks" == "[]" ]] && { log "  No checks yet ($i/30)..."; continue; }
 
+        # Only consider required CI checks (ignore Vercel and other non-required checks)
+        local required_checks
+        required_checks=$(echo "$checks" | jq '[.[] | select(.name | test("Rust fmt|Rust clippy|Coverage|Frontend lint"))]')
+
         local pending
-        pending=$(echo "$checks" | jq '[.[] | select(.bucket == "pending")] | length')
-        [[ "$pending" -gt 0 ]] && { log "  ${pending} pending ($i/30)..."; continue; }
+        pending=$(echo "$required_checks" | jq '[.[] | select(.bucket == "pending")] | length')
+        [[ "$pending" -gt 0 ]] && { log "  ${pending} required checks pending ($i/30)..."; continue; }
 
         local failed
-        failed=$(echo "$checks" | jq '[.[] | select(.bucket != "pass")] | length')
+        failed=$(echo "$required_checks" | jq '[.[] | select(.bucket != "pass")] | length')
         if [[ "$failed" -gt 0 ]]; then
           log "CI FAILED:"
-          echo "$checks" | jq -r '.[] | select(.bucket != "pass") | "  \(.name): \(.bucket)"'
+          echo "$required_checks" | jq -r '.[] | select(.bucket != "pass") | "  \(.name): \(.bucket)"'
           break
         fi
 
