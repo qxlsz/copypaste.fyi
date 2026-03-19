@@ -177,6 +177,7 @@ ${directive}
    - cd frontend && npm test -- --run && npm run lint
 7. If tests fail, fix them. Do not leave failing tests.
 8. Commit your changes with a descriptive message
+9. **CRITICAL — git branch discipline**: You are on branch \`agent/issue-${issue_number}\`. DO NOT run \`git checkout\`, \`git switch\`, \`git branch -D\`, or any other command that changes the current branch. Commit directly to the current branch. Never switch to main or any other branch.
 IMPL_PROMPT
 
   cat "${PROMPT_DIR}/implement.txt" | claude --print --dangerously-skip-permissions --max-turns 30 --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
@@ -349,6 +350,31 @@ FIX_PROMPT
         attempt=$((attempt + 1))
         continue
       fi
+    fi
+
+    # Safety: if Claude switched branches, recover all work and move to correct branch
+    local current_branch
+    current_branch=$(git branch --show-current)
+    if [[ "$current_branch" != "$branch" ]]; then
+      log "WARNING: on branch '$current_branch' instead of '$branch' — recovering..."
+      # Capture stray commits on wrong branch (oldest first for cherry-pick order)
+      local stray_shas
+      stray_shas=$(git log --format="%H" --reverse "origin/main..${current_branch}" 2>/dev/null || true)
+      # Stash any uncommitted changes so checkout can succeed
+      git stash --include-untracked 2>/dev/null || true
+      # Switch to correct branch
+      git checkout -B "$branch" origin/main 2>/dev/null
+      # Reapply uncommitted changes
+      git stash pop 2>/dev/null || true
+      # Cherry-pick stray commits (in oldest-first order)
+      if [[ -n "$stray_shas" ]]; then
+        while IFS= read -r sha; do
+          [[ -z "$sha" ]] && continue
+          git cherry-pick "$sha" 2>/dev/null || { git cherry-pick --abort 2>/dev/null; true; }
+        done <<< "$stray_shas"
+      fi
+      # Reset the wrong branch back to origin/main
+      git branch -f "$current_branch" origin/main 2>/dev/null || true
     fi
 
     # Commit remaining changes
