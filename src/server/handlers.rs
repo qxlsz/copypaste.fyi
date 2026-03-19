@@ -2,7 +2,15 @@ use std::path::PathBuf;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use rocket::{
-    delete, fs::FileServer, get, http::Status, post, response::content, routes, serde::json::Json,
+    data::{Limits, ToByteUnit},
+    delete,
+    fs::FileServer,
+    get,
+    http::Status,
+    post,
+    response::content,
+    routes,
+    serde::json::Json,
     Build, Rocket, State,
 };
 
@@ -54,6 +62,10 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     let rate_limiter: SharedRateLimiter = std::sync::Arc::new(RateLimiter::new());
 
     rocket::build()
+        .configure(rocket::Config {
+            limits: Limits::default().limit("json", 11u64.mebibytes()),
+            ..Default::default()
+        })
         .manage(store)
         .manage(default_anchor_relayer())
         .manage(tor_config)
@@ -953,6 +965,23 @@ fn webhook_config_from_request(
     if request.url.trim().is_empty() {
         return Err((Status::BadRequest, "Webhook url cannot be empty".into()));
     }
+    const MAX_TEMPLATE_LEN: usize = 4096;
+    if let Some(ref t) = request.view_template {
+        if t.len() > MAX_TEMPLATE_LEN {
+            return Err((
+                Status::BadRequest,
+                "view_template must not exceed 4096 characters".into(),
+            ));
+        }
+    }
+    if let Some(ref t) = request.burn_template {
+        if t.len() > MAX_TEMPLATE_LEN {
+            return Err((
+                Status::BadRequest,
+                "burn_template must not exceed 4096 characters".into(),
+            ));
+        }
+    }
     Ok(WebhookConfig {
         url: request.url.clone(),
         provider: request.provider.clone(),
@@ -995,6 +1024,16 @@ async fn create_paste_internal(
     // Validate content
     if body.content.trim().is_empty() {
         return Err((Status::BadRequest, "Content cannot be empty".into()));
+    }
+    let max_paste_size = std::env::var("COPYPASTE_MAX_PASTE_SIZE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(10_485_760); // 10 MB
+    if body.content.len() > max_paste_size {
+        return Err((
+            Status::PayloadTooLarge,
+            "Content exceeds maximum paste size".into(),
+        ));
     }
 
     // Validate workspace
@@ -1060,8 +1099,20 @@ async fn create_paste_internal(
         let carrier_source = match stego_req {
             StegoRequest::Builtin { carrier } => StegoCarrierSource::BuiltIn(carrier.clone()),
             StegoRequest::Uploaded { data_uri } => {
+                if data_uri.len() > 10_000_000 {
+                    return Err((
+                        Status::PayloadTooLarge,
+                        "Carrier data URI must not exceed 10 MB".into(),
+                    ));
+                }
                 let (mime, data) = parse_data_uri(data_uri)
                     .map_err(|e| (Status::BadRequest, format!("Invalid data URI: {}", e)))?;
+                if !matches!(mime.as_str(), "image/png" | "image/bmp" | "image/jpeg") {
+                    return Err((
+                        Status::BadRequest,
+                        "Carrier image must be PNG, BMP, or JPEG".into(),
+                    ));
+                }
                 if data.len() > 1_048_576 {
                     return Err((
                         Status::PayloadTooLarge,
@@ -1101,6 +1152,12 @@ async fn create_paste_internal(
 
     // Handle bundle
     if let Some(ref bundle_req) = body.bundle {
+        if bundle_req.children.len() > 50 {
+            return Err((
+                Status::BadRequest,
+                "Bundle exceeds maximum child count".into(),
+            ));
+        }
         // Enforce encryption for bundles
         if body.encryption.is_none() {
             return Err((
@@ -2319,6 +2376,150 @@ mod tests {
         let body = resp.into_string().unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(!parsed["pastes"].as_array().unwrap().is_empty());
+    }
+
+    // ── Input validation tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn create_api_rejects_oversized_content() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let content = "a".repeat(10_485_761);
+        let payload = json!({ "content": content, "format": "plain_text" });
+
+        let resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(resp.status(), Status::PayloadTooLarge);
+    }
+
+    #[test]
+    fn create_api_accepts_content_at_size_limit() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let content = "a".repeat(10_485_760);
+        let payload = json!({ "content": content, "format": "plain_text" });
+
+        let resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+    }
+
+    #[test]
+    fn webhook_config_rejects_oversized_view_template() {
+        let err = webhook_config_from_request(&WebhookRequest {
+            url: "https://example.com".into(),
+            view_template: Some("x".repeat(4097)),
+            ..Default::default()
+        })
+        .expect_err("long view_template should fail");
+        assert_eq!(err.0, Status::BadRequest);
+    }
+
+    #[test]
+    fn webhook_config_rejects_oversized_burn_template() {
+        let err = webhook_config_from_request(&WebhookRequest {
+            url: "https://example.com".into(),
+            burn_template: Some("x".repeat(4097)),
+            ..Default::default()
+        })
+        .expect_err("long burn_template should fail");
+        assert_eq!(err.0, Status::BadRequest);
+    }
+
+    #[test]
+    fn webhook_config_accepts_templates_at_limit() {
+        let template = "x".repeat(4096);
+        let cfg = webhook_config_from_request(&WebhookRequest {
+            url: "https://example.com".into(),
+            view_template: Some(template.clone()),
+            burn_template: Some(template),
+            ..Default::default()
+        })
+        .expect("templates at limit should succeed");
+        assert_eq!(cfg.url, "https://example.com");
+    }
+
+    #[test]
+    fn create_api_rejects_bundle_exceeding_child_limit() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let children: Vec<_> = (0..51)
+            .map(|i| json!({ "content": format!("child {}", i) }))
+            .collect();
+        let payload = json!({
+            "content": "bundle parent",
+            "format": "plain_text",
+            "encryption": { "algorithm": "aes256_gcm", "key": "bundlekey" },
+            "bundle": { "children": children }
+        });
+
+        let resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(resp.status(), Status::BadRequest);
+    }
+
+    #[test]
+    fn stego_uploaded_rejects_invalid_mime_type() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let data_uri = format!(
+            "data:text/plain;base64,{}",
+            BASE64_STANDARD.encode(b"fake image data")
+        );
+        let payload = json!({
+            "content": "hidden",
+            "format": "plain_text",
+            "encryption": { "algorithm": "aes256_gcm", "key": "key" },
+            "stego": { "mode": "uploaded", "data_uri": data_uri }
+        });
+
+        let resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(resp.status(), Status::BadRequest);
+    }
+
+    #[test]
+    fn stego_uploaded_rejects_oversized_data_uri_string() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // data_uri string length > 10_000_000; '!' is invalid base64, so without
+        // the string-length check this would return 400 (invalid URI), not 413.
+        let data_uri = format!("data:image/png;base64,{}", "!".repeat(10_000_001));
+        let payload = json!({
+            "content": "hidden",
+            "format": "plain_text",
+            "encryption": { "algorithm": "aes256_gcm", "key": "key" },
+            "stego": { "mode": "uploaded", "data_uri": data_uri }
+        });
+
+        let resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(resp.status(), Status::PayloadTooLarge);
     }
 
     // ── Live paste owner token hash ───────────────────────────────────────────
