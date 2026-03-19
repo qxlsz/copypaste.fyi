@@ -203,6 +203,9 @@ validate() {
     cargo llvm-cov nextest --workspace --all-features --fail-under-lines 75 2>&1 || { log "  FAIL: coverage"; failed=true; }
   fi
 
+  log "  frontend install (sync lockfile)..."
+  (cd frontend && npm install) 2>&1 || { log "  FAIL: frontend npm install"; failed=true; }
+
   log "  frontend tests..."
   (cd frontend && npm test -- --run) 2>&1 || { log "  FAIL: frontend tests"; failed=true; }
 
