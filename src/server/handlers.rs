@@ -2,20 +2,20 @@ use std::path::PathBuf;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use rocket::{
-    fs::FileServer, http::Status, response::content, serde::json::Json, Build, Rocket, State,
+    delete, fs::FileServer, get, http::Status, post, response::content, routes, serde::json::Json,
+    Build, Rocket, State,
 };
 
 use crate::{
-    create_paste_store, EncryptionAlgorithm, PasteError, PasteFormat, PasteMetadata,
-    PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste, WebhookConfig,
+    create_paste_store, AttestationRequirement, EncryptionAlgorithm, PasteError, PasteFormat,
+    PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste, WebhookConfig,
 };
-use rocket::{get, post, routes};
-use serde_json;
 use sha2::{Digest, Sha256};
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rand::Rng;
 
+use super::api_keys::{RequireAdminAuth, SharedApiKeyStore, SqliteApiKeyStore};
 use super::attestation::{self, AttestationVerdict};
 use super::blockchain::{
     default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
@@ -25,10 +25,13 @@ use super::bundles::build_bundle_overview;
 use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    AnchorRequest, AnchorResponse, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse,
-    AuthLogoutResponse, CreatePasteRequest, CreatePasteResponse, PasteViewQuery,
-    PersistenceRequest, StatsSummaryResponse, StegoRequest, TimeLockRequest,
-    UserPasteCountResponse, UserPasteListItem, UserPasteListResponse, WebhookRequest,
+    AnchorRequest, AnchorResponse, ApiError, ApiKeyInfo, AuthChallengeResponse, AuthLoginRequest,
+    AuthLoginResponse, AuthLogoutResponse, CreateApiKeyRequest, CreateApiKeyResponse,
+    CreatePasteRequest, CreatePasteResponse, ListApiKeysResponse, PasteAttestationInfo,
+    PasteEncryptionInfo, PastePersistenceInfo, PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery,
+    PasteViewResponse, PasteWebhookInfo, PersistenceRequest, RevokeApiKeyResponse,
+    StatsSummaryResponse, StegoRequest, TimeLockRequest, UserPasteCountResponse, UserPasteListItem,
+    UserPasteListResponse, WebhookRequest,
 };
 use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
@@ -43,11 +46,15 @@ use utoipa::ToSchema;
 
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     let tor_config = TorConfig::from_env();
+    let api_key_store: SharedApiKeyStore = std::sync::Arc::new(
+        SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"),
+    );
 
     rocket::build()
         .manage(store)
         .manage(default_anchor_relayer())
         .manage(tor_config)
+        .manage(api_key_store)
         .attach(Cors)
         .mount(
             "/",
@@ -58,8 +65,6 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 create,
                 create_api,
                 anchor_api,
-                api_test,
-                api_echo,
                 show_api,
                 show,
                 show_raw,
@@ -71,6 +76,9 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
                 user_paste_list_api,
                 health_api,
                 health_detailed_api,
+                admin_create_key_api,
+                admin_list_keys_api,
+                admin_delete_key_api,
                 spa_fallback
             ],
         )
@@ -456,25 +464,25 @@ async fn anchor_api(
     Ok(Json(response))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/test",
-    responses((status = 200, description = "API connectivity test"))
-)]
-#[get("/api/test", rank = 1)]
-async fn api_test() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"message": "API test successful"}))
+/// Convert a status code to a machine-readable error code string.
+fn status_to_code(status: Status) -> &'static str {
+    match status.code {
+        400 => "bad_request",
+        401 => "unauthorized",
+        403 => "forbidden",
+        404 => "not_found",
+        410 => "gone",
+        423 => "locked",
+        500 => "internal_error",
+        502 => "bad_gateway",
+        _ => "error",
+    }
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/echo/{id}",
-    params(("id" = String, description = "Echo value")),
-    responses((status = 200, description = "Echo response"))
-)]
-#[get("/api/echo/<id>", rank = 1)]
-async fn api_echo(id: String) -> Json<serde_json::Value> {
-    Json(serde_json::json!({"echo": id}))
+/// Map a `(Status, String)` pair from an internal helper into the standardised
+/// `(Status, Json<ApiError>)` responder used by JSON API handlers.
+fn to_api_err(status: Status, message: String) -> (Status, Json<ApiError>) {
+    (status, Json(ApiError::new(status_to_code(status), message)))
 }
 
 #[utoipa::path(
@@ -483,9 +491,9 @@ async fn api_echo(id: String) -> Json<serde_json::Value> {
     params(("id" = String, description = "Paste identifier")),
     responses(
         (status = 200, description = "Paste content", body = PasteViewResponse),
-        (status = 401, description = "Key required"),
-        (status = 403, description = "Invalid key"),
-        (status = 404, description = "Paste not found"),
+        (status = 401, description = "Key required", body = ApiError),
+        (status = 403, description = "Invalid key", body = ApiError),
+        (status = 404, description = "Paste not found", body = ApiError),
     )
 )]
 #[get("/api/pastes/<id>?<query..>", rank = 1)]
@@ -493,52 +501,143 @@ async fn show_api(
     store: &State<SharedPasteStore>,
     id: String,
     query: PasteViewQuery,
-) -> Result<Json<serde_json::Value>, Status> {
+) -> Result<Json<PasteViewResponse>, (Status, Json<ApiError>)> {
     rocket::info!(
         "show_api called with id: {} and query.key: {:?}",
         id,
         query.key
     );
-    match store.get_paste(&id).await {
-        Ok(paste) => {
-            rocket::info!("Paste found for id: {}", id);
-            match decrypt_content(&paste.content, query.key.as_deref()) {
-                Ok(text) => {
-                    rocket::info!(
-                        "Decryption successful for id: {}, content length: {}",
-                        id,
-                        text.len()
-                    );
-                    let response = serde_json::json!({
-                        "id": id,
-                        "content": text,
-                        "format": format!("{:?}", paste.format).to_lowercase(),
-                        "created_at": paste.created_at,
-                        "expires_at": paste.expires_at,
-                        "burn_after_reading": paste.burn_after_reading,
-                        "encryption": match &paste.content {
-                            StoredContent::Plain { .. } => serde_json::json!({"algorithm": "none", "requires_key": false}),
-                            StoredContent::Encrypted { algorithm, .. } | StoredContent::Stego { algorithm, .. } =>
-                                serde_json::json!({"algorithm": format!("{:?}", algorithm).to_lowercase(), "requires_key": true}),
-                        }
-                    });
-                    Ok(Json(response))
-                }
-                Err(DecryptError::MissingKey) => {
-                    rocket::info!("Missing key for encrypted paste: {}", id);
-                    Err(Status::Unauthorized)
-                }
-                Err(DecryptError::InvalidKey) => {
-                    rocket::error!("Invalid key for paste: {}", id);
-                    Err(Status::Forbidden)
-                }
-            }
-        }
+
+    let paste = match store.get_paste(&id).await {
+        Ok(paste) => paste,
         Err(e) => {
             rocket::error!("Paste not found for id: {}, error: {:?}", id, e);
-            Err(Status::NotFound)
+            return Err((
+                Status::NotFound,
+                Json(ApiError::new(
+                    "paste_not_found",
+                    format!("Paste '{}' not found", id),
+                )),
+            ));
         }
-    }
+    };
+
+    rocket::info!("Paste found for id: {}", id);
+
+    let text = match decrypt_content(&paste.content, query.key.as_deref()) {
+        Ok(text) => {
+            rocket::info!(
+                "Decryption successful for id: {}, content length: {}",
+                id,
+                text.len()
+            );
+            text
+        }
+        Err(DecryptError::MissingKey) => {
+            rocket::info!("Missing key for encrypted paste: {}", id);
+            return Err((
+                Status::Unauthorized,
+                Json(ApiError::new(
+                    "key_required",
+                    "This paste requires an encryption key",
+                )),
+            ));
+        }
+        Err(DecryptError::InvalidKey) => {
+            rocket::error!("Invalid key for paste: {}", id);
+            return Err((
+                Status::Forbidden,
+                Json(ApiError::new(
+                    "invalid_key",
+                    "The provided encryption key is incorrect",
+                )),
+            ));
+        }
+    };
+
+    let encryption = match &paste.content {
+        StoredContent::Plain { .. } => PasteEncryptionInfo {
+            algorithm: EncryptionAlgorithm::None,
+            requires_key: false,
+        },
+        StoredContent::Encrypted { algorithm, .. } | StoredContent::Stego { algorithm, .. } => {
+            PasteEncryptionInfo {
+                algorithm: *algorithm,
+                requires_key: true,
+            }
+        }
+    };
+
+    let stego = match &paste.content {
+        StoredContent::Stego {
+            carrier_mime,
+            carrier_image,
+            payload_digest,
+            ..
+        } => Some(PasteStegoInfo {
+            carrier_mime: carrier_mime.clone(),
+            carrier_image: carrier_image.clone(),
+            payload_digest: payload_digest.clone(),
+        }),
+        _ => None,
+    };
+
+    let time_lock = match (paste.not_before, paste.not_after) {
+        (None, None) => None,
+        (not_before, not_after) => Some(PasteTimeLockInfo {
+            not_before,
+            not_after,
+        }),
+    };
+
+    let attestation = paste.metadata.attestation.as_ref().map(|req| match req {
+        AttestationRequirement::Totp { issuer, .. } => PasteAttestationInfo {
+            kind: "totp".to_string(),
+            issuer: issuer.clone(),
+        },
+        AttestationRequirement::SharedSecret { .. } => PasteAttestationInfo {
+            kind: "shared_secret".to_string(),
+            issuer: None,
+        },
+    });
+
+    let persistence = paste.metadata.persistence.as_ref().map(|loc| match loc {
+        PersistenceLocator::Memory => PastePersistenceInfo {
+            kind: "memory".to_string(),
+            detail: None,
+        },
+        PersistenceLocator::Vault { key_path } => PastePersistenceInfo {
+            kind: "vault".to_string(),
+            detail: Some(key_path.clone()),
+        },
+        PersistenceLocator::S3 { bucket, .. } => PastePersistenceInfo {
+            kind: "s3".to_string(),
+            detail: Some(bucket.clone()),
+        },
+    });
+
+    let webhook = paste.metadata.webhook.as_ref().map(|w| PasteWebhookInfo {
+        provider: w.provider.clone(),
+    });
+
+    Ok(Json(PasteViewResponse {
+        id,
+        format: paste.format,
+        content: text,
+        created_at: paste.created_at,
+        expires_at: paste.expires_at,
+        burn_after_reading: paste.burn_after_reading,
+        bundle: paste.bundle.clone(),
+        encryption,
+        tor_access_only: paste.metadata.tor_access_only,
+        access_count: paste.metadata.access_count,
+        is_live: paste.is_live,
+        time_lock,
+        attestation,
+        persistence,
+        webhook,
+        stego,
+    }))
 }
 
 #[utoipa::path(
@@ -569,10 +668,10 @@ async fn create(
     request_body = CreatePasteRequest,
     responses(
         (status = 200, description = "Paste created", body = CreatePasteResponse),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Authentication required"),
-        (status = 403, description = "Forbidden"),
-        (status = 500, description = "Internal server error"),
+        (status = 400, description = "Invalid request", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Forbidden", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError),
     )
 )]
 #[post("/api/pastes", data = "<body>")]
@@ -580,8 +679,7 @@ async fn create_api(
     store: &State<SharedPasteStore>,
     body: Result<Json<CreatePasteRequest>, rocket::serde::json::Error<'_>>,
     onion: OnionAccess,
-) -> Result<Json<CreatePasteResponse>, (Status, String)> {
-    // Handle JSON deserialization errors
+) -> Result<Json<CreatePasteResponse>, (Status, Json<ApiError>)> {
     let body = match body {
         Ok(json) => {
             rocket::info!("Successfully deserialized JSON request");
@@ -589,13 +687,17 @@ async fn create_api(
         }
         Err(e) => {
             rocket::error!("JSON deserialization failed: {:?}", e);
-            return Err((Status::BadRequest, format!("Invalid JSON: {}", e)));
+            return Err((
+                Status::BadRequest,
+                Json(ApiError::new(
+                    "invalid_request",
+                    format!("Invalid JSON: {e}"),
+                )),
+            ));
         }
     };
 
-    // Debug logging
     rocket::info!("Received create paste request");
-    // Note: Cannot serialize CreatePasteRequest for logging since it doesn't implement Serialize
 
     let body = body.into_inner();
     rocket::info!(
@@ -607,7 +709,9 @@ async fn create_api(
             .map(|e| format!("{:?}", e.algorithm))
     );
 
-    let created = create_paste_internal(store.inner(), body, &onion).await?;
+    let created = create_paste_internal(store.inner(), body, &onion)
+        .await
+        .map_err(|(s, msg)| to_api_err(s, msg))?;
     Ok(Json(created))
 }
 
@@ -1002,6 +1106,71 @@ async fn create_paste_internal(
     })
 }
 
+#[post("/api/admin/keys", data = "<body>")]
+async fn admin_create_key_api(
+    key_store: &State<SharedApiKeyStore>,
+    body: Json<CreateApiKeyRequest>,
+    _auth: RequireAdminAuth,
+) -> Result<Json<CreateApiKeyResponse>, (Status, Json<ApiError>)> {
+    let body = body.into_inner();
+    let store = key_store.inner().clone();
+    let (key_info, plaintext_key) = tokio::task::spawn_blocking(move || {
+        store.create_key(&body.name, body.scope, body.expires_at)
+    })
+    .await
+    .map_err(|_| to_api_err(Status::InternalServerError, "Internal error".to_string()))?
+    .map_err(|e| to_api_err(Status::InternalServerError, e))?;
+
+    Ok(Json(CreateApiKeyResponse {
+        id: key_info.id,
+        name: key_info.name,
+        scope: key_info.scope,
+        key: plaintext_key,
+        created_at: key_info.created_at,
+    }))
+}
+
+#[get("/api/admin/keys")]
+async fn admin_list_keys_api(
+    key_store: &State<SharedApiKeyStore>,
+    _auth: RequireAdminAuth,
+) -> Result<Json<ListApiKeysResponse>, (Status, Json<ApiError>)> {
+    let store = key_store.inner().clone();
+    let keys = tokio::task::spawn_blocking(move || store.list_keys())
+        .await
+        .map_err(|_| to_api_err(Status::InternalServerError, "Internal error".to_string()))?
+        .map_err(|e| to_api_err(Status::InternalServerError, e))?;
+
+    let key_infos = keys
+        .into_iter()
+        .map(|k| ApiKeyInfo {
+            id: k.id,
+            name: k.name,
+            scope: k.scope,
+            created_at: k.created_at,
+            last_used_at: k.last_used_at,
+            expires_at: k.expires_at,
+        })
+        .collect();
+
+    Ok(Json(ListApiKeysResponse { keys: key_infos }))
+}
+
+#[delete("/api/admin/keys/<id>")]
+async fn admin_delete_key_api(
+    key_store: &State<SharedApiKeyStore>,
+    id: String,
+    _auth: RequireAdminAuth,
+) -> Result<Json<RevokeApiKeyResponse>, (Status, Json<ApiError>)> {
+    let store = key_store.inner().clone();
+    let revoked = tokio::task::spawn_blocking(move || store.revoke_key(&id))
+        .await
+        .map_err(|_| to_api_err(Status::InternalServerError, "Internal error".to_string()))?
+        .map_err(|e| to_api_err(Status::InternalServerError, e))?;
+
+    Ok(Json(RevokeApiKeyResponse { revoked }))
+}
+
 #[get("/")]
 async fn index() -> content::RawHtml<String> {
     content::RawHtml(include_str!("../../static/index.html").to_string())
@@ -1215,5 +1384,249 @@ mod tests {
         assert_eq!(health.services.storage.status, "ok");
         // crypto_verifier status depends on whether service is running
         assert!(!health.services.crypto_verifier.status.is_empty());
+    }
+
+    #[test]
+    fn status_to_code_maps_known_codes() {
+        assert_eq!(status_to_code(Status::BadRequest), "bad_request");
+        assert_eq!(status_to_code(Status::Unauthorized), "unauthorized");
+        assert_eq!(status_to_code(Status::Forbidden), "forbidden");
+        assert_eq!(status_to_code(Status::NotFound), "not_found");
+        assert_eq!(status_to_code(Status::Gone), "gone");
+        assert_eq!(status_to_code(Status::Locked), "locked");
+        assert_eq!(
+            status_to_code(Status::InternalServerError),
+            "internal_error"
+        );
+        assert_eq!(status_to_code(Status::BadGateway), "bad_gateway");
+        assert_eq!(status_to_code(Status::ServiceUnavailable), "error");
+    }
+
+    #[test]
+    fn to_api_err_constructs_error_envelope() {
+        let (status, Json(err)) = to_api_err(Status::NotFound, "not found".into());
+        assert_eq!(status, Status::NotFound);
+        assert_eq!(err.code, "not_found");
+        assert_eq!(err.message, "not found");
+    }
+
+    #[test]
+    fn show_api_returns_not_found_for_missing_paste() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client.get("/api/pastes/nonexistent-id").dispatch();
+        assert_eq!(response.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn show_api_encrypted_paste_requires_key() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(Arc::clone(&store));
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "secret content",
+            "format": "plain_text",
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "mypassword"
+            }
+        });
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+
+        // No key → 401
+        let no_key = client.get(format!("/api/pastes/{}", created.id)).dispatch();
+        assert_eq!(no_key.status(), Status::Unauthorized);
+
+        // Wrong key → 403
+        let wrong_key = client
+            .get(format!("/api/pastes/{}?key=wrongpassword", created.id))
+            .dispatch();
+        assert_eq!(wrong_key.status(), Status::Forbidden);
+
+        // Correct key → 200 with rich response
+        let ok = client
+            .get(format!("/api/pastes/{}?key=mypassword", created.id))
+            .dispatch();
+        assert_eq!(ok.status(), Status::Ok);
+        let view: PasteViewResponse = serde_json::from_str(&ok.into_string().unwrap()).unwrap();
+        assert_eq!(view.content, "secret content");
+        assert!(view.encryption.requires_key);
+    }
+
+    #[test]
+    fn show_api_plain_paste_returns_full_response() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(json!({"content": "hello", "format": "plain_text"}).to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+
+        let get = client.get(format!("/api/pastes/{}", created.id)).dispatch();
+        assert_eq!(get.status(), Status::Ok);
+        let view: PasteViewResponse = serde_json::from_str(&get.into_string().unwrap()).unwrap();
+        assert_eq!(view.content, "hello");
+        assert!(!view.encryption.requires_key);
+        assert!(!view.burn_after_reading);
+    }
+
+    #[test]
+    fn auth_challenge_returns_nonempty_string() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let resp = client.get("/api/auth/challenge").dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(!parsed["challenge"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn auth_logout_returns_success() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let resp = client
+            .post("/api/auth/logout")
+            .header(ContentType::JSON)
+            .dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["success"], true);
+    }
+
+    #[test]
+    fn create_api_rejects_malformed_json() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let resp = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body("{not valid json}")
+            .dispatch();
+        assert_eq!(resp.status(), Status::BadRequest);
+    }
+
+    #[test]
+    fn user_paste_count_returns_zero_for_unknown_user() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let resp = client
+            .get("/api/user/paste-count?pubkey_hash=nonexistent")
+            .dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["pasteCount"], 0);
+    }
+
+    #[test]
+    fn user_paste_list_returns_empty_for_unknown_user() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let resp = client
+            .get("/api/user/pastes?pubkey_hash=nonexistent")
+            .dispatch();
+        assert_eq!(resp.status(), Status::Ok);
+        let body = resp.into_string().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["pastes"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn admin_endpoints_require_auth() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // No auth → 401
+        let resp = client.get("/api/admin/keys").dispatch();
+        assert_eq!(resp.status(), Status::Unauthorized);
+
+        let resp = client
+            .post("/api/admin/keys")
+            .header(ContentType::JSON)
+            .body(json!({"name": "test"}).to_string())
+            .dispatch();
+        assert_eq!(resp.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn admin_create_list_delete_keys_with_bootstrap_token() {
+        std::env::set_var("COPYPASTE_ADMIN_TOKEN", "test-admin-bootstrap");
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // Create a key
+        let create_resp = client
+            .post("/api/admin/keys")
+            .header(ContentType::JSON)
+            .header(rocket::http::Header::new(
+                "Authorization",
+                "Bearer test-admin-bootstrap",
+            ))
+            .body(json!({"name": "my-key", "scope": "write"}).to_string())
+            .dispatch();
+        assert_eq!(create_resp.status(), Status::Ok);
+        let created: CreateApiKeyResponse =
+            serde_json::from_str(&create_resp.into_string().unwrap()).unwrap();
+        assert_eq!(created.name, "my-key");
+        assert!(!created.key.is_empty());
+        let key_id = created.id.clone();
+
+        // List keys
+        let list_resp = client
+            .get("/api/admin/keys")
+            .header(rocket::http::Header::new(
+                "Authorization",
+                "Bearer test-admin-bootstrap",
+            ))
+            .dispatch();
+        assert_eq!(list_resp.status(), Status::Ok);
+        let list: ListApiKeysResponse =
+            serde_json::from_str(&list_resp.into_string().unwrap()).unwrap();
+        assert!(!list.keys.is_empty());
+
+        // Delete the key
+        let delete_resp = client
+            .delete(format!("/api/admin/keys/{}", key_id))
+            .header(rocket::http::Header::new(
+                "Authorization",
+                "Bearer test-admin-bootstrap",
+            ))
+            .dispatch();
+        assert_eq!(delete_resp.status(), Status::Ok);
+        let deleted: RevokeApiKeyResponse =
+            serde_json::from_str(&delete_resp.into_string().unwrap()).unwrap();
+        assert!(deleted.revoked);
     }
 }

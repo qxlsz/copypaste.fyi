@@ -59,8 +59,12 @@ export interface CreatePastePayload {
 }
 
 export interface CreatePasteResponse {
+  id: string;
   path: string;
   shareableUrl: string;
+  /** Only present when `live: true` was set in the request. */
+  token?: string;
+  isLive: boolean;
 }
 
 export type StegoRequest =
