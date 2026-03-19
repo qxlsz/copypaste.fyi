@@ -37,7 +37,7 @@ use super::render::{
     render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
     render_paste_view, render_time_locked, StoredPasteView,
 };
-use super::stego::parse_data_uri;
+use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
 use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp};
 use super::tor::{OnionAccess, TorConfig};
 use super::webhook::{trigger_webhook, WebhookEvent};
@@ -1029,21 +1029,69 @@ async fn create_paste_internal(
         metadata.webhook = Some(webhook_config_from_request(webhook_req)?);
     }
 
-    // Handle stego
-    if let Some(ref stego_req) = body.stego {
-        match stego_req {
-            StegoRequest::Builtin { carrier: _ } => {
-                // For now, just store the original content
-                // In a full implementation, this would embed the content in the carrier
+    // Handle stego — embed encrypted ciphertext into carrier image
+    let content = if let Some(ref stego_req) = body.stego {
+        let (algorithm, ciphertext_b64, nonce, salt) = match content {
+            StoredContent::Encrypted {
+                algorithm,
+                ciphertext,
+                nonce,
+                salt,
+            } => (algorithm, ciphertext, nonce, salt),
+            _ => {
+                return Err((
+                    Status::BadRequest,
+                    "Steganography requires encryption to be enabled".into(),
+                ))
             }
+        };
+        let ciphertext_bytes = BASE64_STANDARD.decode(&ciphertext_b64).map_err(|_| {
+            (
+                Status::InternalServerError,
+                "Failed to decode ciphertext".into(),
+            )
+        })?;
+        let carrier_source = match stego_req {
+            StegoRequest::Builtin { carrier } => StegoCarrierSource::BuiltIn(carrier.clone()),
             StegoRequest::Uploaded { data_uri } => {
-                // Parse and embed in uploaded carrier
-                let _carrier = parse_data_uri(data_uri)
+                let (mime, data) = parse_data_uri(data_uri)
                     .map_err(|e| (Status::BadRequest, format!("Invalid data URI: {}", e)))?;
-                // For now, just store the original content
+                if data.len() > 1_048_576 {
+                    return Err((
+                        Status::PayloadTooLarge,
+                        "Carrier image must not exceed 1 MB".into(),
+                    ));
+                }
+                StegoCarrierSource::Uploaded { mime, data }
             }
+        };
+        let payload = ciphertext_bytes.clone();
+        let result = tokio::task::spawn_blocking(move || embed_payload(carrier_source, &payload))
+            .await
+            .map_err(|_| {
+                (
+                    Status::InternalServerError,
+                    "Steganography task failed".into(),
+                )
+            })?
+            .map_err(|e| (Status::BadRequest, format!("Steganography failed: {e}")))?;
+        let payload_digest = {
+            let mut hasher = Sha256::new();
+            hasher.update(&ciphertext_bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        StoredContent::Stego {
+            algorithm,
+            ciphertext: ciphertext_b64,
+            nonce,
+            salt,
+            carrier_mime: "image/png".to_string(),
+            carrier_image: BASE64_STANDARD.encode(&result.image_data),
+            payload_digest,
         }
-    }
+    } else {
+        content
+    };
 
     // Handle bundle
     if let Some(ref bundle_req) = body.bundle {
@@ -1693,6 +1741,164 @@ mod tests {
         // Second fetch → 404, paste has been deleted.
         let second = client.get(format!("/raw/{}", created.id)).dispatch();
         assert_eq!(second.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn stego_builtin_carrier_embeds_and_returns_carrier_image() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "hidden message",
+            "format": "plain_text",
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "stegokey"
+            },
+            "stego": {
+                "mode": "builtin",
+                "carrier": "aurora"
+            }
+        });
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+
+        // Fetch via API with key — response must include stego info
+        let get = client
+            .get(format!("/api/pastes/{}?key=stegokey", created.id))
+            .dispatch();
+        assert_eq!(get.status(), Status::Ok);
+        let view: PasteViewResponse = serde_json::from_str(&get.into_string().unwrap()).unwrap();
+        assert_eq!(view.content, "hidden message");
+        assert!(view.encryption.requires_key);
+        let stego = view.stego.expect("stego info should be present");
+        assert_eq!(stego.carrier_mime, "image/png");
+        assert!(!stego.carrier_image.is_empty());
+        assert!(!stego.payload_digest.is_empty());
+    }
+
+    #[test]
+    fn stego_without_encryption_returns_bad_request() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "plain text with stego",
+            "format": "plain_text",
+            "stego": {
+                "mode": "builtin",
+                "carrier": "aurora"
+            }
+        });
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::BadRequest);
+    }
+
+    #[test]
+    fn stego_uploaded_carrier_too_large_returns_payload_too_large() {
+        use rocket::data::{Limits, ToByteUnit};
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        // Increase Rocket's JSON body limit so our 1 MB application check is exercised
+        // (Rocket's default 1 MiB limit would reject the request before the handler runs)
+        let rocket = build_rocket(store).configure(rocket::Config {
+            limits: Limits::default().limit("json", 10.mebibytes()),
+            ..Default::default()
+        });
+        let client = Client::tracked(rocket).expect("client");
+
+        // Build a data URI whose decoded bytes exceed 1 MB
+        let large_data = vec![0u8; 1_048_577];
+        let data_uri = format!(
+            "data:image/png;base64,{}",
+            BASE64_STANDARD.encode(&large_data)
+        );
+
+        let payload = json!({
+            "content": "hidden",
+            "format": "plain_text",
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "key"
+            },
+            "stego": {
+                "mode": "uploaded",
+                "data_uri": data_uri
+            }
+        });
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::PayloadTooLarge);
+    }
+
+    #[test]
+    fn stego_payload_digest_matches_ciphertext_sha256() {
+        use sha2::{Digest, Sha256};
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(Arc::clone(&store));
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "digest check",
+            "format": "plain_text",
+            "encryption": {
+                "algorithm": "aes256_gcm",
+                "key": "testkey"
+            },
+            "stego": {
+                "mode": "builtin",
+                "carrier": "nebula"
+            }
+        });
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+
+        // Retrieve the stored paste directly to get the raw ciphertext
+        let stored = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(store.get_paste(&created.id))
+            .expect("paste should exist");
+
+        let (ciphertext_b64, expected_digest) = match stored.content {
+            StoredContent::Stego {
+                ciphertext,
+                payload_digest,
+                ..
+            } => (ciphertext, payload_digest),
+            _ => panic!("expected Stego content variant"),
+        };
+
+        let raw = BASE64_STANDARD.decode(&ciphertext_b64).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(&raw);
+        let computed = format!("{:x}", hasher.finalize());
+        assert_eq!(computed, expected_digest);
     }
 
     #[test]

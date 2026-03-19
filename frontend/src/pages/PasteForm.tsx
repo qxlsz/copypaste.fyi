@@ -628,7 +628,7 @@ export const PasteFormPage = () => {
                             <input
                               id="stegoUpload"
                               type="file"
-                              accept="image/png,image/bmp,image/jpeg,image/webp"
+                              accept="image/png,image/bmp"
                               onChange={handleStegoFileUpload}
                               className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-primary hover:file:bg-primary/20 dark:text-slate-200"
                             />
