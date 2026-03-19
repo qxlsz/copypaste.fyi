@@ -257,3 +257,102 @@ async fn decrypt_truncated_ciphertext_aes_gcm_returns_invalid_key() {
         "decryption of truncated ciphertext must fail"
     );
 }
+
+// OCaml verification behaviour tests
+// Each test runs in its own process under nextest, so env var mutations are safe.
+
+#[tokio::test]
+async fn ocaml_service_unavailable_does_not_block_by_default() {
+    // Default mode: COPYPASTE_REQUIRE_CRYPTO_VERIFICATION unset → verifier failures are
+    // logged but must NOT prevent encryption from succeeding.
+    std::env::remove_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION");
+    // Port 1 is reserved and always refuses connections immediately.
+    std::env::set_var("CRYPTO_VERIFIER_URL", "http://127.0.0.1:1");
+
+    let result = copypaste::server::crypto::encrypt_content(
+        "hello world",
+        "test-key-00000000000000000000000000000000",
+        copypaste::EncryptionAlgorithm::Aes256Gcm,
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "encryption must succeed when OCaml service is unavailable (defense-in-depth mode)"
+    );
+}
+
+#[tokio::test]
+async fn ocaml_valid_false_blocks_when_strict_mode_enabled() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/verify/encryption");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{"valid":false,"details":"test forced failure"}"#);
+    });
+
+    std::env::set_var("CRYPTO_VERIFIER_URL", server.base_url());
+    std::env::set_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION", "true");
+
+    let result = copypaste::server::crypto::encrypt_content(
+        "hello world",
+        "test-key-00000000000000000000000000000000",
+        copypaste::EncryptionAlgorithm::Aes256Gcm,
+    )
+    .await;
+
+    assert!(
+        result.is_err(),
+        "encryption must fail when OCaml verifier returns valid=false in strict mode"
+    );
+}
+
+#[tokio::test]
+async fn ocaml_service_unavailable_blocks_when_strict_mode_enabled() {
+    // Strict mode: COPYPASTE_REQUIRE_CRYPTO_VERIFICATION=true → unreachable verifier is an error.
+    std::env::set_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION", "true");
+    std::env::set_var("CRYPTO_VERIFIER_URL", "http://127.0.0.1:1");
+
+    let result = copypaste::server::crypto::encrypt_content(
+        "hello world",
+        "test-key-00000000000000000000000000000000",
+        copypaste::EncryptionAlgorithm::Aes256Gcm,
+    )
+    .await;
+
+    assert!(
+        result.is_err(),
+        "encryption must fail when OCaml service is unreachable in strict mode"
+    );
+}
+
+#[tokio::test]
+async fn ocaml_valid_true_allows_encryption_in_strict_mode() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/verify/encryption");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{"valid":true}"#);
+    });
+
+    std::env::set_var("CRYPTO_VERIFIER_URL", server.base_url());
+    std::env::set_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION", "true");
+
+    let result = copypaste::server::crypto::encrypt_content(
+        "hello world",
+        "test-key-00000000000000000000000000000000",
+        copypaste::EncryptionAlgorithm::Aes256Gcm,
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "encryption must succeed when OCaml verifier returns valid=true in strict mode"
+    );
+}
