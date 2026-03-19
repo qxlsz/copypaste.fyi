@@ -18,14 +18,14 @@ COPY --from=frontend /app/frontend/dist ./static/dist/
 COPY static/index.html ./static/
 # Cache deps layer
 RUN cargo build --release --locked --bin copypaste
+# Prepare /data with correct ownership for distroless nonroot (UID 65532)
+RUN mkdir -p /data && chown 65532:65532 /data
 
-# ─── Stage 3: Runtime ─────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /app/target/release/copypaste /usr/local/bin/
-COPY --from=builder /app/static /app/static
+# ─── Stage 3: Runtime (distroless — no shell, runs as nonroot UID 65532) ─────
+FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+COPY --from=builder --chown=65532:65532 /app/target/release/copypaste /usr/local/bin/copypaste
+COPY --from=builder --chown=65532:65532 /app/static /app/static
+COPY --from=builder /data /data
 
 WORKDIR /app
 VOLUME /data
@@ -35,4 +35,7 @@ ENV ROCKET_ADDRESS=0.0.0.0 \
     ROCKET_PORT=8000 \
     COPYPASTE_SQLITE_PATH=/data/copypaste.db
 
-CMD ["copypaste", "serve"]
+# distroless/nonroot sets USER 65532 by default; no shell available so
+# Docker-native HEALTHCHECK is omitted — rely on Fly.io HTTP health checks
+# configured in fly.toml [[services.http_checks]].
+CMD ["/usr/local/bin/copypaste", "serve"]
