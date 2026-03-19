@@ -492,7 +492,8 @@ export const PasteFormPage = () => {
                     <div className="relative">
                       <input
                         id="encryptionKey"
-                        type="text"
+                        type="password"
+                        autoComplete="new-password"
                         value={encryptionKey}
                         onChange={(event) =>
                           setEncryptionKey(event.target.value)

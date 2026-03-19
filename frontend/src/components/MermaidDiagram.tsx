@@ -72,25 +72,36 @@ export const MermaidDiagram = ({
 
     const renderDiagram = async () => {
       try {
-        mermaid.initialize({
+        // Merge caller config first, then unconditionally override security-critical
+        // settings so no caller-supplied config can downgrade them.
+        const baseConfig = {
           startOnLoad: false,
-          securityLevel: "loose",
-          theme: "base",
+          theme: "base" as const,
           themeVariables: buildThemeVariables(colorMode),
-          flowchart: {
-            curve: "basis",
-            htmlLabels: true,
-          },
           sequence: {
             mirrorActors: false,
           },
           ...config,
+        };
+        mermaid.initialize({
+          ...baseConfig,
+          // Security: these must come after ...baseConfig (which includes ...config)
+          // so callers cannot override them via the config prop.
+          securityLevel: "strict",
+          flowchart: {
+            curve: "basis",
+            ...(config?.flowchart ?? {}),
+            htmlLabels: false,
+          },
         });
         const { svg } = await mermaid.render(`${id}-diagram`, chartDefinition);
-        container.innerHTML = svg;
+        // Parse as XML (avoids innerHTML assignment and doesn't execute scripts)
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svg, "image/svg+xml");
+        container.replaceChildren(svgDoc.documentElement);
         setHasRendered(true);
       } catch (error) {
-        console.error("Mermaid render error", error);
+        if (import.meta.env.DEV) console.error("Mermaid render error", error);
       }
     };
 
