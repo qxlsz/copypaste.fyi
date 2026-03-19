@@ -19,16 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
-      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Set up Flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@v1
+        uses: superfly/flyctl-actions/setup-flyctl@fc53c09e1bc3be6f54706524e3b82c4f462f77be  # v1
 
       - name: Ensure Fly token is present
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           if [[ -z "${FLY_API_TOKEN:-}" ]]; then
             echo "FLY_API_TOKEN is unset" >&2
@@ -37,12 +37,18 @@ jobs:
           echo "FLY_API_TOKEN detected (value masked)"
 
       - name: Check Fly auth
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: flyctl auth whoami
 
       - name: Validate fly.toml
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: flyctl config validate
 
       - name: Deploy app
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           export GIT_COMMIT=$(git rev-parse --short HEAD)
           export GIT_COMMIT_MESSAGE=$(git log -1 --pretty=%B)
@@ -51,7 +57,7 @@ jobs:
             --build-arg GIT_COMMIT_MESSAGE="$GIT_COMMIT_MESSAGE"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: '20'
           cache: 'npm'
