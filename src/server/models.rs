@@ -66,6 +66,10 @@ pub struct PasteViewResponse {
     pub encryption: PasteEncryptionInfo,
     #[serde(default)]
     pub tor_access_only: bool,
+    #[serde(default)]
+    pub access_count: u64,
+    #[serde(default)]
+    pub is_live: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_lock: Option<PasteTimeLockInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -381,6 +385,70 @@ pub struct WorkspacePasteItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
     pub created_at: i64,
+}
+
+// ── Admin key listing & revocation responses ─────────────────────────────────
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeyInfo {
+    pub id: String,
+    pub name: String,
+    pub scope: ApiScope,
+    pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_used_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ListApiKeysResponse {
+    pub keys: Vec<ApiKeyInfo>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeApiKeyResponse {
+    pub revoked: bool,
+}
+
+// ── Standardised error shape ──────────────────────────────────────────────────
+
+/// Machine-readable error envelope returned by all API error responses.
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiError {
+    /// Machine-readable error code, e.g. `"paste_not_found"`.
+    pub code: String,
+    /// Human-readable description.
+    pub message: String,
+    /// Optional structured details (validation errors, upstream messages, etc.).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+impl ApiError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    pub fn with_details(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        details: serde_json::Value,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            details: Some(details),
+        }
+    }
 }
 
 // ── Existing query ────────────────────────────────────────────────────────────

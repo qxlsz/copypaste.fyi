@@ -328,9 +328,10 @@ mod tests {
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn write_temp_config(content: &str) -> PathBuf {
-        // Use a unique name based on thread id to avoid collisions.
+        // Include PID so concurrent nextest processes don't share the same file.
         let id = std::thread::current().id();
-        let path = std::env::temp_dir().join(format!("copypaste_cfg_test_{id:?}.toml"));
+        let pid = std::process::id();
+        let path = std::env::temp_dir().join(format!("copypaste_cfg_test_{pid}_{id:?}.toml"));
         std::fs::write(&path, content).expect("write temp config");
         path
     }
