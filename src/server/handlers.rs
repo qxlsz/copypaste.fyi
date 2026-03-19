@@ -1597,6 +1597,105 @@ mod tests {
     }
 
     #[test]
+    fn raw_route_enforces_time_lock() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "time-locked secret",
+            "format": "plain_text",
+            "time_lock": {
+                "not_before": "9999-01-01T00:00:00Z"
+            }
+        });
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+
+        // Raw endpoint must honour time-lock and return 423 before not_before.
+        let raw = client.get(format!("/raw/{}", created.id)).dispatch();
+        assert_eq!(raw.status(), Status::Locked);
+    }
+
+    #[test]
+    fn raw_route_enforces_attestation() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "attested secret",
+            "format": "plain_text",
+            "attestation": {
+                "kind": "shared_secret",
+                "secret": "topsecret"
+            }
+        });
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+
+        // No credentials → 401 Unauthorized (prompt, no invalid flag).
+        let no_creds = client.get(format!("/raw/{}", created.id)).dispatch();
+        assert_eq!(no_creds.status(), Status::Unauthorized);
+
+        // Wrong credentials → 403 Forbidden (prompt with invalid flag).
+        let wrong_creds = client
+            .get(format!("/raw/{}?attest=wrongsecret", created.id))
+            .dispatch();
+        assert_eq!(wrong_creds.status(), Status::Forbidden);
+    }
+
+    #[test]
+    fn raw_route_triggers_burn_after_reading_flow() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "burn after raw read",
+            "format": "plain_text",
+            "burn_after_reading": true,
+            "webhook": {
+                "url": "https://example.com/webhook"
+            }
+        });
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+
+        // First fetch via raw endpoint → 200, paste is consumed.
+        let first = client.get(format!("/raw/{}", created.id)).dispatch();
+        assert_eq!(first.status(), Status::Ok);
+
+        // Second fetch → 404, paste has been deleted.
+        let second = client.get(format!("/raw/{}", created.id)).dispatch();
+        assert_eq!(second.status(), Status::NotFound);
+    }
+
+    #[test]
     fn admin_create_list_delete_keys_with_bootstrap_token() {
         std::env::set_var("COPYPASTE_ADMIN_TOKEN", "test-admin-bootstrap");
 
