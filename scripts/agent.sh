@@ -22,7 +22,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-MAX_ATTEMPTS=3
+MAX_ATTEMPTS=5
 POLL_INTERVAL=300
 LOOP_MODE=false
 LOG_DIR="${REPO_ROOT}/.agent-logs"
@@ -133,6 +133,10 @@ implement() {
        directive="The straightforward approach failed. Read more of the codebase. Study related files and tests. Try a fundamentally different approach based on the review feedback." ;;
     3) strategy="decompose"
        directive="Previous approaches failed. Break the problem into the smallest possible change that still addresses the core issue." ;;
+    4) strategy="targeted-fix"
+       directive="Address ONLY the specific issues raised in the latest review feedback — nothing more, nothing less. Read the feedback carefully and fix each point exactly as described. Do not refactor, do not add features, do not change anything that wasn't mentioned in the feedback." ;;
+    5) strategy="minimal-viable"
+       directive="Implement the absolute minimum change needed to address the single most critical issue from the review feedback. If the review has multiple points, fix only the most important correctness or security issue. Leave everything else for a follow-up. The goal is to get something merged, not to be perfect." ;;
   esac
 
   local feedback_section=""
