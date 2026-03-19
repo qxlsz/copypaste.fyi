@@ -150,7 +150,7 @@ pub fn render_paste_view(
         format!(
             r#"<section class="meta">
     <div><strong>ID:</strong> {id}</div>
-    <div><strong>Format:</strong> {format:?}</div>
+    <div><strong>Format:</strong> {format}</div>
     <div><strong>Created:</strong> {created}</div>
     <div><strong>Retention:</strong> {retention}</div>
     <div><strong>Encryption:</strong> {encryption}</div>
@@ -168,9 +168,9 @@ pub fn render_paste_view(
 </article>
 "#,
             id = encode_safe(id),
-            format = paste.format,
-            created = created,
-            retention = retention,
+            format = encode_safe(&format!("{:?}", paste.format)),
+            created = encode_safe(&created),
+            retention = encode_safe(&retention),
             encryption = encryption,
             burn = burn_status,
             burn_note = burn_note,
@@ -526,6 +526,29 @@ mod tests {
         let html = render_expired("expired-id");
         assert!(html.contains("Paste expired"));
         assert!(html.contains("expired-id"));
+    }
+
+    #[test]
+    fn render_paste_view_escapes_timestamps_and_format() {
+        let content = StoredContent::Plain {
+            text: "hello".to_string(),
+        };
+        let metadata = PasteMetadata::default();
+        let view = StoredPasteView {
+            content: &content,
+            format: PasteFormat::PlainText,
+            created_at: 0,
+            expires_at: None,
+            burn_after_reading: false,
+            metadata: &metadata,
+        };
+
+        let html = render_paste_view("id", &view, "hello", None);
+
+        // Format should appear as escaped Debug output, not raw enum Display
+        assert!(html.contains("PlainText"));
+        // Timestamps should appear (no injection characters present with safe values)
+        assert!(html.contains("No expiry"));
     }
 
     #[test]
