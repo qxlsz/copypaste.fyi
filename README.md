@@ -2,26 +2,26 @@
 
 # copypaste.fyi
 
-Simple, open-source paste sharing for teams and individuals.
+Lightweight, open-source paste sharing with **client-side encryption**, burn-after-reading links,
+post-quantum cryptography, and **dual cryptographic verification** (Rust + independent OCaml service).
 
 [![CI](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml/badge.svg)](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-%E2%89%A575%25-brightgreen)](#)
-[![Docker](https://ghcr-badge.egpl.dev/qxlsz/copypaste.fyi/size?tag=latest)](https://github.com/qxlsz/copypaste.fyi/pkgs/container/copypaste.fyi)
+[![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)](#deploy)
 [![crates.io](https://img.shields.io/crates/v/copypaste.svg)](https://crates.io/crates/copypaste)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.82+-orange?logo=rust)](#run-locally)
 
 </div>
 
-## Quickstart
+## 60-second start
 
 ```bash
-docker run --rm -p 8000:8000 ghcr.io/qxlsz/copypaste.fyi:latest
-
-curl -s -XPOST localhost:8000/api/pastes \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"Hello!","burn_after_reading":true}' | jq .shareableUrl
+docker compose up --build   # backend :8000  +  crypto verifier :8001
 ```
+
+Open <http://127.0.0.1:8000>, paste text, click **Create paste**. Done.
+For CLI or source builds see [Getting Started](#getting-started).
 
 ## Overview
 
@@ -29,14 +29,13 @@ copypaste.fyi is a lightweight web service for creating and sharing plaintext sn
 
 Key traits:
 
-- 🧠 **Zero complexity** – in-memory storage with minimal dependencies.
-- ⚡ **Fast** – Rocket-based async backend with Tokio.
-- 🐳 **Container friendly** – ready-to-run Docker image and compose service.
-- 🔗 **Scriptable** – companion CLI (`copypaste send`) for shell automation.
-- 🧨 **One-time links** – optional burn-after-reading destroys pastes after the first successful view.
-- 🔐 **Post-quantum ready** – Kyber hybrid encryption for future-proof security.
-- 🧬 **Defense-in-depth crypto** – encryption independently verified by an OCaml service (mirage-crypto), not just Rust.
-- 🛡️ **Privacy awareness** – real-time privacy journey tracker showing HTTPS, Tor, VPN, DNT, and encryption status.
+- 🔐 **Client-side encryption** – AES-256-GCM, ChaCha20-Poly1305, XChaCha20-Poly1305, Kyber hybrid (post-quantum). Keys never touch the server.
+- 🔬 **Dual crypto verification** – every encrypt/decrypt operation is independently confirmed by a secondary OCaml service (`mirage-crypto`) for defense-in-depth assurance.
+- 🧨 **Burn-after-reading** – optional one-time links that self-destruct on first view.
+- 🛡️ **Privacy journey tracker** – real-time indicator showing HTTPS, Tor, VPN, DNT, and encryption status.
+- 🔗 **Scriptable** – companion CLI (`cpaste`) and JSON REST API for shell automation.
+- 🐳 **Container-first** – single `docker compose up --build` brings up backend + crypto verifier.
+- ⚡ **Fast** – async Rocket (Rust) backend; no database required by default.
 
 ## Architecture
 
@@ -117,14 +116,18 @@ The SPA communicates with the Rocket REST API for creation and viewing, while th
 - **CLI:** `copypaste send` using `reqwest`
 - **Tooling:** Cargo fmt/clippy/nextest, Vitest, ESLint
 
-## Roadmap
+## Near-term roadmap
 
-- [x] Post-quantum crypto (Kyber hybrid AES-256-GCM)
-- [x] OCaml dual-language cryptographic verification
-- [x] Redis persistence backend
-- [ ] `cargo install copypaste` (crates.io release)
-- [ ] Shell completions (bash/zsh/fish)
-- [ ] `awesome-selfhosted` listing
+- [ ] Persistent storage option (SQLite adapter behind the `PasteStore` trait) so pastes survive restarts without Redis
+- [ ] Rate limiting middleware (leaky-bucket per IP) to harden public deployments
+- [ ] Real Kyber-1024 KEM via `pqcrypto` crate (current implementation uses SHA-256 as KEM simulation)
+- [x] `SECURITY.md` and CVE reporting process
+- [x] Post-quantum Kyber hybrid encryption
+- [x] OCaml dual cryptographic verification
+- [x] Burn-after-reading
+- [x] Fly.io process-group deployment
+
+Contributions welcome — pick any unchecked item and open a PR.
 
 ## Getting Started
 
@@ -197,6 +200,71 @@ npm run build
 ```
 
 For an all-in-one local environment (Rocket API + Vite dev server) run `./scripts/run_both.sh`. The script automatically configures the frontend to communicate with the backend API, ensuring proper functionality for features like Kyber encryption. Stop everything with `./scripts/stop.sh`.
+
+## Deploy
+
+### Docker Compose (recommended)
+
+```bash
+docker compose up --build
+```
+
+Starts the Rust backend on `:8000` and the OCaml crypto verifier on `:8001`. Data is in-memory; restart clears pastes. Persistent storage via Redis:
+
+```bash
+COPYPASTE_REDIS_URL=redis://redis:6379 docker compose up --build
+```
+
+### Fly.io
+
+```bash
+fly launch   # first time; creates fly.toml
+fly deploy
+fly logs
+```
+
+The included `fly.toml` uses Fly.io process groups: the `app` process runs the Rocket backend and `crypto-verifier` runs the OCaml service on the same machine.
+
+### Bare metal / VPS
+
+```bash
+cargo build --release
+./target/release/copypaste          # listens on 0.0.0.0:8000
+
+# Optional: point at a running OCaml verifier
+CRYPTO_VERIFIER_URL=http://127.0.0.1:8001 ./target/release/copypaste
+```
+
+Reverse-proxy with nginx or Caddy; TLS termination is strongly recommended for public instances.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `ROCKET_ADDRESS` | `0.0.0.0` | Bind address |
+| `ROCKET_PORT` | `8000` | Bind port |
+| `CRYPTO_VERIFIER_URL` | `http://localhost:8001` | OCaml verifier endpoint |
+| `COPYPASTE_REDIS_URL` | _(none)_ | Enable Redis persistence |
+| `COPYPASTE_REDIS_KEY_PREFIX` | `paste:` | Redis key namespace |
+| `COPYPASTE_ONION_HOST` | _(none)_ | Tor `.onion` hostname |
+| `RUST_LOG` | `info` | Log verbosity |
+
+### Clipboard integration (bash/zsh)
+
+Add this function to `~/.bashrc` or `~/.zshrc` to pipe anything from your clipboard straight to a running instance:
+
+```bash
+cpaste-clip() {
+  local host="${CPASTE_HOST:-http://127.0.0.1:8000}"
+  pbpaste 2>/dev/null || xclip -o 2>/dev/null || wl-paste 2>/dev/null \
+    | curl -s -X POST "$host/api/pastes" \
+        -H 'Content-Type: application/json' \
+        --data-raw "{\"content\": $(cat - | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'), \"format\": \"plain_text\"}" \
+    | python3 -c 'import sys,json; d=json.load(sys.stdin); print("'"$host"'" + d["shareableUrl"])'
+}
+```
+
+Usage: `cpaste-clip` — prints the paste URL. Override host with `CPASTE_HOST=https://copypaste.fyi cpaste-clip`.
 
 ## REST API
 
@@ -353,16 +421,6 @@ The web UI includes multiple passphrase helpers (**Geek**, **Emoji combo**, **Di
 - Raw view: append `/raw/<id>` (plus `?key=<passphrase>` when encrypted) to retrieve plaintext without HTML chrome.
 
 ➡️ Dive deeper in the [Encryption guide](docs/encryption.md) for algorithm notes, key derivation details, and operational advice.
-
-### Run with Docker Compose
-
-```bash
-docker compose up --build
-
-# Visit http://127.0.0.1:8000/
-```
-
-Compose mounts the `static/` directory for live UI updates. Data is stored in-memory inside the container; restart clears pastes.
 
 ### CLI Usage (`copypaste send`)
 
