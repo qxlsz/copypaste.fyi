@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
 import { PrivacyJourney } from "./components/PrivacyJourney";
 import { PasteFormPage } from "./pages/PasteForm";
@@ -20,7 +21,14 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<PasteFormPage />} />
-          <Route path="p/:id" element={<PasteViewPage />} />
+          <Route
+            path="p/:id"
+            element={
+              <ErrorBoundary>
+                <PasteViewPage />
+              </ErrorBoundary>
+            }
+          />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="stats" element={<StatsPage />} />
           <Route path="about" element={<AboutPage />} />
