@@ -202,7 +202,7 @@ ${directive}
 9. **CRITICAL — git branch discipline**: You are on branch \`agent/issue-${issue_number}\`. DO NOT run \`git checkout\`, \`git switch\`, \`git branch -D\`, or any other command that changes the current branch. Commit directly to the current branch. Never switch to main or any other branch.
 IMPL_PROMPT
 
-  cat "${PROMPT_DIR}/implement.txt" | claude --print --dangerously-skip-permissions --max-turns 30 --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+  cat "${PROMPT_DIR}/implement.txt" | claude --print --max-turns 30 --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
 }
 
 # ---------------------------------------------------------------------------
@@ -367,7 +367,7 @@ Make sure ALL pass:
 - cargo nextest run --workspace --all-features
 - cd frontend && npm test -- --run && npm run lint
 FIX_PROMPT
-      cat "${PROMPT_DIR}/fix.txt" | claude --print --dangerously-skip-permissions --max-turns 10 --allowedTools "Bash,Read,Write,Edit,Glob,Grep" 2>&1 || true
+      cat "${PROMPT_DIR}/fix.txt" | claude --print --max-turns 10 --allowedTools "Bash,Read,Write,Edit,Glob,Grep" 2>&1 || true
 
       if ! validate 2>&1 | tee "${LOG_DIR}/issue-${issue_number}-a${attempt}-validate2.log"; then
         log "Still failing after fix."
