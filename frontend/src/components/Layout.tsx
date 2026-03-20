@@ -7,6 +7,7 @@ import { CommandPalette } from "./CommandPalette";
 import { FloatingAboutButton } from "./FloatingAboutButton";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { useAuth } from "../stores/auth";
+import { useTheme } from "../theme/ThemeContext";
 
 export const Layout = () => {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ export const Layout = () => {
   const location = useLocation();
   const showHero = location.pathname === "/";
   const { user, logout } = useAuth();
+  const { toggleTheme } = useTheme();
 
   const commandActions = useMemo(
     () => [
@@ -26,8 +28,26 @@ export const Layout = () => {
         group: "Primary",
         handler: () => navigate("/"),
       },
+      {
+        id: "about",
+        label: "About & architecture",
+        group: "Navigation",
+        handler: () => navigate("/about"),
+      },
+      {
+        id: "stats",
+        label: "Service statistics",
+        group: "Navigation",
+        handler: () => navigate("/stats"),
+      },
+      {
+        id: "toggle-theme",
+        label: "Toggle dark / light mode",
+        group: "Preferences",
+        handler: () => toggleTheme(),
+      },
     ],
-    [navigate],
+    [navigate, toggleTheme],
   );
 
   useHotkeys({ shortcut: "meta+n", handler: () => navigate("/") });
