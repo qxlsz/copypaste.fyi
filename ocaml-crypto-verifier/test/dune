@@ -3,6 +3,7 @@
  (libraries
    crypto_verifier
    mirage-crypto
+   mirage-crypto-ec
    base64
    cstruct
    ounit2))

@@ -533,11 +533,24 @@ async fn verify_with_ocaml_crypto_service(
                                 .get("details")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("Unknown verification error");
-                            log::error!(
-                                "OCaml crypto verifier returned valid=false for {}: {}",
-                                verification_type,
-                                details
-                            );
+                            // Log at warn level for expected gaps (algorithm not supported),
+                            // error level for actual verification failures.
+                            if details.contains("not yet implemented")
+                                || details.contains("not supported")
+                                || details.contains("Unsupported")
+                            {
+                                log::warn!(
+                                    "OCaml crypto verifier: algorithm not supported for {}: {}",
+                                    verification_type,
+                                    details
+                                );
+                            } else {
+                                log::error!(
+                                    "OCaml crypto verifier returned valid=false for {}: {}",
+                                    verification_type,
+                                    details
+                                );
+                            }
                             if require_verification {
                                 Err(format!("Crypto verification failed: {}", details))
                             } else {

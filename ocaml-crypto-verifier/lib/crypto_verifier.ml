@@ -85,8 +85,23 @@ let verify_chacha20_poly1305 ev =
     with e ->
       { valid = false; details = "ChaCha20-Poly1305 verification error: " ^ Printexc.to_string e; timestamp = now () })
 
-let verify_ed25519 _sv =
-  { valid = false; details = "Ed25519 verification not yet implemented (requires mirage-crypto-ec)"; timestamp = now () }
+let verify_ed25519 sv =
+  try
+    let sig_bytes = Base64.decode_exn sv.signature in
+    let pk_bytes = Base64.decode_exn sv.public_key in
+    let pk_cs = Cstruct.of_string pk_bytes in
+    let sig_cs = Cstruct.of_string sig_bytes in
+    let msg_cs = Cstruct.of_string sv.message in
+    match Mirage_crypto_ec.Ed25519.pub_of_cstruct pk_cs with
+    | Error _ ->
+        { valid = false; details = "Invalid Ed25519 public key"; timestamp = now () }
+    | Ok pub ->
+        if Mirage_crypto_ec.Ed25519.verify ~key:pub sig_cs ~msg:msg_cs then
+          { valid = true; details = "Ed25519 signature verified"; timestamp = now () }
+        else
+          { valid = false; details = "Ed25519 signature invalid"; timestamp = now () }
+  with e ->
+    { valid = false; details = "Ed25519 verification error: " ^ Printexc.to_string e; timestamp = now () }
 
 let verify_encryption (ev : encryption_verification) : verification_result =
   match String.lowercase_ascii ev.algorithm with
