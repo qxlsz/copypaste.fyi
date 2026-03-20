@@ -3,6 +3,9 @@
  (public_name crypto_verifier.lib)
  (libraries
    unix
+   mirage-crypto
    mirage-crypto-rng
+   base64
+   cstruct
    yojson)
  )

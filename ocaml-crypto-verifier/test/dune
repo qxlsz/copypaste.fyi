@@ -2,4 +2,7 @@
  (name crypto_verifier_test)
  (libraries
    crypto_verifier
+   mirage-crypto
+   base64
+   cstruct
    ounit2))
