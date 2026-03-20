@@ -31,6 +31,22 @@ mkdir -p "$LOG_DIR"
 
 trap 'rm -rf "$PROMPT_DIR"' EXIT
 
+# Lock file — prevent concurrent agent runs (e.g. from rogue background sessions)
+LOCK_FILE="${REPO_ROOT}/.agent.lock"
+if ! ( set -o noclobber; echo "$$" > "$LOCK_FILE" ) 2>/dev/null; then
+  existing_pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "unknown")
+  # Stale lock: if existing PID is not a running process, remove and proceed
+  if [[ "$existing_pid" != "unknown" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
+    echo "Removing stale lock for dead PID ${existing_pid}."
+    rm -f "$LOCK_FILE"
+    echo "$$" > "$LOCK_FILE"
+  else
+    echo "Agent already running (PID ${existing_pid}). Exiting to avoid concurrent runs."
+    exit 0
+  fi
+fi
+trap 'rm -rf "$PROMPT_DIR"; rm -f "$LOCK_FILE"' EXIT
+
 # Parse args
 if [[ "${1:-}" == "--loop" ]]; then
   LOOP_MODE=true
