@@ -5,13 +5,15 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaNonce, XChaCha20Poly1305, XNonce};
 use rand::rngs::OsRng;
+use rand::RngCore;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::convert::TryInto;
 use zeroize::Zeroizing;
 
-// Real Kyber imports
-use pqc_kyber::*;
+use hkdf::Hkdf;
+use ml_kem::kem::{Decapsulate, Encapsulate};
+use ml_kem::{Ciphertext, KemCore, MlKem768, B32};
 
 use crate::{EncryptionAlgorithm, StoredContent};
 
@@ -162,72 +164,58 @@ fn encrypt_content_sync(
             ))
         }
         EncryptionAlgorithm::KyberHybridAes256Gcm => {
-            // NOTE: Currently using simulation - Real Kyber KEM implementation pending
-            // TODO: Replace with actual pqc_kyber crate when API issues are resolved
+            // Derive a deterministic ML-KEM-768 keypair from the passphrase using HKDF.
+            // The passphrase acts as a static identity: the same passphrase always re-derives
+            // the same (dk, ek) pair.  Fresh OS randomness in `ek.encapsulate` ensures each
+            // call produces a distinct (kem_ct, shared_secret), preserving IND-CPA security.
+            let hk = Hkdf::<Sha256>::new(None, key.as_bytes());
+            let mut d_bytes = [0u8; 32];
+            let mut z_bytes = [0u8; 32];
+            hk.expand(b"ml-kem-768-keygen-d", &mut d_bytes)
+                .map_err(|e| format!("HKDF expand error (d): {}", e))?;
+            hk.expand(b"ml-kem-768-keygen-z", &mut z_bytes)
+                .map_err(|e| format!("HKDF expand error (z): {}", e))?;
+            let d: B32 = d_bytes.into();
+            let z: B32 = z_bytes.into();
+            let (_, ek) = MlKem768::generate_deterministic(&d, &z);
 
-            // Generate a simulated PQ public key (32 bytes)
-            // NOTE: The private/decapsulation key is not stored. It is re-derived from the
-            // passphrase at decryption time.
-            let mut pq_public_key = [0u8; 32];
-            // Use deterministic key generation based on the user key for testing
-            let mut key_hasher = Sha256::new();
-            key_hasher.update(b"pq_public_key");
-            key_hasher.update(key.as_bytes());
-            let hash = key_hasher.finalize();
-            pq_public_key.copy_from_slice(&hash[..32]);
+            // Encapsulate using OsRng — `encapsulate(&mut OsRng)` passes OS entropy as the
+            // ephemeral `m` value (FIPS 203 §6.2), so two encryptions with the same passphrase
+            // produce computationally unlinkable (kem_ct, shared_secret) pairs.
+            let (kem_ct, shared_secret) = ek
+                .encapsulate(&mut OsRng)
+                .map_err(|_| "ML-KEM-768 encapsulation failed".to_string())?;
 
-            // Simulate PQ KEM encapsulation - use deterministic values
-            let mut kem_shared_secret = Zeroizing::new([0u8; 32]);
-            let mut kem_ciphertext = [0u8; 64];
-            let mut secret_hasher = Sha256::new();
-            secret_hasher.update(b"kem_shared_secret");
-            secret_hasher.update(key.as_bytes());
-            kem_shared_secret.copy_from_slice(&secret_hasher.finalize()[..32]);
+            // Derive AES-256-GCM key from the KEM shared secret via HKDF.
+            let hk2 = Hkdf::<Sha256>::new(None, &shared_secret);
+            let mut aes_key = Zeroizing::new([0u8; 32]);
+            hk2.expand(b"aes-256-gcm-key", &mut *aes_key)
+                .map_err(|e| format!("HKDF expand error (aes-key): {}", e))?;
 
-            let mut cipher_hasher = Sha256::new();
-            cipher_hasher.update(b"kem_ciphertext");
-            cipher_hasher.update(key.as_bytes());
-            let hash = cipher_hasher.finalize();
-            kem_ciphertext[..32].copy_from_slice(&hash);
-            kem_ciphertext[32..].copy_from_slice(&hash);
-
-            // Generate AES nonce
-            let mut nonce_bytes = [0u8; 12];
-            OsRng.fill_bytes(&mut nonce_bytes);
-
-            // Use Kyber shared secret directly with user passphrase for additional security
-            let mut hasher = Sha256::new();
-            hasher.update(*kem_shared_secret);
-            hasher.update(key.as_bytes());
-            let aes_key: Zeroizing<[u8; 32]> = Zeroizing::new(hasher.finalize().into());
-
-            // Encrypt with AES-GCM using the hybrid-derived key
             let cipher = Aes256Gcm::new_from_slice(&*aes_key)
                 .map_err(|_| "failed to initialise AES cipher".to_string())?;
+            let mut nonce_bytes = [0u8; 12];
+            OsRng.fill_bytes(&mut nonce_bytes);
             let nonce = AesNonce::from(nonce_bytes);
-
-            let ciphertext_aes = cipher
+            let aes_ciphertext = cipher
                 .encrypt(&nonce, text.as_bytes())
                 .map_err(|_| "failed to encrypt content with AES".to_string())?;
 
-            // Store hybrid data: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce
-            // NOTE: The private key is NOT stored. It is re-derived from the passphrase on
-            // decryption. Storing the decapsulation key alongside the ciphertext would allow
-            // any server-side reader to decrypt without knowing the passphrase.
-            let pq_ciphertext_b64 = BASE64_STANDARD.encode(kem_ciphertext);
-            let pq_public_key_b64 = BASE64_STANDARD.encode(pq_public_key);
-            let aes_ciphertext_b64 = BASE64_STANDARD.encode(ciphertext_aes);
-            let aes_nonce_b64 = BASE64_STANDARD.encode(nonce_bytes);
-
-            let combined_ciphertext = format!(
-                "{}|{}|{}|{}",
-                pq_ciphertext_b64, pq_public_key_b64, aes_ciphertext_b64, aes_nonce_b64,
+            // 3-part storage format (new ML-KEM-768, distinct from legacy 4/5-part blobs):
+            //   kem_ct_b64 | aes_ct_b64 | aes_nonce_b64
+            // The decapsulation key is NOT stored; it is re-derived from the passphrase on
+            // decryption, so server-side access to the blob cannot decrypt the content.
+            let combined = format!(
+                "{}|{}|{}",
+                BASE64_STANDARD.encode(&*kem_ct),
+                BASE64_STANDARD.encode(&aes_ciphertext),
+                BASE64_STANDARD.encode(nonce_bytes),
             );
 
             Ok((
                 StoredContent::Encrypted {
                     algorithm,
-                    ciphertext: combined_ciphertext,
+                    ciphertext: combined,
                     nonce: String::new(),
                     salt: String::new(),
                 },
@@ -290,120 +278,102 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
             let extracted_key = key.ok_or(DecryptError::MissingKey)?;
             log::info!("Starting decryption for algorithm: {:?}", algorithm);
 
-            // Handle Kyber algorithm first - it doesn't use base64 encoding for storage
+            // KyberHybridAes256Gcm uses a different storage layout; handle it separately.
             if matches!(algorithm, EncryptionAlgorithm::KyberHybridAes256Gcm) {
-                // Kyber hybrid uses a different storage format, bypass normal decryption
                 let key_str = extracted_key;
+                let parts: Vec<&str> = ciphertext.split('|').collect();
 
-                log::info!(
-                    "Starting Kyber decryption for key length: {}",
-                    key_str.len()
-                );
+                match parts.len() {
+                    3 => {
+                        // New ML-KEM-768 format: kem_ct_b64|aes_ct_b64|aes_nonce_b64
+                        let hk = Hkdf::<Sha256>::new(None, key_str.as_bytes());
+                        let mut d_bytes = [0u8; 32];
+                        let mut z_bytes = [0u8; 32];
+                        hk.expand(b"ml-kem-768-keygen-d", &mut d_bytes)
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        hk.expand(b"ml-kem-768-keygen-z", &mut z_bytes)
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let d: B32 = d_bytes.into();
+                        let z: B32 = z_bytes.into();
+                        let (dk, _) = MlKem768::generate_deterministic(&d, &z);
 
-                // For Kyber, ciphertext is stored as the combined string directly (not base64 encoded)
-                // New format (4 parts): PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce
-                // Legacy format (5 parts): PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
-                // The 5th component (private key) in legacy blobs is ignored; the key is always
-                // re-derived from the passphrase.
-                let ciphertext_str = ciphertext; // Use the stored string directly
-                log::debug!("Ciphertext string length: {}", ciphertext_str.len());
+                        let kem_ct_bytes = BASE64_STANDARD
+                            .decode(parts[0])
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        // ML-KEM-768 ciphertext is exactly 1088 bytes.
+                        let kem_ct_arr: [u8; 1088] = kem_ct_bytes
+                            .try_into()
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let kem_ct: Ciphertext<MlKem768> = kem_ct_arr.into();
 
-                let parts: Vec<&str> = ciphertext_str.split('|').collect();
-                log::debug!("Parsed {} parts from ciphertext", parts.len());
+                        let shared_secret = dk
+                            .decapsulate(&kem_ct)
+                            .map_err(|_| DecryptError::InvalidKey)?;
 
-                if parts.len() != 4 && parts.len() != 5 {
-                    log::error!(
-                        "Expected 4 or 5 parts in Kyber ciphertext, got {}",
-                        parts.len()
-                    );
-                    return Err(DecryptError::InvalidKey);
+                        let hk2 = Hkdf::<Sha256>::new(None, &shared_secret);
+                        let mut aes_key = Zeroizing::new([0u8; 32]);
+                        hk2.expand(b"aes-256-gcm-key", &mut *aes_key)
+                            .map_err(|_| DecryptError::InvalidKey)?;
+
+                        let aes_ciphertext = BASE64_STANDARD
+                            .decode(parts[1])
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let aes_nonce_bytes = BASE64_STANDARD
+                            .decode(parts[2])
+                            .map_err(|_| DecryptError::InvalidKey)?;
+
+                        let cipher = Aes256Gcm::new_from_slice(&*aes_key)
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let nonce_arr: [u8; 12] = aes_nonce_bytes
+                            .try_into()
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let nonce = AesNonce::from(nonce_arr);
+
+                        return cipher
+                            .decrypt(&nonce, aes_ciphertext.as_ref())
+                            .map_err(|_| DecryptError::InvalidKey)
+                            .and_then(|bytes| {
+                                String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey)
+                            });
+                    }
+                    4 | 5 => {
+                        // Legacy simulation format (4 or 5 parts):
+                        //   pq_ct_b64 | pub_key_b64 | aes_ct_b64 | aes_nonce_b64 [| ignored]
+                        // Re-derive the SHA-256 simulation shared secret for backward compat.
+                        let aes_ciphertext = BASE64_STANDARD
+                            .decode(parts[2])
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let aes_nonce_bytes = BASE64_STANDARD
+                            .decode(parts[3])
+                            .map_err(|_| DecryptError::InvalidKey)?;
+
+                        let mut secret_hasher = Sha256::new();
+                        secret_hasher.update(b"kem_shared_secret");
+                        secret_hasher.update(key_str.as_bytes());
+                        let shared_secret: [u8; 32] = secret_hasher.finalize().into();
+
+                        let mut key_hasher = Sha256::new();
+                        key_hasher.update(shared_secret);
+                        key_hasher.update(key_str.as_bytes());
+                        let aes_key: Zeroizing<[u8; 32]> =
+                            Zeroizing::new(key_hasher.finalize().into());
+
+                        let cipher = Aes256Gcm::new_from_slice(&*aes_key)
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let nonce_arr: [u8; 12] = aes_nonce_bytes
+                            .try_into()
+                            .map_err(|_| DecryptError::InvalidKey)?;
+                        let nonce = AesNonce::from(nonce_arr);
+
+                        return cipher
+                            .decrypt(&nonce, aes_ciphertext.as_ref())
+                            .map_err(|_| DecryptError::InvalidKey)
+                            .and_then(|bytes| {
+                                String::from_utf8(bytes).map_err(|_| DecryptError::InvalidKey)
+                            });
+                    }
+                    _ => return Err(DecryptError::InvalidKey),
                 }
-
-                let pq_ciphertext_b64 = parts[0];
-                let pq_public_key_b64 = parts[1];
-                let aes_ciphertext_b64 = parts[2];
-                let aes_nonce_b64 = parts[3];
-                // parts[4] (legacy private key) is intentionally ignored — always re-derive.
-
-                log::debug!("AES ciphertext b64 length: {}", aes_ciphertext_b64.len());
-                log::debug!("AES nonce b64 length: {}", aes_nonce_b64.len());
-
-                // Decode PQ components first
-                let _pq_ciphertext = general_purpose::STANDARD
-                    .decode(pq_ciphertext_b64)
-                    .map_err(|e| {
-                        log::error!("Failed to decode PQ ciphertext: {}", e);
-                        DecryptError::InvalidKey
-                    })?;
-
-                let _pq_public_key = general_purpose::STANDARD
-                    .decode(pq_public_key_b64)
-                    .map_err(|e| {
-                        log::error!("Failed to decode PQ public key: {}", e);
-                        DecryptError::InvalidKey
-                    })?;
-
-                // Decode AES components
-                let aes_ciphertext = general_purpose::STANDARD
-                    .decode(aes_ciphertext_b64)
-                    .map_err(|e| {
-                        log::error!("Failed to decode AES ciphertext: {}", e);
-                        DecryptError::InvalidKey
-                    })?;
-                let aes_nonce = general_purpose::STANDARD
-                    .decode(aes_nonce_b64)
-                    .map_err(|e| {
-                        log::error!("Failed to decode AES nonce: {}", e);
-                        DecryptError::InvalidKey
-                    })?;
-                log::debug!(
-                    "Decoded components - AES ciphertext: {} bytes, nonce: {} bytes",
-                    aes_ciphertext.len(),
-                    aes_nonce.len()
-                );
-
-                // Simulate PQ KEM decapsulation (same deterministic approach as encryption)
-                let mut shared_secret = Zeroizing::new([0u8; 32]);
-                let mut secret_hasher = Sha256::new();
-                secret_hasher.update(b"kem_shared_secret");
-                secret_hasher.update(key_str.as_bytes());
-                shared_secret.copy_from_slice(&secret_hasher.finalize()[..32]);
-
-                log::debug!("Generated shared secret using deterministic simulation");
-
-                // Recreate the AES key (same as encryption)
-                let mut key_hasher = Sha256::new();
-                key_hasher.update(*shared_secret);
-                key_hasher.update(key_str.as_bytes());
-                let aes_key: Zeroizing<[u8; 32]> = Zeroizing::new(key_hasher.finalize().into());
-
-                log::debug!("Generated AES key");
-
-                // Decrypt with AES-GCM
-                let cipher = Aes256Gcm::new_from_slice(&*aes_key).map_err(|e| {
-                    log::error!("Failed to create AES cipher: {:?}", e);
-                    DecryptError::InvalidKey
-                })?;
-                let nonce_array: [u8; 12] = aes_nonce.clone().try_into().map_err(|_| {
-                    log::error!("Invalid nonce length: {}, expected 12", aes_nonce.len());
-                    DecryptError::InvalidKey
-                })?;
-                let nonce = AesNonce::from(nonce_array);
-
-                log::debug!("Starting AES decryption");
-
-                return cipher
-                    .decrypt(&nonce, aes_ciphertext.as_ref())
-                    .map_err(|e| {
-                        log::error!("AES decryption failed: {:?}", e);
-                        DecryptError::InvalidKey
-                    })
-                    .and_then(|bytes| {
-                        String::from_utf8(bytes).map_err(|e| {
-                            log::error!("UTF-8 conversion failed: {:?}", e);
-                            DecryptError::InvalidKey
-                        })
-                    });
             }
 
             // Normal algorithms that use base64 encoding
