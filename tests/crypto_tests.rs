@@ -258,6 +258,71 @@ async fn decrypt_truncated_ciphertext_aes_gcm_returns_invalid_key() {
     );
 }
 
+/// Verify that the Kyber ciphertext no longer contains the private key as the 5th component.
+/// The stored blob must have exactly 4 pipe-delimited parts.
+#[tokio::test]
+async fn kyber_ciphertext_does_not_contain_private_key() {
+    let plaintext = "private key must not be stored";
+    let key = "kyber-sec-key-12345678901234567890123";
+
+    let encrypted = copypaste::server::crypto::encrypt_content(
+        plaintext,
+        key,
+        copypaste::EncryptionAlgorithm::KyberHybridAes256Gcm,
+    )
+    .await
+    .expect("encryption should succeed");
+
+    let ciphertext = match &encrypted {
+        copypaste::StoredContent::Encrypted { ciphertext, .. } => ciphertext.clone(),
+        _ => panic!("expected encrypted content"),
+    };
+
+    let parts: Vec<&str> = ciphertext.split('|').collect();
+    assert_eq!(
+        parts.len(),
+        4,
+        "Kyber ciphertext must have exactly 4 parts (no private key stored): got {}",
+        parts.len()
+    );
+}
+
+/// Verify that legacy 5-part Kyber blobs (with the private key embedded) can still be
+/// decrypted — the 5th component is ignored and the key is re-derived from the passphrase.
+#[tokio::test]
+async fn kyber_legacy_5part_blob_decrypts_successfully() {
+    let key = "kyber-legacy-key-1234567890123456789";
+
+    // Build a fresh 4-part blob, then manually append a (bogus) 5th component to simulate
+    // a pre-fix legacy record. Decryption must succeed and ignore the extra component.
+    let encrypted = copypaste::server::crypto::encrypt_content(
+        "legacy compatibility check",
+        key,
+        copypaste::EncryptionAlgorithm::KyberHybridAes256Gcm,
+    )
+    .await
+    .expect("encryption should succeed");
+
+    let ciphertext_4part = match encrypted {
+        copypaste::StoredContent::Encrypted { ciphertext, .. } => ciphertext,
+        _ => panic!("expected encrypted content"),
+    };
+
+    // Append a fake 5th component (as the legacy format did)
+    let legacy_ciphertext = format!("{}|ZmFrZXByaXZhdGVrZXk=", ciphertext_4part);
+
+    let legacy_stored = copypaste::StoredContent::Encrypted {
+        algorithm: copypaste::EncryptionAlgorithm::KyberHybridAes256Gcm,
+        ciphertext: legacy_ciphertext,
+        nonce: String::new(),
+        salt: String::new(),
+    };
+
+    let decrypted = copypaste::server::crypto::decrypt_content(&legacy_stored, Some(key))
+        .expect("legacy 5-part Kyber blob must still decrypt");
+    assert_eq!(decrypted, "legacy compatibility check");
+}
+
 // OCaml verification behaviour tests
 // Each test runs in its own process under nextest, so env var mutations are safe.
 
