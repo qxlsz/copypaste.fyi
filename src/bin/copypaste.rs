@@ -1,6 +1,6 @@
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
 
-use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use urlencoding::encode;
 
@@ -40,13 +40,12 @@ enum ConfigAction {
 
 /// Arguments for the `send` subcommand.
 #[derive(Parser, Debug)]
-#[command(group(ArgGroup::new("input").args(["text", "stdin"]).required(true)))]
 struct SendArgs {
-    /// Text to paste. When omitted, stdin is read instead.
+    /// Text to paste. When omitted, reads from piped stdin.
     #[arg(conflicts_with = "stdin")]
     text: Option<String>,
 
-    /// Read input from stdin.
+    /// Read input from stdin (explicit; piped stdin is auto-detected).
     #[arg(long)]
     stdin: bool,
 
@@ -58,7 +57,11 @@ struct SendArgs {
     #[arg(long, value_enum, default_value_t = CliFormat::PlainText)]
     format: CliFormat,
 
-    /// Retention window in minutes (0 = no expiry).
+    /// TTL for the paste, e.g. 5m, 2h, 7d, 1w. Overrides --retention.
+    #[arg(long, conflicts_with = "retention")]
+    ttl: Option<String>,
+
+    /// Retention window in minutes (0 = no expiry). Use --ttl for human-friendly units.
     #[arg(long, default_value_t = 0)]
     retention: u64,
 
@@ -71,7 +74,7 @@ struct SendArgs {
     encryption_key: Option<String>,
 
     /// Delete the paste immediately after the first successful view.
-    #[arg(long)]
+    #[arg(long, alias = "burn")]
     burn_after_reading: bool,
 }
 
@@ -148,7 +151,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Send(args) => {
             let url = execute_send(args)?;
-            println!("Paste link: {}", url);
+            if io::stdout().is_terminal() {
+                println!("Paste link: {}", url);
+            } else {
+                println!("{}", url);
+            }
             Ok(())
         }
         Command::Config { action } => match action {
@@ -167,24 +174,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+fn parse_ttl(s: &str) -> io::Result<u64> {
+    let s = s.trim();
+    if let Ok(n) = s.parse::<u64>() {
+        return Ok(n);
+    }
+    let (value, mult) = if let Some(rest) = s.strip_suffix('m') {
+        (rest, 1u64)
+    } else if let Some(rest) = s.strip_suffix('h') {
+        (rest, 60u64)
+    } else if let Some(rest) = s.strip_suffix('d') {
+        (rest, 60u64 * 24)
+    } else if let Some(rest) = s.strip_suffix('w') {
+        (rest, 60u64 * 24 * 7)
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Invalid TTL '{s}'. Use e.g. 5m, 2h, 7d, 1w or a raw number of minutes."),
+        ));
+    };
+    value.trim().parse::<u64>().map(|n| n * mult).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Invalid TTL '{s}'. Use e.g. 5m, 2h, 7d, 1w or a raw number of minutes."),
+        )
+    })
+}
+
 fn execute_send(args: SendArgs) -> io::Result<String> {
     let SendArgs {
         text,
         stdin,
         host,
         format,
+        ttl,
         retention,
         encryption_mode,
         encryption_key,
         burn_after_reading,
     } = args;
 
-    let content = if stdin {
+    let content = if let Some(t) = text {
+        t
+    } else if stdin || !io::stdin().is_terminal() {
         let mut buffer = String::new();
         io::stdin().read_to_string(&mut buffer)?;
         buffer.trim().to_owned()
     } else {
-        text.unwrap_or_default()
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "No input provided. Pass text as an argument or pipe it via stdin.",
+        ));
     };
 
     if content.trim().is_empty() {
@@ -193,6 +233,19 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
             "No input provided.",
         ));
     }
+
+    let retention_minutes = if let Some(ttl_str) = ttl {
+        let mins = parse_ttl(&ttl_str)?;
+        if mins == 0 {
+            None
+        } else {
+            Some(mins)
+        }
+    } else if retention == 0 {
+        None
+    } else {
+        Some(retention)
+    };
 
     let key_ref = encryption_key.as_deref().filter(|k| !k.trim().is_empty());
     let encryption = match encryption_mode {
@@ -227,11 +280,6 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
     };
 
     let has_encryption = encryption.is_some();
-    let retention = if retention == 0 {
-        None
-    } else {
-        Some(retention)
-    };
 
     let payload = PastePayload {
         content: &content,
@@ -245,7 +293,7 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
             CliFormat::Kotlin => "kotlin",
             CliFormat::Java => "java",
         },
-        retention_minutes: retention,
+        retention_minutes,
         encryption: encryption.clone(),
         burn_after_reading: if burn_after_reading { Some(true) } else { None },
     };
@@ -383,6 +431,85 @@ mod tests {
         let err = execute_send(args).expect_err("http failure expected");
         assert_eq!(err.kind(), io::ErrorKind::Other);
         assert!(err.to_string().contains("Request failed"));
+        mock.assert();
+    }
+
+    #[test]
+    fn parse_ttl_minutes() {
+        assert_eq!(parse_ttl("5m").unwrap(), 5);
+        assert_eq!(parse_ttl("30m").unwrap(), 30);
+    }
+
+    #[test]
+    fn parse_ttl_hours() {
+        assert_eq!(parse_ttl("2h").unwrap(), 120);
+        assert_eq!(parse_ttl("1h").unwrap(), 60);
+    }
+
+    #[test]
+    fn parse_ttl_days() {
+        assert_eq!(parse_ttl("1d").unwrap(), 1440);
+        assert_eq!(parse_ttl("7d").unwrap(), 10080);
+    }
+
+    #[test]
+    fn parse_ttl_weeks() {
+        assert_eq!(parse_ttl("1w").unwrap(), 10080);
+        assert_eq!(parse_ttl("2w").unwrap(), 20160);
+    }
+
+    #[test]
+    fn parse_ttl_raw_minutes() {
+        assert_eq!(parse_ttl("60").unwrap(), 60);
+        assert_eq!(parse_ttl("0").unwrap(), 0);
+    }
+
+    #[test]
+    fn parse_ttl_invalid() {
+        assert!(parse_ttl("5x").is_err());
+        assert!(parse_ttl("abc").is_err());
+        assert!(parse_ttl("").is_err());
+    }
+
+    #[test]
+    fn send_ttl_flag_sends_retention_minutes() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/")
+                .json_body_partial(json!({ "retention_minutes": 120 }).to_string());
+            then.status(200).body("/paste/timed");
+        });
+
+        let base = server.base_url();
+        let args = SendArgs::parse_from([
+            "copypaste-send",
+            "hello",
+            "--host",
+            base.as_str(),
+            "--ttl",
+            "2h",
+        ]);
+        let url = execute_send(args).expect("url");
+        assert_eq!(url, format!("{}/paste/timed", base));
+        mock.assert();
+    }
+
+    #[test]
+    fn send_burn_alias_sends_burn_after_reading() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/")
+                .json_body_partial(json!({ "burn_after_reading": true }).to_string());
+            then.status(200).body("/paste/burned");
+        });
+
+        let base = server.base_url();
+        let args =
+            SendArgs::parse_from(["copypaste-send", "hello", "--host", base.as_str(), "--burn"]);
+        let url = execute_send(args).expect("url");
+        assert_eq!(url, format!("{}/paste/burned", base));
         mock.assert();
     }
 }
