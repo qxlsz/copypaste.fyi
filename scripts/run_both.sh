@@ -43,7 +43,10 @@ CRYPTO_PID=""
 # Function to kill processes using a specific port
 kill_port() {
   local port=$1
-  local pids=$(lsof -ti:$port 2>/dev/null || true)
+  # Validate that port is numeric to prevent shell injection
+  [[ "$port" =~ ^[0-9]+$ ]] || { echo "kill_port: invalid port '$port'" >&2; return 1; }
+  local pids
+  pids=$(lsof -ti:"$port" 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
     echo "Killing processes using port $port: $pids"
     kill -9 $pids 2>/dev/null || true

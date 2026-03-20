@@ -12,10 +12,14 @@ ARCH=$(uname -m)
 case "${PLATFORM}" in
   Linux)
     ARCHIVE="https://fly.io/install.sh"
+    # SECURITY NOTICE: This downloads and executes a remote shell script over HTTPS.
+    # Verify the script at https://fly.io/install.sh before running in sensitive environments.
     curl -fsSL "$ARCHIVE" | sh
     ;;
   Darwin)
     ARCHIVE="https://fly.io/install.sh"
+    # SECURITY NOTICE: This downloads and executes a remote shell script over HTTPS.
+    # Verify the script at https://fly.io/install.sh before running in sensitive environments.
     curl -fsSL "$ARCHIVE" | sh
     ;;
   *)

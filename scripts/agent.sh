@@ -41,6 +41,18 @@ fi
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 log_section() { echo ""; log "═══════════════════════════════════════════"; log "$*"; log "═══════════════════════════════════════════"; }
 
+sanitize_issue_body() {
+  # Strip prompt-injection patterns before embedding externally-sourced issue
+  # content in Claude prompts. Defence-in-depth: primary mitigation is removing
+  # --dangerously-skip-permissions from triage and review invocations.
+  printf '%s' "$1" \
+    | sed 's/[Ii]gnore previous instructions[^.]*\.//g' \
+    | sed 's/[Ii]gnore all previous[^.]*\.//g' \
+    | sed 's/[Ff]orget.*instructions[^.]*\.//g' \
+    | sed 's/[Dd]isregard.*instructions[^.]*\.//g' \
+    | sed 's/[Ss]ystem[[:space:]]*prompt[[:space:]]*://g'
+}
+
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
@@ -97,12 +109,15 @@ triage_issue() {
   local issue_number="$1" title="$2" body="$3"
   log "Triaging issue #${issue_number}..."
 
+  local safe_body
+  safe_body=$(sanitize_issue_body "$body")
+
   cat > "${PROMPT_DIR}/triage.txt" <<TRIAGE_PROMPT
 You are a triage agent. Classify this GitHub issue.
 
 Issue #${issue_number}: ${title}
 
-${body}
+${safe_body}
 
 Classify as:
 - ACTIONABLE: Bug with enough detail, feature with clear scope, or refactoring task
@@ -115,7 +130,7 @@ NOT_ACTIONABLE: <reason>
 TRIAGE_PROMPT
 
   local result
-  result=$(cat "${PROMPT_DIR}/triage.txt" | claude --print --dangerously-skip-permissions --max-turns 1 2>/dev/null) || result="ACTIONABLE: triage failed, attempting anyway"
+  result=$(cat "${PROMPT_DIR}/triage.txt" | claude --print --max-turns 1 2>/dev/null) || result="ACTIONABLE: triage failed, attempting anyway"
   echo "$result"
 }
 
@@ -149,6 +164,9 @@ ${feedback}"
 
   log "Running Claude Code (attempt ${attempt}/3, strategy: ${strategy})..."
 
+  local safe_body
+  safe_body=$(sanitize_issue_body "$body")
+
   cat > "${PROMPT_DIR}/implement.txt" <<IMPL_PROMPT
 You are an autonomous coding agent working on the copypaste.fyi project.
 
@@ -158,7 +176,7 @@ Implement a fix/feature for this GitHub issue:
 
 **Issue #${issue_number}: ${title}**
 
-${body}
+${safe_body}
 
 ## Attempt ${attempt}/3 — Strategy: ${strategy}
 ${feedback_section}
@@ -231,6 +249,9 @@ review() {
   local diff
   diff=$(git diff main...HEAD)
 
+  local safe_body
+  safe_body=$(sanitize_issue_body "$body")
+
   cat > "${PROMPT_DIR}/review.txt" <<REVIEW_PROMPT
 You are an independent code reviewer for the copypaste.fyi project.
 You are a DIFFERENT agent from the one that wrote this code. Review it critically.
@@ -239,7 +260,7 @@ You are a DIFFERENT agent from the one that wrote this code. Review it criticall
 
 Issue #${issue_number}: ${title}
 
-${body}
+${safe_body}
 
 ## The Diff
 
@@ -276,7 +297,7 @@ FEEDBACK:
 REVIEW_PROMPT
 
   local result
-  result=$(cat "${PROMPT_DIR}/review.txt" | claude --print --dangerously-skip-permissions --max-turns 15 --allowedTools "Read,Glob,Grep" 2>/dev/null) || result="DECISION: APPROVE
+  result=$(cat "${PROMPT_DIR}/review.txt" | claude --print --max-turns 15 --allowedTools "Read,Glob,Grep" 2>/dev/null) || result="DECISION: APPROVE
 SUMMARY: Review timed out"
   echo "$result"
 }
