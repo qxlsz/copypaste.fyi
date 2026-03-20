@@ -42,6 +42,12 @@ safe_jq() {
   jq -r "$filter" 2>/dev/null || echo "$fallback"
 }
 
+sanitize_md() {
+  # Prevent @-mentions from triggering GitHub notifications and
+  # #NNN references from creating unintended cross-reference links.
+  sed 's/@/[at]/g' | sed 's/#\([0-9][0-9]*\)/[#\1]/g'
+}
+
 # ---------------------------------------------------------------------------
 # Competitor list
 # ---------------------------------------------------------------------------
@@ -99,6 +105,8 @@ for repo in "${COMPETITORS[@]}"; do
   if [ "${#desc}" -gt 80 ]; then
     desc="${desc:0:77}..."
   fi
+  # Sanitize: prevent @-mentions and #NNN auto-links from propagating
+  desc=$(printf '%s' "$desc" | sanitize_md)
 
   echo "| [\`$repo\`](https://github.com/$repo) | $stars | $forks | $issues | $pushed_short | $desc |" >> "$REPORT_FILE"
 
