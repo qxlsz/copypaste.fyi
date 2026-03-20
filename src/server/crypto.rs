@@ -21,21 +21,37 @@ pub enum DecryptError {
     InvalidKey,
 }
 
-pub async fn encrypt_content(
+/// Arguments needed to call the OCaml verification service after CPU-bound encryption.
+struct OcamlVerifyArgs {
+    algorithm: EncryptionAlgorithm,
+    plaintext: String,
+    ciphertext: String,
+    key: String,
+    nonce: Option<String>,
+    salt: Option<String>,
+}
+
+/// CPU-bound encryption work, suitable for running inside `spawn_blocking`.
+///
+/// Returns the encrypted content and, for algorithms that support OCaml
+/// defense-in-depth verification, the arguments needed for that async step.
+fn encrypt_content_sync(
     text: &str,
     key: &str,
     algorithm: EncryptionAlgorithm,
-) -> Result<StoredContent, String> {
-    let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
-
-    let derived = derive_key_material(key, &salt);
-
+) -> Result<(StoredContent, Option<OcamlVerifyArgs>), String> {
     match algorithm {
-        EncryptionAlgorithm::None => Ok(StoredContent::Plain {
-            text: text.to_owned(),
-        }),
+        EncryptionAlgorithm::None => Ok((
+            StoredContent::Plain {
+                text: text.to_owned(),
+            },
+            None,
+        )),
         EncryptionAlgorithm::Aes256Gcm => {
+            let mut salt = [0u8; 16];
+            OsRng.fill_bytes(&mut salt);
+            let derived = derive_key_material(key, &salt);
+
             let cipher = Aes256Gcm::new_from_slice(&*derived)
                 .map_err(|_| "failed to initialise cipher".to_string())?;
             let mut nonce_bytes = [0u8; 12];
@@ -50,25 +66,30 @@ pub async fn encrypt_content(
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
             let salt_b64 = general_purpose::STANDARD.encode(salt);
 
-            // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
-            verify_encryption_with_ocaml(
+            let verify = OcamlVerifyArgs {
                 algorithm,
-                text,
-                &ciphertext_b64,
-                key,
-                Some(&nonce_b64),
-                Some(&salt_b64),
-            )
-            .await?;
+                plaintext: text.to_owned(),
+                ciphertext: ciphertext_b64.clone(),
+                key: key.to_owned(),
+                nonce: Some(nonce_b64.clone()),
+                salt: Some(salt_b64.clone()),
+            };
 
-            Ok(StoredContent::Encrypted {
-                algorithm,
-                ciphertext: ciphertext_b64,
-                nonce: nonce_b64,
-                salt: salt_b64,
-            })
+            Ok((
+                StoredContent::Encrypted {
+                    algorithm,
+                    ciphertext: ciphertext_b64,
+                    nonce: nonce_b64,
+                    salt: salt_b64,
+                },
+                Some(verify),
+            ))
         }
         EncryptionAlgorithm::ChaCha20Poly1305 => {
+            let mut salt = [0u8; 16];
+            OsRng.fill_bytes(&mut salt);
+            let derived = derive_key_material(key, &salt);
+
             let cipher = ChaCha20Poly1305::new_from_slice(&*derived)
                 .map_err(|_| "failed to initialise cipher".to_string())?;
             let mut nonce_bytes = [0u8; 12];
@@ -83,25 +104,30 @@ pub async fn encrypt_content(
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
             let salt_b64 = general_purpose::STANDARD.encode(salt);
 
-            // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
-            verify_encryption_with_ocaml(
+            let verify = OcamlVerifyArgs {
                 algorithm,
-                text,
-                &ciphertext_b64,
-                key,
-                Some(&nonce_b64),
-                Some(&salt_b64),
-            )
-            .await?;
+                plaintext: text.to_owned(),
+                ciphertext: ciphertext_b64.clone(),
+                key: key.to_owned(),
+                nonce: Some(nonce_b64.clone()),
+                salt: Some(salt_b64.clone()),
+            };
 
-            Ok(StoredContent::Encrypted {
-                algorithm,
-                ciphertext: ciphertext_b64,
-                nonce: nonce_b64,
-                salt: salt_b64,
-            })
+            Ok((
+                StoredContent::Encrypted {
+                    algorithm,
+                    ciphertext: ciphertext_b64,
+                    nonce: nonce_b64,
+                    salt: salt_b64,
+                },
+                Some(verify),
+            ))
         }
         EncryptionAlgorithm::XChaCha20Poly1305 => {
+            let mut salt = [0u8; 16];
+            OsRng.fill_bytes(&mut salt);
+            let derived = derive_key_material(key, &salt);
+
             let cipher = XChaCha20Poly1305::new_from_slice(&*derived)
                 .map_err(|_| "failed to initialise cipher".to_string())?;
             let mut nonce_bytes = [0u8; 24];
@@ -116,23 +142,24 @@ pub async fn encrypt_content(
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
             let salt_b64 = general_purpose::STANDARD.encode(salt);
 
-            // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
-            verify_encryption_with_ocaml(
+            let verify = OcamlVerifyArgs {
                 algorithm,
-                text,
-                &ciphertext_b64,
-                key,
-                Some(&nonce_b64),
-                Some(&salt_b64),
-            )
-            .await?;
+                plaintext: text.to_owned(),
+                ciphertext: ciphertext_b64.clone(),
+                key: key.to_owned(),
+                nonce: Some(nonce_b64.clone()),
+                salt: Some(salt_b64.clone()),
+            };
 
-            Ok(StoredContent::Encrypted {
-                algorithm,
-                ciphertext: ciphertext_b64,
-                nonce: nonce_b64,
-                salt: salt_b64,
-            })
+            Ok((
+                StoredContent::Encrypted {
+                    algorithm,
+                    ciphertext: ciphertext_b64,
+                    nonce: nonce_b64,
+                    salt: salt_b64,
+                },
+                Some(verify),
+            ))
         }
         EncryptionAlgorithm::KyberHybridAes256Gcm => {
             // NOTE: Currently using simulation - Real Kyber KEM implementation pending
@@ -197,14 +224,51 @@ pub async fn encrypt_content(
                 pq_ciphertext_b64, pq_public_key_b64, aes_ciphertext_b64, aes_nonce_b64,
             );
 
-            Ok(StoredContent::Encrypted {
-                algorithm,
-                ciphertext: combined_ciphertext,
-                nonce: String::new(),
-                salt: String::new(),
-            })
+            Ok((
+                StoredContent::Encrypted {
+                    algorithm,
+                    ciphertext: combined_ciphertext,
+                    nonce: String::new(),
+                    salt: String::new(),
+                },
+                None,
+            ))
         }
     }
+}
+
+/// Encrypt content using the specified algorithm.
+///
+/// CPU-bound cipher work runs inside `tokio::task::spawn_blocking` so it does not
+/// occupy an async worker thread.  The optional OCaml defense-in-depth verification
+/// is performed afterward on the async thread as it is an I/O-bound network call.
+pub async fn encrypt_content(
+    text: &str,
+    key: &str,
+    algorithm: EncryptionAlgorithm,
+) -> Result<StoredContent, String> {
+    let text = text.to_owned();
+    let key = key.to_owned();
+
+    let (content, verify_args) =
+        tokio::task::spawn_blocking(move || encrypt_content_sync(&text, &key, algorithm))
+            .await
+            .map_err(|_| "encryption thread panicked".to_string())??;
+
+    // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
+    if let Some(args) = verify_args {
+        verify_encryption_with_ocaml(
+            args.algorithm,
+            &args.plaintext,
+            &args.ciphertext,
+            &args.key,
+            args.nonce.as_deref(),
+            args.salt.as_deref(),
+        )
+        .await?;
+    }
+
+    Ok(content)
 }
 
 pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<String, DecryptError> {

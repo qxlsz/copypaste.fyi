@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::env;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -317,9 +317,23 @@ impl PersistenceAdapter for NoopPersistence {
     }
 }
 
+struct StatsCache {
+    stats: StoreStats,
+    computed_at: Instant,
+}
+
+/// TTL for the stats cache used by `MemoryPasteStore::stats()`.
+///
+/// Health-check endpoints call `stats()` on every request.  Recomputing the full
+/// O(N) scan each time holds the entries read-lock for the duration and blocks
+/// writers (paste creation/deletion).  Caching with a short TTL keeps the endpoint
+/// responsive while bounding staleness to an acceptable window.
+const STATS_CACHE_TTL: Duration = Duration::from_secs(5);
+
 pub struct MemoryPasteStore {
     entries: RwLock<HashMap<String, StoredPaste>>,
     persistence: Option<Arc<dyn PersistenceAdapter>>,
+    stats_cache: Mutex<Option<StatsCache>>,
 }
 
 impl MemoryPasteStore {
@@ -327,6 +341,7 @@ impl MemoryPasteStore {
         Self {
             entries: RwLock::new(HashMap::new()),
             persistence: None,
+            stats_cache: Mutex::new(None),
         }
     }
 
@@ -334,6 +349,7 @@ impl MemoryPasteStore {
         Self {
             entries: RwLock::new(HashMap::new()),
             persistence: Some(adapter),
+            stats_cache: Mutex::new(None),
         }
     }
 }
@@ -440,67 +456,88 @@ impl PasteStore for MemoryPasteStore {
     }
 
     async fn stats(&self) -> StoreStats {
-        let map = self.entries.read().await;
-        let mut total = 0usize;
-        let mut active = 0usize;
-        let mut expired = 0usize;
-        let mut burn_count = 0usize;
-        let mut time_locked = 0usize;
-        let mut format_counts: HashMap<PasteFormat, usize> = HashMap::new();
-        let mut encryption_counts: HashMap<EncryptionAlgorithm, usize> = HashMap::new();
-        let mut daily_counts: BTreeMap<String, usize> = BTreeMap::new();
-
-        for paste in map.values() {
-            total += 1;
-            let paste_expired = is_expired(paste);
-            if paste_expired {
-                expired += 1;
-            } else {
-                active += 1;
-            }
-
-            if paste.burn_after_reading {
-                burn_count += 1;
-            }
-
-            if paste.metadata.not_before.is_some() || paste.metadata.not_after.is_some() {
-                time_locked += 1;
-            }
-
-            *format_counts.entry(paste.format).or_default() += 1;
-
-            let algorithm = match &paste.content {
-                StoredContent::Plain { .. } => EncryptionAlgorithm::None,
-                StoredContent::Encrypted { algorithm, .. }
-                | StoredContent::Stego { algorithm, .. } => *algorithm,
-            };
-            *encryption_counts.entry(algorithm).or_default() += 1;
-
-            if let Some(dt) = DateTime::<Utc>::from_timestamp(paste.created_at, 0) {
-                let date = dt.date_naive().format("%Y-%m-%d").to_string();
-                *daily_counts.entry(date).or_default() += 1;
+        // Return cached result if still within TTL (O(1) fast path).
+        {
+            let cache = self.stats_cache.lock().unwrap();
+            if let Some(ref cached) = *cache {
+                if cached.computed_at.elapsed() < STATS_CACHE_TTL {
+                    return cached.stats.clone();
+                }
             }
         }
 
-        StoreStats {
-            total_pastes: total,
-            active_pastes: active,
-            expired_pastes: expired,
-            burn_after_reading_count: burn_count,
-            time_locked_count: time_locked,
-            formats: format_counts
-                .into_iter()
-                .map(|(format, count)| FormatUsage { format, count })
-                .collect(),
-            encryption_usage: encryption_counts
-                .into_iter()
-                .map(|(algorithm, count)| EncryptionUsage { algorithm, count })
-                .collect(),
-            created_by_day: daily_counts
-                .into_iter()
-                .map(|(date, count)| DailyCount { date, count })
-                .collect(),
-        }
+        // Cache miss or expired: perform the full O(N) scan.
+        let stats = {
+            let map = self.entries.read().await;
+            let mut total = 0usize;
+            let mut active = 0usize;
+            let mut expired = 0usize;
+            let mut burn_count = 0usize;
+            let mut time_locked = 0usize;
+            let mut format_counts: HashMap<PasteFormat, usize> = HashMap::new();
+            let mut encryption_counts: HashMap<EncryptionAlgorithm, usize> = HashMap::new();
+            let mut daily_counts: BTreeMap<String, usize> = BTreeMap::new();
+
+            for paste in map.values() {
+                total += 1;
+                let paste_expired = is_expired(paste);
+                if paste_expired {
+                    expired += 1;
+                } else {
+                    active += 1;
+                }
+
+                if paste.burn_after_reading {
+                    burn_count += 1;
+                }
+
+                if paste.metadata.not_before.is_some() || paste.metadata.not_after.is_some() {
+                    time_locked += 1;
+                }
+
+                *format_counts.entry(paste.format).or_default() += 1;
+
+                let algorithm = match &paste.content {
+                    StoredContent::Plain { .. } => EncryptionAlgorithm::None,
+                    StoredContent::Encrypted { algorithm, .. }
+                    | StoredContent::Stego { algorithm, .. } => *algorithm,
+                };
+                *encryption_counts.entry(algorithm).or_default() += 1;
+
+                if let Some(dt) = DateTime::<Utc>::from_timestamp(paste.created_at, 0) {
+                    let date = dt.date_naive().format("%Y-%m-%d").to_string();
+                    *daily_counts.entry(date).or_default() += 1;
+                }
+            }
+
+            StoreStats {
+                total_pastes: total,
+                active_pastes: active,
+                expired_pastes: expired,
+                burn_after_reading_count: burn_count,
+                time_locked_count: time_locked,
+                formats: format_counts
+                    .into_iter()
+                    .map(|(format, count)| FormatUsage { format, count })
+                    .collect(),
+                encryption_usage: encryption_counts
+                    .into_iter()
+                    .map(|(algorithm, count)| EncryptionUsage { algorithm, count })
+                    .collect(),
+                created_by_day: daily_counts
+                    .into_iter()
+                    .map(|(date, count)| DailyCount { date, count })
+                    .collect(),
+            }
+        };
+
+        // Store in cache for subsequent requests within the TTL window.
+        *self.stats_cache.lock().unwrap() = Some(StatsCache {
+            stats: stats.clone(),
+            computed_at: Instant::now(),
+        });
+
+        stats
     }
 
     async fn get_all_paste_ids(&self) -> Vec<String> {
@@ -1049,6 +1086,27 @@ mod tests {
             .await
             .expect_err("should fail");
         assert!(matches!(err, PasteError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn stats_caches_result_within_ttl() {
+        let store = MemoryPasteStore::default();
+
+        let paste = build_paste(StoredContent::Plain { text: "one".into() });
+        store.create_paste(paste).await;
+
+        let stats1 = store.stats().await;
+        assert_eq!(stats1.total_pastes, 1);
+
+        // Create a second paste — should not be visible within the TTL window.
+        let paste2 = build_paste(StoredContent::Plain { text: "two".into() });
+        store.create_paste(paste2).await;
+
+        let stats2 = store.stats().await;
+        assert_eq!(
+            stats2.total_pastes, 1,
+            "stats should be served from cache within the TTL window"
+        );
     }
 
     #[tokio::test]
