@@ -3,6 +3,8 @@ set -euo pipefail
 
 if ! command -v rustup &>/dev/null; then
   echo "Installing Rust toolchain (rustup)..."
+  # SECURITY NOTICE: This downloads and executes a remote shell script over HTTPS.
+  # Verify the installer at https://sh.rustup.rs before running in sensitive environments.
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
   source "$HOME/.cargo/env"
 fi

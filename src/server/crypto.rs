@@ -114,21 +114,16 @@ pub async fn encrypt_content(
             // NOTE: Currently using simulation - Real Kyber KEM implementation pending
             // TODO: Replace with actual pqc_kyber crate when API issues are resolved
 
-            // Generate a simulated PQ public/private keypair (32 bytes each)
+            // Generate a simulated PQ public key (32 bytes)
+            // NOTE: The private/decapsulation key is not stored. It is re-derived from the
+            // passphrase at decryption time.
             let mut pq_public_key = [0u8; 32];
-            let mut pq_private_key = Zeroizing::new([0u8; 32]);
             // Use deterministic key generation based on the user key for testing
             let mut key_hasher = Sha256::new();
             key_hasher.update(b"pq_public_key");
             key_hasher.update(key.as_bytes());
             let hash = key_hasher.finalize();
             pq_public_key.copy_from_slice(&hash[..32]);
-
-            let mut key_hasher = Sha256::new();
-            key_hasher.update(b"pq_private_key");
-            key_hasher.update(key.as_bytes());
-            let hash = key_hasher.finalize();
-            pq_private_key.copy_from_slice(&hash[..32]);
 
             // Simulate PQ KEM encapsulation - use deterministic values
             let mut kem_shared_secret = Zeroizing::new([0u8; 32]);
@@ -164,20 +159,18 @@ pub async fn encrypt_content(
                 .encrypt(&nonce, text.as_bytes())
                 .map_err(|_| "failed to encrypt content with AES".to_string())?;
 
-            // Store hybrid data: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
+            // Store hybrid data: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce
+            // NOTE: The private key is NOT stored. It is re-derived from the passphrase on
+            // decryption. Storing the decapsulation key alongside the ciphertext would allow
+            // any server-side reader to decrypt without knowing the passphrase.
             let pq_ciphertext_b64 = BASE64_STANDARD.encode(kem_ciphertext);
             let pq_public_key_b64 = BASE64_STANDARD.encode(pq_public_key);
-            let pq_private_key_b64 = BASE64_STANDARD.encode(*pq_private_key);
             let aes_ciphertext_b64 = BASE64_STANDARD.encode(ciphertext_aes);
             let aes_nonce_b64 = BASE64_STANDARD.encode(nonce_bytes);
 
             let combined_ciphertext = format!(
-                "{}|{}|{}|{}|{}",
-                pq_ciphertext_b64,
-                pq_public_key_b64,
-                aes_ciphertext_b64,
-                aes_nonce_b64,
-                pq_private_key_b64
+                "{}|{}|{}|{}",
+                pq_ciphertext_b64, pq_public_key_b64, aes_ciphertext_b64, aes_nonce_b64,
             );
 
             Ok(StoredContent::Encrypted {
@@ -220,15 +213,21 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                 );
 
                 // For Kyber, ciphertext is stored as the combined string directly (not base64 encoded)
-                // Parse hybrid ciphertext: PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
+                // New format (4 parts): PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce
+                // Legacy format (5 parts): PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key
+                // The 5th component (private key) in legacy blobs is ignored; the key is always
+                // re-derived from the passphrase.
                 let ciphertext_str = ciphertext; // Use the stored string directly
                 log::debug!("Ciphertext string length: {}", ciphertext_str.len());
 
                 let parts: Vec<&str> = ciphertext_str.split('|').collect();
                 log::debug!("Parsed {} parts from ciphertext", parts.len());
 
-                if parts.len() != 5 {
-                    log::error!("Expected 5 parts in Kyber ciphertext, got {}", parts.len());
+                if parts.len() != 4 && parts.len() != 5 {
+                    log::error!(
+                        "Expected 4 or 5 parts in Kyber ciphertext, got {}",
+                        parts.len()
+                    );
                     return Err(DecryptError::InvalidKey);
                 }
 
@@ -236,11 +235,10 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                 let pq_public_key_b64 = parts[1];
                 let aes_ciphertext_b64 = parts[2];
                 let aes_nonce_b64 = parts[3];
-                let pq_private_key_b64 = parts[4];
+                // parts[4] (legacy private key) is intentionally ignored — always re-derive.
 
                 log::debug!("AES ciphertext b64 length: {}", aes_ciphertext_b64.len());
                 log::debug!("AES nonce b64 length: {}", aes_nonce_b64.len());
-                log::debug!("PQ private key b64 length: {}", pq_private_key_b64.len());
 
                 // Decode PQ components first
                 let _pq_ciphertext = general_purpose::STANDARD
@@ -270,17 +268,11 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         log::error!("Failed to decode AES nonce: {}", e);
                         DecryptError::InvalidKey
                     })?;
-                let pq_private_key: Zeroizing<Vec<u8>> = Zeroizing::new(
-                    general_purpose::STANDARD
-                        .decode(pq_private_key_b64)
-                        .map_err(|e| {
-                            log::error!("Failed to decode PQ private key: {}", e);
-                            DecryptError::InvalidKey
-                        })?,
+                log::debug!(
+                    "Decoded components - AES ciphertext: {} bytes, nonce: {} bytes",
+                    aes_ciphertext.len(),
+                    aes_nonce.len()
                 );
-
-                log::debug!("Decoded components - AES ciphertext: {} bytes, nonce: {} bytes, PQ private key: {} bytes",
-                          aes_ciphertext.len(), aes_nonce.len(), pq_private_key.len());
 
                 // Simulate PQ KEM decapsulation (same deterministic approach as encryption)
                 let mut shared_secret = Zeroizing::new([0u8; 32]);

@@ -42,6 +42,12 @@ safe_jq() {
   jq -r "$filter" 2>/dev/null || echo "$fallback"
 }
 
+sanitize_md() {
+  # Prevent @-mentions from triggering GitHub notifications and
+  # #NNN references from creating unintended cross-reference links.
+  sed 's/@/[at]/g' | sed 's/#\([0-9][0-9]*\)/[#\1]/g'
+}
+
 # ---------------------------------------------------------------------------
 # Competitor list
 # ---------------------------------------------------------------------------
@@ -99,6 +105,8 @@ for repo in "${COMPETITORS[@]}"; do
   if [ "${#desc}" -gt 80 ]; then
     desc="${desc:0:77}..."
   fi
+  # Sanitize: prevent @-mentions and #NNN auto-links from propagating
+  desc=$(printf '%s' "$desc" | sanitize_md)
 
   echo "| [\`$repo\`](https://github.com/$repo) | $stars | $forks | $issues | $pushed_short | $desc |" >> "$REPORT_FILE"
 
@@ -130,6 +138,8 @@ for repo in "${RUST_STARS[@]}"; do
   pushed=$(echo "$data"   | safe_jq '.pushed_at'         '?')
   topics=$(echo "$data"   | jq -r '(.topics // []) | join(", ")' 2>/dev/null || echo "")
   pushed_short="${pushed:0:10}"
+  # Sanitize: prevent @-mentions and #NNN auto-links from propagating
+  topics=$(printf '%s' "$topics" | sanitize_md)
 
   echo "| [\`$repo\`](https://github.com/$repo) | $stars | $forks | $issues | $pushed_short | $topics |" >> "$REPORT_FILE"
 
@@ -159,7 +169,7 @@ TRENDING=$(gh_api_raw "search/repositories?q=language:rust+stars:>500+pushed:>$S
 echo "$TRENDING" | jq -r '
   .items[]? |
   "| [\(.full_name)](https://github.com/\(.full_name)) | \(.stargazers_count) | \(.description // "" | gsub("[\\n\\r|]"; " ") | if length > 80 then .[:77] + "..." else . end) | \(.created_at[:10]) | \((.topics // []) | join(", ")) |"
-' >> "$REPORT_FILE" 2>/dev/null || echo "| _(API rate limited or no results)_ | | | | |" >> "$REPORT_FILE"
+' 2>/dev/null | sanitize_md >> "$REPORT_FILE" || echo "| _(API rate limited or no results)_ | | | | |" >> "$REPORT_FILE"
 
 # ---------------------------------------------------------------------------
 # Check awesome lists for new/relevant entries
@@ -193,7 +203,7 @@ EOF
   echo "$commits_json" | jq -r '
     .[]? |
     "| \(.commit.author.date[:10]) | \(.commit.author.name // "?") | \(.commit.message | split("\n")[0] | gsub("[|]"; "/") | if length > 100 then .[:97] + "..." else . end) |"
-  ' >> "$REPORT_FILE" 2>/dev/null || echo "| _(unavailable)_ | | |" >> "$REPORT_FILE"
+  ' 2>/dev/null | sanitize_md >> "$REPORT_FILE" || echo "| _(unavailable)_ | | |" >> "$REPORT_FILE"
 
   echo "" >> "$REPORT_FILE"
   sleep 1
@@ -245,7 +255,7 @@ arxiv_search() {
           date, title, authors, arxiv_id, arxiv_id
       }
     }
-  ' >> "$REPORT_FILE" 2>/dev/null || true
+  ' 2>/dev/null | sanitize_md >> "$REPORT_FILE" || true
 }
 
 echo "Fetching arXiv PQC papers ..." >&2
