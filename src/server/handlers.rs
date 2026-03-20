@@ -50,7 +50,7 @@ use super::render::{
 use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
 use super::time::{current_timestamp, evaluate_time_lock, parse_timestamp, TimeLockState};
 use super::tor::{OnionAccess, TorConfig};
-use super::webhook::{trigger_webhook, WebhookEvent};
+use super::webhook::{trigger_webhook, WebhookClient, WebhookEvent};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -60,6 +60,7 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
         SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"),
     );
     let rate_limiter: SharedRateLimiter = std::sync::Arc::new(RateLimiter::new());
+    let webhook_client = WebhookClient::new();
 
     rocket::build()
         .configure(rocket::Config {
@@ -71,6 +72,7 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
         .manage(tor_config)
         .manage(api_key_store)
         .manage(rate_limiter)
+        .manage(webhook_client)
         .attach(Cors)
         .mount(
             "/",
@@ -753,6 +755,7 @@ async fn create_api(
 #[get("/<id>?<query..>")]
 async fn show(
     store: &State<SharedPasteStore>,
+    http: &State<WebhookClient>,
     id: String,
     query: PasteViewQuery,
     onion: OnionAccess,
@@ -813,7 +816,13 @@ async fn show(
                     }
 
                     for (config, event) in events_to_fire {
-                        trigger_webhook(config, event, &id, paste.metadata.bundle_label.clone());
+                        trigger_webhook(
+                            http.inner().0.clone(),
+                            config,
+                            event,
+                            &id,
+                            paste.metadata.bundle_label.clone(),
+                        );
                     }
 
                     let view = StoredPasteView {
@@ -844,6 +853,7 @@ async fn show(
 #[get("/raw/<id>?<query..>")]
 async fn show_raw(
     store: &State<SharedPasteStore>,
+    http: &State<WebhookClient>,
     id: String,
     query: PasteViewQuery,
     onion: OnionAccess,
@@ -879,6 +889,7 @@ async fn show_raw(
                         let webhook_config = paste.metadata.webhook.clone();
                         if let Some(config) = webhook_config.clone() {
                             trigger_webhook(
+                                http.inner().0.clone(),
                                 config,
                                 WebhookEvent::Viewed,
                                 &id,
@@ -889,6 +900,7 @@ async fn show_raw(
                         if deleted {
                             if let Some(config) = webhook_config {
                                 trigger_webhook(
+                                    http.inner().0.clone(),
                                     config,
                                     WebhookEvent::Consumed,
                                     &id,
