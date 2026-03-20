@@ -29,6 +29,17 @@ cargo clippy --all-targets --all-features -- -D warnings
 cd frontend && npm test -- --run && npm run lint
 ```
 
+## Before Opening a PR
+
+Run these checks locally — CI will enforce them:
+
+- [ ] `cargo fmt --all -- --check` passes
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes
+- [ ] `cargo nextest run --workspace --all-features` passes
+- [ ] `cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75` passes
+- [ ] Frontend (if changed): `cd frontend && npm test -- --run && npm run lint` passes
+- [ ] New public APIs have at least one test
+
 ## Submitting a Pull Request
 
 1. Fork the repository and create a feature branch.
