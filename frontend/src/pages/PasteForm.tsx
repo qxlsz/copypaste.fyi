@@ -355,10 +355,10 @@ export const PasteFormPage = () => {
 
           <div className="space-y-2">
             <label
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+              className="block text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500"
               htmlFor="content"
             >
-              Your text
+              Content
             </label>
             <div className="relative">
               <MonacoEditor
@@ -390,60 +390,69 @@ export const PasteFormPage = () => {
 
           <div className="space-y-4">
             <div className="w-full space-y-3 rounded-2xl border border-slate-200 bg-surface/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                    Retention
-                  </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Paste expires after this window, or immediately after first
-                    view if burn is enabled.
-                  </p>
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Retention
+                </p>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Retention period">
+                  {(
+                    [
+                      { label: "1m", value: 1 },
+                      { label: "10m", value: 10 },
+                      { label: "1h", value: 60 },
+                      { label: "3h", value: 180 },
+                      { label: "1d", value: 1440 },
+                      { label: "7d", value: 10080 },
+                      { label: "30d", value: 43200 },
+                    ] as Array<{ label: string; value: number }>
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setRetentionMinutes(opt.value)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+                        retentionMinutes === opt.value
+                          ? "bg-primary text-white shadow-sm shadow-primary/40 scale-105"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
-                <select
-                  id="retention"
-                  value={retentionMinutes}
-                  onChange={(event) =>
-                    setRetentionMinutes(Number(event.target.value))
-                  }
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 lg:w-auto"
-                >
-                  <option value={1}>1 minute</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={60}>1 hour</option>
-                  <option value={180}>3 hours</option>
-                  <option value={1440}>1 day</option>
-                  <option value={10080}>7 days</option>
-                  <option value={43200}>30 days</option>
-                </select>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={burnAfterReading}
-                    onChange={(event) =>
-                      setBurnAfterReading(event.target.checked)
-                    }
-                    className="h-4 w-4 rounded border-slate-700 bg-surface text-primary focus:ring-primary/30"
-                  />
-                  <span className="inline-flex items-center gap-1">
-                    <span role="img" aria-label="fire">
-                      🔥
-                    </span>
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={burnAfterReading}
+                  onClick={() => setBurnAfterReading(!burnAfterReading)}
+                  className="inline-flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300 focus:outline-none group"
+                >
+                  <span
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      burnAfterReading
+                        ? "bg-danger"
+                        : "bg-slate-300 dark:bg-slate-600"
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        burnAfterReading ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
+                  </span>
+                  <span className="inline-flex items-center gap-1 font-medium">
+                    <span role="img" aria-label="fire">🔥</span>
                     Burn after use
                   </span>
-                </label>
-                {burnAfterReading ? (
-                  <p className="text-xs text-danger/80">
-                    Link disables itself after the first successful view.
-                  </p>
-                ) : (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Keep disabled for multi-view sharing.
-                  </p>
-                )}
+                </button>
+                <p className={`text-xs transition-colors ${burnAfterReading ? "text-danger/80" : "text-slate-500 dark:text-slate-400"}`}>
+                  {burnAfterReading
+                    ? "Disables after first view."
+                    : "Keep off for multi-view sharing."}
+                </p>
               </div>
             </div>
 
@@ -664,10 +673,25 @@ export const PasteFormPage = () => {
             <div className="flex w-full justify-end lg:w-auto lg:justify-start">
               <button
                 type="submit"
-                className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-primary px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30 lg:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0a84ff] to-[#3b6ef0] px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition-all hover:shadow-primary/50 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring focus:ring-primary/30 disabled:opacity-60 disabled:scale-100 lg:w-auto"
                 disabled={mutation.isPending}
               >
-                {mutation.isPending ? "Creating…" : "CopyPaste"}
+                {mutation.isPending ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Creating…
+                  </>
+                ) : (
+                  <>
+                    CopyPaste
+                    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </>
+                )}
               </button>
             </div>
           </div>

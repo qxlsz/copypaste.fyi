@@ -15,9 +15,11 @@ export function Header({ actions }: Props) {
 
   return (
     <header className="flex items-center justify-between px-4 py-3 border-b border-[#262626] bg-[#0a0a0a]">
-      <Link to="/" className="flex items-center gap-2">
-        <span className="w-4 h-4 rounded-full bg-[#3b82f6] flex-shrink-0" />
-        <span className="font-semibold text-sm tracking-tight">copypaste</span>
+      <Link to="/" className="flex items-center gap-2 group">
+        <span className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#6366f1] flex-shrink-0 shadow-[0_0_8px_rgba(59,130,246,0.5)] group-hover:shadow-[0_0_12px_rgba(59,130,246,0.7)] transition-shadow" />
+        <span className="font-semibold text-sm tracking-tight">
+          <span className="bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">copypaste</span><span className="text-[#3b82f6]/60 font-normal">.fyi</span>
+        </span>
       </Link>
 
       <div className="flex items-center gap-1">
