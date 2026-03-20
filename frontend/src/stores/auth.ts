@@ -33,10 +33,7 @@ export type KeyFormat = "hex" | "base64" | "pem" | "raw";
 
 // Exported for testing — strips privkey from the persisted state so it is
 // never written to localStorage.
-export const partializeAuthState = (state: {
-  user: User | null;
-  token: string | null;
-}) => ({
+export const partializeAuthState = (state: AuthState) => ({
   user: state.user
     ? {
         pubkeyHash: state.user.pubkeyHash,
@@ -202,7 +199,7 @@ export const useAuth = create<AuthState>()(
         }
       },
 
-      login: async (privkey) => {
+      login: async (privkey?: string) => {
         set({ isLoading: true });
         try {
           // Check for HTTPS in production
