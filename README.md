@@ -9,7 +9,7 @@ post-quantum cryptography, and **dual cryptographic verification** (Rust + indep
 [![Coverage](https://img.shields.io/badge/coverage-%E2%89%A575%25-brightgreen)](#)
 [![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)](#deploy)
 [![crates.io](https://img.shields.io/crates/v/copypaste.svg)](https://crates.io/crates/copypaste)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.82+-orange?logo=rust)](#run-locally)
 
 </div>
@@ -26,6 +26,23 @@ For CLI or source builds see [Getting Started](#getting-started).
 ## Overview
 
 copypaste.fyi is a lightweight web service for creating and sharing plaintext snippets. It focuses on fast paste creation, predictable URLs, and minimal operational overhead. The UI is intentionally simple and responsive, making it easy to share links from any device.
+
+## Why copypaste.fyi?
+
+Unlike [PrivateBin](https://privatebin.info/) (PHP, requires server-side config) or
+[microbin](https://github.com/szabodanika/microbin) (no CLI), copypaste.fyi is built for
+operators who want a single binary with no database and for users who want verifiable client-side
+encryption.
+
+| Feature | copypaste.fyi | PrivateBin | microbin | rustypaste |
+|---|:---:|:---:|:---:|:---:|
+| Rust backend | ✅ | ❌ PHP | ✅ | ✅ |
+| No database required | ✅ | ❌ | ❌ SQLite | ✅ filesystem |
+| Post-quantum crypto | ✅ | ❌ | ❌ | ❌ |
+| Dual crypto verification | ✅ | ❌ | ❌ | ❌ |
+| CLI client | ✅ `cpaste` | ❌ | ❌ | ✅ |
+| Steganography | ✅ | ❌ | ❌ | ❌ |
+| Burn-after-reading | ✅ | ✅ | ✅ | ✅ |
 
 Key traits:
 
@@ -537,6 +554,6 @@ Visit `/about.txt` for a plain text overview of the service and its security fea
 
 ## License
 
-Licensed under the terms of the [MIT License](LICENSE).
+Licensed under the terms of the [Apache License 2.0](LICENSE).
 
 
