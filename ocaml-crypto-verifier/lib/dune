@@ -4,6 +4,7 @@
  (libraries
    unix
    mirage-crypto
+   mirage-crypto-ec
    mirage-crypto-rng
    base64
    cstruct

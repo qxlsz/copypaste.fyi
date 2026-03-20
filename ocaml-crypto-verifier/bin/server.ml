@@ -6,6 +6,7 @@ let port = try int_of_string (Sys.getenv "PORT") with _ -> 8001
 let host = try Sys.getenv "HOST" with _ -> "0.0.0.0"
 
 let json_content_type = ("Content-Type", "application/json")
+let max_body_bytes = 1_048_576 (* 1 MB *)
 
 let respond_json status json =
   let body = Yojson.Safe.to_string json in
@@ -28,21 +29,29 @@ let handle_health (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
 
 let handle_verify_encryption (_req : Request.t) (body : Cohttp_lwt.Body.t) =
   Lwt.bind (Cohttp_lwt.Body.to_string body) (fun body_str ->
-    let result = match encryption_verification_of_string body_str with
-      | Ok ev -> verify_encryption ev
-      | Error msg ->
-          { valid = false; details = "Parse error: " ^ msg; timestamp = Unix.gettimeofday () }
-    in
-    respond_json `OK (result_to_json result))
+    if String.length body_str > max_body_bytes then
+      respond_json `Bad_request
+        (`Assoc [("valid", `Bool false); ("details", `String "request body too large")])
+    else
+      let result = match encryption_verification_of_string body_str with
+        | Ok ev -> verify_encryption ev
+        | Error msg ->
+            { valid = false; details = "Parse error: " ^ msg; timestamp = Unix.gettimeofday () }
+      in
+      respond_json `OK (result_to_json result))
 
 let handle_verify_signature (_req : Request.t) (body : Cohttp_lwt.Body.t) =
   Lwt.bind (Cohttp_lwt.Body.to_string body) (fun body_str ->
-    let result = match signature_verification_of_string body_str with
-      | Ok sv -> verify_signature sv
-      | Error msg ->
-          { valid = false; details = "Parse error: " ^ msg; timestamp = Unix.gettimeofday () }
-    in
-    respond_json `OK (result_to_json result))
+    if String.length body_str > max_body_bytes then
+      respond_json `Bad_request
+        (`Assoc [("valid", `Bool false); ("details", `String "request body too large")])
+    else
+      let result = match signature_verification_of_string body_str with
+        | Ok sv -> verify_signature sv
+        | Error msg ->
+            { valid = false; details = "Parse error: " ^ msg; timestamp = Unix.gettimeofday () }
+      in
+      respond_json `OK (result_to_json result))
 
 let callback _conn req body =
   let uri = req |> Request.uri |> Uri.path in
