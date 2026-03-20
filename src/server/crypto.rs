@@ -48,16 +48,24 @@ pub async fn encrypt_content(
 
             let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
+            let salt_b64 = general_purpose::STANDARD.encode(salt);
 
             // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
-            verify_encryption_with_ocaml(algorithm, text, &ciphertext_b64, key, Some(&nonce_b64))
-                .await?;
+            verify_encryption_with_ocaml(
+                algorithm,
+                text,
+                &ciphertext_b64,
+                key,
+                Some(&nonce_b64),
+                Some(&salt_b64),
+            )
+            .await?;
 
             Ok(StoredContent::Encrypted {
                 algorithm,
                 ciphertext: ciphertext_b64,
                 nonce: nonce_b64,
-                salt: general_purpose::STANDARD.encode(salt),
+                salt: salt_b64,
             })
         }
         EncryptionAlgorithm::ChaCha20Poly1305 => {
@@ -73,16 +81,24 @@ pub async fn encrypt_content(
 
             let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
+            let salt_b64 = general_purpose::STANDARD.encode(salt);
 
             // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
-            verify_encryption_with_ocaml(algorithm, text, &ciphertext_b64, key, Some(&nonce_b64))
-                .await?;
+            verify_encryption_with_ocaml(
+                algorithm,
+                text,
+                &ciphertext_b64,
+                key,
+                Some(&nonce_b64),
+                Some(&salt_b64),
+            )
+            .await?;
 
             Ok(StoredContent::Encrypted {
                 algorithm,
                 ciphertext: ciphertext_b64,
                 nonce: nonce_b64,
-                salt: general_purpose::STANDARD.encode(salt),
+                salt: salt_b64,
             })
         }
         EncryptionAlgorithm::XChaCha20Poly1305 => {
@@ -98,16 +114,24 @@ pub async fn encrypt_content(
 
             let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
+            let salt_b64 = general_purpose::STANDARD.encode(salt);
 
             // Defense-in-depth OCaml verification (configurable via COPYPASTE_REQUIRE_CRYPTO_VERIFICATION)
-            verify_encryption_with_ocaml(algorithm, text, &ciphertext_b64, key, Some(&nonce_b64))
-                .await?;
+            verify_encryption_with_ocaml(
+                algorithm,
+                text,
+                &ciphertext_b64,
+                key,
+                Some(&nonce_b64),
+                Some(&salt_b64),
+            )
+            .await?;
 
             Ok(StoredContent::Encrypted {
                 algorithm,
                 ciphertext: ciphertext_b64,
                 nonce: nonce_b64,
-                salt: general_purpose::STANDARD.encode(salt),
+                salt: salt_b64,
             })
         }
         EncryptionAlgorithm::KyberHybridAes256Gcm => {
@@ -403,6 +427,7 @@ struct EncryptionVerificationRequest {
     ciphertext: String,
     key: String,
     nonce: Option<String>,
+    salt: Option<String>,
     aad: Option<String>,
 }
 
@@ -529,6 +554,7 @@ pub async fn verify_encryption_with_ocaml(
     ciphertext: &str,
     key: &str,
     nonce: Option<&str>,
+    salt: Option<&str>,
 ) -> Result<(), String> {
     let algorithm_str = match algorithm {
         EncryptionAlgorithm::Aes256Gcm => "aes256_gcm",
@@ -544,6 +570,7 @@ pub async fn verify_encryption_with_ocaml(
         ciphertext: ciphertext.to_string(),
         key: key.to_string(),
         nonce: nonce.map(|s| s.to_string()),
+        salt: salt.map(|s| s.to_string()),
         aad: None,
     };
 

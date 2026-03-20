@@ -11,35 +11,38 @@ let respond_json status json =
   let body = Yojson.Safe.to_string json in
   Server.respond_string ~status ~headers:(Cohttp.Header.of_list [json_content_type]) ~body ()
 
+let result_to_json (result : verification_result) =
+  `Assoc [
+    ("valid", `Bool result.valid);
+    ("details", `String result.details);
+    ("timestamp", `Float result.timestamp)
+  ]
+
 let handle_health (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
   let result = health_check () in
   let json = `Assoc [
     ("status", `String "healthy");
-    ("verifier", `Assoc [
-      ("valid", `Bool result.valid);
-      ("details", `String result.details);
-      ("timestamp", `Float result.timestamp)
-    ])
+    ("verifier", result_to_json result)
   ] in
   respond_json `OK json
 
-let handle_verify_encryption (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
-  let result = { valid = true; details = "Encryption verification placeholder"; timestamp = Unix.gettimeofday () } in
-  let json = `Assoc [
-    ("valid", `Bool result.valid);
-    ("details", `String result.details);
-    ("timestamp", `Float result.timestamp)
-  ] in
-  respond_json `OK json
+let handle_verify_encryption (_req : Request.t) (body : Cohttp_lwt.Body.t) =
+  Lwt.bind (Cohttp_lwt.Body.to_string body) (fun body_str ->
+    let result = match encryption_verification_of_string body_str with
+      | Ok ev -> verify_encryption ev
+      | Error msg ->
+          { valid = false; details = "Parse error: " ^ msg; timestamp = Unix.gettimeofday () }
+    in
+    respond_json `OK (result_to_json result))
 
-let handle_verify_signature (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
-  let result = { valid = true; details = "Signature verification placeholder"; timestamp = Unix.gettimeofday () } in
-  let json = `Assoc [
-    ("valid", `Bool result.valid);
-    ("details", `String result.details);
-    ("timestamp", `Float result.timestamp)
-  ] in
-  respond_json `OK json
+let handle_verify_signature (_req : Request.t) (body : Cohttp_lwt.Body.t) =
+  Lwt.bind (Cohttp_lwt.Body.to_string body) (fun body_str ->
+    let result = match signature_verification_of_string body_str with
+      | Ok sv -> verify_signature sv
+      | Error msg ->
+          { valid = false; details = "Parse error: " ^ msg; timestamp = Unix.gettimeofday () }
+    in
+    respond_json `OK (result_to_json result))
 
 let callback _conn req body =
   let uri = req |> Request.uri |> Uri.path in
