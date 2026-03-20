@@ -223,6 +223,9 @@ export const MonacoEditor = ({
 
   const EditorComponent = editorModule.default;
 
+  // Prose formats benefit from word-wrap; code formats should preserve indentation.
+  const isProseFormat = format === "plain_text" || format === "markdown";
+
   return (
     <EditorComponent
       className={className}
@@ -235,14 +238,17 @@ export const MonacoEditor = ({
         fontSize: isMobile ? 16 : 14,
         fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular",
         minimap: { enabled: false },
-        lineNumbers: "off",
+        // Show line numbers for code formats; off for prose
+        lineNumbers: isProseFormat ? "off" : "on",
         glyphMargin: false,
         folding: false,
-        renderLineHighlight: "none",
+        // Highlight current line in edit mode; skip in read-only view
+        renderLineHighlight: readOnly ? "none" : "line",
         overviewRulerBorder: false,
         overviewRulerLanes: 0,
         scrollBeyondLastLine: false,
-        wordWrap: "on",
+        // Wrap prose; preserve indentation structure for code
+        wordWrap: isProseFormat ? "on" : "off",
         automaticLayout: true,
         smoothScrolling: true,
         renderWhitespace: "none",
@@ -257,6 +263,8 @@ export const MonacoEditor = ({
         tabCompletion: "off",
         wordBasedSuggestions: "off",
         hover: { enabled: false },
+        // contextmenu: false prevents Monaco's IDE-specific context menu;
+        // the browser's native context menu (copy/paste/select-all) still works.
         contextmenu: false,
       }}
       beforeMount={handleBeforeMount}
