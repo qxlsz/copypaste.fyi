@@ -65,10 +65,10 @@ pastes protected by the same passphrase receive different derived keys.
 When using the `cpaste` CLI:
 
 ```bash
-cpaste --format code --encryption chacha20_poly1305 --key retro-synthwave-9001 -- "fn main() {}"
+cpaste --format code --encryption-mode chacha20_poly1305 --key retro-synthwave-9001 -- "fn main() {}"
 ```
 
-- `--encryption` accepts `none`, `aes256_gcm`, `chacha20_poly1305`, or `xchacha20_poly1305`.
+- `--encryption-mode` accepts `none`, `aes256_gcm`, `chacha20_poly1305`, or `xchacha20_poly1305`.
 - `--key` must be provided for all encrypted modes.
 - URLs printed to stdout include the key as a query parameter when you pass `--key`, making it
   easy to share one consolidated link. Remove the `?key=` portion if you plan to send the key via
