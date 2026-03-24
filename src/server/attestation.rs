@@ -5,6 +5,7 @@ use hmac::{Hmac, Mac};
 use rocket::serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 
 use super::models::PasteViewQuery;
 
@@ -67,7 +68,7 @@ pub fn verify_attestation(
             hasher.update(provided.as_bytes());
             let digest = hasher.finalize();
             let encoded = base64::engine::general_purpose::STANDARD.encode(digest);
-            if &encoded == hash {
+            if bool::from(encoded.as_bytes().ct_eq(hash.as_bytes())) {
                 AttestationVerdict::Granted
             } else {
                 AttestationVerdict::Prompt { invalid: true }
@@ -166,7 +167,7 @@ fn verify_totp(
             continue;
         };
         if let Some(candidate) = totp_code(&secret_bytes, candidate_counter, digits) {
-            if candidate == sanitized_code {
+            if bool::from(candidate.as_bytes().ct_eq(sanitized_code.as_bytes())) {
                 return true;
             }
         }
