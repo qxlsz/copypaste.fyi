@@ -73,7 +73,8 @@ let verify_chacha20_poly1305 ev =
       let nonce_cs = Cstruct.of_string nonce_bytes in
       let ct_cs = Cstruct.of_string ct_bytes in
       (match Mirage_crypto.Chacha20.authenticate_decrypt
-        ~key:key_material ~nonce:nonce_cs ct_cs with
+        ~key:(Mirage_crypto.Chacha20.of_secret key_material)
+        ~nonce:nonce_cs ct_cs with
       | Some pt_cs ->
         let decrypted = Cstruct.to_string pt_cs in
         if decrypted = ev.plaintext then

@@ -81,7 +81,8 @@ let test_chacha20_valid (_ctx : test_ctxt) =
     (Cstruct.concat [salt_cs; Cstruct.of_string passphrase]) in
   let nonce_cs = Cstruct.of_string nonce_str in
   let ct_cs = Mirage_crypto.Chacha20.authenticate_encrypt
-    ~key:key_material ~nonce:nonce_cs (Cstruct.of_string plaintext) in
+    ~key:(Mirage_crypto.Chacha20.of_secret key_material)
+    ~nonce:nonce_cs (Cstruct.of_string plaintext) in
   let ev : encryption_verification = {
     algorithm = "chacha20_poly1305";
     plaintext;
