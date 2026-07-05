@@ -77,47 +77,47 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
         rocket::Config::figment()
             .merge(("limits", Limits::default().limit("json", 11u64.mebibytes()))),
     )
-        .manage(store)
-        .manage(default_anchor_relayer())
-        .manage(tor_config)
-        .manage(api_key_store)
-        .manage(rate_limiter)
-        .manage(webhook_client)
-        .manage(session_store)
-        .manage(paste_rate_limiter)
-        .attach(Cors)
-        .mount(
-            "/",
-            routes![
-                api_preflight,
-                index,
-                about,
-                create,
-                create_api,
-                update_api,
-                finalize_api,
-                anchor_api,
-                show_api,
-                show,
-                show_raw,
-                stats_summary_api,
-                auth_challenge_api,
-                auth_login_api,
-                auth_logout_api,
-                user_paste_count_api,
-                user_paste_list_api,
-                workspace_pastes_api,
-                health_api,
-                health_detailed_api,
-                admin_create_key_api,
-                admin_list_keys_api,
-                admin_delete_key_api,
-                openapi_json,
-                spa_fallback
-            ],
-        )
-        .mount("/", Scalar::with_url("/api/docs", ApiDoc::openapi()))
-        .mount("/static", FileServer::from("static"))
+    .manage(store)
+    .manage(default_anchor_relayer())
+    .manage(tor_config)
+    .manage(api_key_store)
+    .manage(rate_limiter)
+    .manage(webhook_client)
+    .manage(session_store)
+    .manage(paste_rate_limiter)
+    .attach(Cors)
+    .mount(
+        "/",
+        routes![
+            api_preflight,
+            index,
+            about,
+            create,
+            create_api,
+            update_api,
+            finalize_api,
+            anchor_api,
+            show_api,
+            show,
+            show_raw,
+            stats_summary_api,
+            auth_challenge_api,
+            auth_login_api,
+            auth_logout_api,
+            user_paste_count_api,
+            user_paste_list_api,
+            workspace_pastes_api,
+            health_api,
+            health_detailed_api,
+            admin_create_key_api,
+            admin_list_keys_api,
+            admin_delete_key_api,
+            openapi_json,
+            spa_fallback
+        ],
+    )
+    .mount("/", Scalar::with_url("/api/docs", ApiDoc::openapi()))
+    .mount("/static", FileServer::from("static"))
 }
 
 pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
@@ -738,9 +738,11 @@ impl<'r> FromRequest<'r> for PasteKeyHeader {
 #[get("/api/pastes/<id>?<query..>", rank = 1)]
 async fn show_api(
     store: &State<SharedPasteStore>,
+    http: &State<WebhookClient>,
     id: String,
     query: PasteViewQuery,
     key_header: PasteKeyHeader,
+    onion: OnionAccess,
     _rate: ReadRateLimit,
 ) -> Result<Json<PasteViewResponse>, (Status, Json<ApiError>)> {
     rocket::info!("show_api called with id: {}", id);
@@ -763,6 +765,49 @@ async fn show_api(
     };
 
     rocket::info!("Paste found for id: {}", id);
+
+    // Mirror the access controls enforced by the HTML `show` route — the API
+    // is the SPA's primary read path and must not bypass them.
+    if paste.metadata.tor_access_only && !onion.is_onion() {
+        return Err((
+            Status::Forbidden,
+            Json(ApiError::new(
+                "tor_only",
+                "This paste is only accessible via its Tor onion address",
+            )),
+        ));
+    }
+
+    let now = current_timestamp();
+    if let Some(lock_state) = evaluate_time_lock(&paste.metadata, now) {
+        let (code, message) = match lock_state {
+            TimeLockState::TooEarly(_) => ("time_locked", "This paste is not yet available"),
+            TimeLockState::TooLate(_) => {
+                ("time_lock_elapsed", "This paste's access window has closed")
+            }
+        };
+        return Err((Status::Locked, Json(ApiError::new(code, message))));
+    }
+
+    if let Some(requirement) = paste.metadata.attestation.as_ref() {
+        match attestation::verify_attestation(requirement, &query, now) {
+            AttestationVerdict::Granted => {}
+            AttestationVerdict::Prompt { invalid } => {
+                let (code, message) = if invalid {
+                    (
+                        "attestation_invalid",
+                        "The provided attestation code is incorrect",
+                    )
+                } else {
+                    (
+                        "attestation_required",
+                        "This paste requires an attestation code",
+                    )
+                };
+                return Err((Status::Unauthorized, Json(ApiError::new(code, message))));
+            }
+        }
+    }
 
     let text = match decrypt_content(&paste.content, key.as_deref()) {
         Ok(text) => {
@@ -794,6 +839,31 @@ async fn show_api(
             ));
         }
     };
+
+    // Burn-after-reading: a successful API read is a consumption, exactly like
+    // the HTML route. Fire Viewed first, then Consumed only if the delete won
+    // (avoids false Consumed events when concurrent reads race).
+    if paste.burn_after_reading {
+        let webhook_config = paste.metadata.webhook.clone();
+        let mut events_to_fire = Vec::new();
+        if let Some(config) = webhook_config.clone() {
+            events_to_fire.push((config, WebhookEvent::Viewed));
+        }
+        if store.delete_paste(&id).await {
+            if let Some(config) = webhook_config {
+                events_to_fire.push((config, WebhookEvent::Consumed));
+            }
+        }
+        for (config, event) in events_to_fire {
+            trigger_webhook(
+                http.inner().0.clone(),
+                config,
+                event,
+                &id,
+                paste.metadata.bundle_label.clone(),
+            );
+        }
+    }
 
     let encryption = match &paste.content {
         StoredContent::Plain { .. } => PasteEncryptionInfo {
@@ -1855,6 +1925,124 @@ mod tests {
 
         let second = client.get(&id).dispatch();
         assert_eq!(second.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn show_api_triggers_burn_after_reading_flow() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "api burn payload",
+            "format": "plain_text",
+            "burn_after_reading": true
+        });
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let body = response.into_string().expect("json body");
+        let parsed: CreatePasteResponse = serde_json::from_str(&body).expect("parse");
+
+        let api_path = format!("/api/pastes/{}", parsed.id);
+        let first = client.get(&api_path).dispatch();
+        assert_eq!(first.status(), Status::Ok);
+        let view: serde_json::Value =
+            serde_json::from_str(&first.into_string().unwrap()).expect("view json");
+        assert_eq!(view["content"], "api burn payload");
+
+        // The successful API read consumed the paste.
+        let second = client.get(&api_path).dispatch();
+        assert_eq!(second.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn show_api_does_not_burn_when_key_is_missing_or_wrong() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let payload = json!({
+            "content": "secret",
+            "format": "plain_text",
+            "burn_after_reading": true,
+            "encryption": { "algorithm": "aes256_gcm", "key": "correct-horse" }
+        });
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(payload.to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let parsed: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).expect("parse");
+        let api_path = format!("/api/pastes/{}", parsed.id);
+
+        // Missing key and wrong key must NOT consume the paste.
+        let missing = client.get(&api_path).dispatch();
+        assert_eq!(missing.status(), Status::Unauthorized);
+        let wrong = client.get(format!("{api_path}?key=nope")).dispatch();
+        assert_eq!(wrong.status(), Status::Forbidden);
+
+        // Correct key reads and consumes it.
+        let good = client
+            .get(format!("{api_path}?key=correct-horse"))
+            .dispatch();
+        assert_eq!(good.status(), Status::Ok);
+        let gone = client
+            .get(format!("{api_path}?key=correct-horse"))
+            .dispatch();
+        assert_eq!(gone.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn show_api_enforces_time_lock_and_attestation() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        // Time-locked paste: not available yet via the API.
+        let locked = json!({
+            "content": "future",
+            "format": "plain_text",
+            "time_lock": { "not_before": (current_timestamp() + 3600).to_string() }
+        });
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(locked.to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let parsed: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).expect("parse");
+        let res = client.get(format!("/api/pastes/{}", parsed.id)).dispatch();
+        assert_eq!(res.status(), Status::Locked);
+
+        // Attestation-gated paste: requires the shared secret via the API.
+        let gated = json!({
+            "content": "gated",
+            "format": "plain_text",
+            "attestation": { "kind": "shared_secret", "secret": "open-sesame" }
+        });
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(gated.to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let parsed: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).expect("parse");
+        let no_code = client.get(format!("/api/pastes/{}", parsed.id)).dispatch();
+        assert_eq!(no_code.status(), Status::Unauthorized);
+        let with_code = client
+            .get(format!("/api/pastes/{}?attest=open-sesame", parsed.id))
+            .dispatch();
+        assert_eq!(with_code.status(), Status::Ok);
     }
 
     #[test]
