@@ -2,8 +2,8 @@ use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::{Header, Method, Status};
 use rocket::{options, Request, Response};
 
-const ALLOWED_METHODS: &str = "GET,POST,OPTIONS";
-const ALLOWED_HEADERS: &str = "Content-Type,Authorization";
+const ALLOWED_METHODS: &str = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
+const ALLOWED_HEADERS: &str = "Content-Type,Authorization,X-Requested-With,X-Paste-Key";
 const EXPOSED_HEADERS: &str = "Content-Type";
 const MAX_AGE_SECONDS: &str = "86400";
 

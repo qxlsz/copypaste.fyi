@@ -13,7 +13,9 @@ primary_region = 'iad'
   ROCKET_ADDRESS = '0.0.0.0'
   ROCKET_PORT = '8000'
   RUST_LOG = 'info'
-  CRYPTO_VERIFIER_URL = 'http://localhost:8001'
+  # crypto-verifier runs in its own process group (separate VM) — reach it via
+  # Fly's per-process-group private DNS, not localhost.
+  CRYPTO_VERIFIER_URL = 'http://crypto-verifier.process.copypaste-fyi-withered-darkness-575.internal:8001'
 
 [[services]]
   internal_port = 8000
