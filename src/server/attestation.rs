@@ -5,10 +5,11 @@ use hmac::{Hmac, Mac};
 use rocket::serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
+use utoipa::ToSchema;
 
 use super::models::PasteViewQuery;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AttestationRequest {
     Totp {

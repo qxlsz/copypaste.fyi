@@ -64,7 +64,7 @@ impl AnchorPayload {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AnchorReceipt {
     #[serde(default, skip_serializing_if = "Option::is_none")]

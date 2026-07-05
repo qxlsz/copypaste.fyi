@@ -80,6 +80,8 @@ pub struct PasteViewResponse {
     pub webhook: Option<PasteWebhookInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stego: Option<PasteStegoInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -258,10 +260,26 @@ pub struct UpdatePasteRequest {
     pub encryption: Option<EncryptionRequest>,
 }
 
-/// Request body for `PATCH /api/pastes/{id}` (finalize live paste).
+/// Request body for `PATCH /api/pastes/{id}/finalize` (finalize live paste).
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct FinalizePasteRequest {
     pub live: bool,
+}
+
+/// Response for `PUT /api/pastes/{id}`.
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePasteResponse {
+    pub id: String,
+    pub is_live: bool,
+}
+
+/// Response for `PATCH /api/pastes/{id}/finalize`.
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FinalizePasteResponse {
+    pub id: String,
+    pub is_live: bool,
 }
 
 #[derive(Serialize, Deserialize, Default, ToSchema)]
@@ -326,6 +344,8 @@ pub struct UserPasteListItem {
     pub burn_after_reading: bool,
     pub format: String,
     pub access_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -385,6 +405,13 @@ pub struct WorkspacePasteItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
     pub created_at: i64,
+}
+
+/// Response for `GET /api/workspaces/{name}/pastes`.
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePasteListResponse {
+    pub pastes: Vec<WorkspacePasteItem>,
 }
 
 // ── Admin key listing & revocation responses ─────────────────────────────────

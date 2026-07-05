@@ -9,6 +9,7 @@ use rand::RngCore;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::convert::TryInto;
+use std::sync::Once;
 use zeroize::Zeroizing;
 
 use hkdf::Hkdf;
@@ -169,14 +170,16 @@ fn encrypt_content_sync(
             // the same (dk, ek) pair.  Fresh OS randomness in `ek.encapsulate` ensures each
             // call produces a distinct (kem_ct, shared_secret), preserving IND-CPA security.
             let hk = Hkdf::<Sha256>::new(None, key.as_bytes());
-            let mut d_bytes = [0u8; 32];
-            let mut z_bytes = [0u8; 32];
-            hk.expand(b"ml-kem-768-keygen-d", &mut d_bytes)
+            // Seed material is passphrase-derived secret data; Zeroizing wipes
+            // the buffers on drop so they do not linger on the heap/stack.
+            let mut d_bytes = Zeroizing::new([0u8; 32]);
+            let mut z_bytes = Zeroizing::new([0u8; 32]);
+            hk.expand(b"ml-kem-768-keygen-d", &mut *d_bytes)
                 .map_err(|e| format!("HKDF expand error (d): {}", e))?;
-            hk.expand(b"ml-kem-768-keygen-z", &mut z_bytes)
+            hk.expand(b"ml-kem-768-keygen-z", &mut *z_bytes)
                 .map_err(|e| format!("HKDF expand error (z): {}", e))?;
-            let d: B32 = d_bytes.into();
-            let z: B32 = z_bytes.into();
+            let d: B32 = (*d_bytes).into();
+            let z: B32 = (*z_bytes).into();
             let (_, ek) = MlKem768::generate_deterministic(&d, &z);
 
             // Encapsulate using OsRng — `encapsulate(&mut OsRng)` passes OS entropy as the
@@ -225,6 +228,28 @@ fn encrypt_content_sync(
     }
 }
 
+/// One-time warning that XChaCha20-Poly1305 and the ML-KEM hybrid are not
+/// covered by the OCaml dual-verification service (mirage-crypto exposes
+/// neither XChaCha20/HChaCha20 nor ML-KEM). Emitted the first time such an
+/// algorithm is used so operators know these are Rust-verified only.
+static DUAL_VERIFY_GAP_WARNING: Once = Once::new();
+
+pub(crate) fn warn_dual_verification_gap(algorithm: EncryptionAlgorithm) {
+    if matches!(
+        algorithm,
+        EncryptionAlgorithm::XChaCha20Poly1305 | EncryptionAlgorithm::KyberHybridAes256Gcm
+    ) {
+        DUAL_VERIFY_GAP_WARNING.call_once(|| {
+            log::warn!(
+                "{:?} is not covered by the OCaml dual-verification service; \
+                 XChaCha20-Poly1305 and ML-KEM-768 hybrid ciphertexts are verified \
+                 by the Rust implementation only (see docs/encryption.md)",
+                algorithm
+            );
+        });
+    }
+}
+
 /// Encrypt content using the specified algorithm.
 ///
 /// CPU-bound cipher work runs inside `tokio::task::spawn_blocking` so it does not
@@ -235,6 +260,7 @@ pub async fn encrypt_content(
     key: &str,
     algorithm: EncryptionAlgorithm,
 ) -> Result<StoredContent, String> {
+    warn_dual_verification_gap(algorithm);
     let text = text.to_owned();
     let key = key.to_owned();
 
@@ -287,14 +313,15 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                     3 => {
                         // New ML-KEM-768 format: kem_ct_b64|aes_ct_b64|aes_nonce_b64
                         let hk = Hkdf::<Sha256>::new(None, key_str.as_bytes());
-                        let mut d_bytes = [0u8; 32];
-                        let mut z_bytes = [0u8; 32];
-                        hk.expand(b"ml-kem-768-keygen-d", &mut d_bytes)
+                        // Passphrase-derived seed material — wiped on drop.
+                        let mut d_bytes = Zeroizing::new([0u8; 32]);
+                        let mut z_bytes = Zeroizing::new([0u8; 32]);
+                        hk.expand(b"ml-kem-768-keygen-d", &mut *d_bytes)
                             .map_err(|_| DecryptError::InvalidKey)?;
-                        hk.expand(b"ml-kem-768-keygen-z", &mut z_bytes)
+                        hk.expand(b"ml-kem-768-keygen-z", &mut *z_bytes)
                             .map_err(|_| DecryptError::InvalidKey)?;
-                        let d: B32 = d_bytes.into();
-                        let z: B32 = z_bytes.into();
+                        let d: B32 = (*d_bytes).into();
+                        let z: B32 = (*z_bytes).into();
                         let (dk, _) = MlKem768::generate_deterministic(&d, &z);
 
                         let kem_ct_bytes = BASE64_STANDARD
@@ -350,10 +377,12 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
                         let mut secret_hasher = Sha256::new();
                         secret_hasher.update(b"kem_shared_secret");
                         secret_hasher.update(key_str.as_bytes());
-                        let shared_secret: [u8; 32] = secret_hasher.finalize().into();
+                        // Passphrase-derived shared secret — wiped on drop.
+                        let shared_secret: Zeroizing<[u8; 32]> =
+                            Zeroizing::new(secret_hasher.finalize().into());
 
                         let mut key_hasher = Sha256::new();
-                        key_hasher.update(shared_secret);
+                        key_hasher.update(*shared_secret);
                         key_hasher.update(key_str.as_bytes());
                         let aes_key: Zeroizing<[u8; 32]> =
                             Zeroizing::new(key_hasher.finalize().into());
@@ -644,4 +673,21 @@ pub async fn verify_signature_with_ocaml(
         .map_err(|e| format!("Failed to serialize signature verification request: {}", e))?;
 
     verify_with_ocaml_crypto_service("signature", request_body).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The dual-verification gap warning must be callable repeatedly for any
+    /// algorithm without panicking (it fires at most once per process).
+    #[test]
+    fn dual_verification_gap_warning_is_idempotent() {
+        warn_dual_verification_gap(EncryptionAlgorithm::XChaCha20Poly1305);
+        warn_dual_verification_gap(EncryptionAlgorithm::XChaCha20Poly1305);
+        warn_dual_verification_gap(EncryptionAlgorithm::KyberHybridAes256Gcm);
+        // Algorithms with OCaml coverage never trigger the warning path.
+        warn_dual_verification_gap(EncryptionAlgorithm::Aes256Gcm);
+        warn_dual_verification_gap(EncryptionAlgorithm::None);
+    }
 }

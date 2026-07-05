@@ -1,4 +1,7 @@
+use std::net::IpAddr;
 use std::time::Duration;
+
+use url::{Host, Url};
 
 use crate::{WebhookConfig, WebhookProvider};
 
@@ -13,14 +16,89 @@ pub struct WebhookClient(pub reqwest::Client);
 impl WebhookClient {
     /// Build the shared client with a 5 s connect timeout and a 10 s overall
     /// request timeout.
+    ///
+    /// Redirects are disabled entirely: webhook URLs are validated against
+    /// internal/private address ranges at paste-creation time, and following a
+    /// redirect would let an attacker-controlled public URL 302 the request
+    /// back into the internal network (SSRF).
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("failed to build webhook HTTP client");
         WebhookClient(client)
     }
+}
+
+/// Validate a user-supplied webhook URL to prevent SSRF.
+///
+/// Rejects:
+/// - non-http(s) schemes,
+/// - IP-literal hosts in loopback / private / link-local / unique-local /
+///   unspecified ranges (127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16,
+///   0.0.0.0, ::1, ::, fc00::/7, fe80::/10, and IPv4-mapped equivalents),
+/// - hostnames that plainly target internal infrastructure (`localhost`,
+///   `*.localhost`, `*.internal`, `*.local`).
+///
+/// The shared [`WebhookClient`] additionally disables redirects so a public
+/// URL cannot bounce the delivery into the internal network at send time.
+pub fn validate_webhook_url(raw: &str) -> Result<(), String> {
+    let url = Url::parse(raw.trim()).map_err(|e| format!("Webhook url is not a valid URL: {e}"))?;
+
+    match url.scheme() {
+        "http" | "https" => {}
+        other => {
+            return Err(format!(
+                "Webhook url scheme must be http or https, got '{other}'"
+            ))
+        }
+    }
+
+    match url.host() {
+        None => Err("Webhook url must include a host".to_string()),
+        Some(Host::Ipv4(ip)) if is_forbidden_ip(IpAddr::V4(ip)) => Err(format!(
+            "Webhook url must not target a private, loopback, or link-local address ({ip})"
+        )),
+        Some(Host::Ipv6(ip)) if is_forbidden_ip(IpAddr::V6(ip)) => Err(format!(
+            "Webhook url must not target a private, loopback, or link-local address ({ip})"
+        )),
+        Some(Host::Domain(domain)) if is_forbidden_hostname(domain) => Err(format!(
+            "Webhook url must not target an internal hostname ('{domain}')"
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
+fn is_forbidden_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+        }
+        IpAddr::V6(v6) => {
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return is_forbidden_ip(IpAddr::V4(mapped));
+            }
+            let first_segment = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (first_segment & 0xfe00) == 0xfc00 // fc00::/7 unique local
+                || (first_segment & 0xffc0) == 0xfe80 // fe80::/10 link local
+        }
+    }
+}
+
+fn is_forbidden_hostname(domain: &str) -> bool {
+    let normalized = domain.trim_end_matches('.').to_ascii_lowercase();
+    normalized == "localhost"
+        || normalized.ends_with(".localhost")
+        || normalized.ends_with(".internal")
+        || normalized.ends_with(".local")
 }
 
 impl Default for WebhookClient {
@@ -213,5 +291,96 @@ mod tests {
     fn webhook_client_new_builds_successfully() {
         // Smoke-test that building the shared client does not panic.
         let _ = WebhookClient::new();
+    }
+
+    // ── SSRF validation ────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_accepts_public_urls() {
+        for url in [
+            "https://example.com/webhook",
+            "http://example.com",
+            "https://hooks.slack.com/services/T000/B000/XXX",
+            "http://8.8.8.8/notify",
+            "https://[2606:4700:4700::1111]/hook",
+        ] {
+            assert!(validate_webhook_url(url).is_ok(), "should accept {url}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_non_http_schemes() {
+        for url in [
+            "ftp://example.com/x",
+            "file:///etc/passwd",
+            "gopher://example.com",
+        ] {
+            assert!(validate_webhook_url(url).is_err(), "should reject {url}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_malformed_urls() {
+        assert!(validate_webhook_url("not a url").is_err());
+        assert!(validate_webhook_url("").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_private_ipv4_ranges() {
+        for url in [
+            "http://127.0.0.1/hook",
+            "http://127.8.9.10:8080/hook",
+            "http://10.0.0.1/hook",
+            "http://172.16.5.5/hook",
+            "http://172.31.255.255/hook",
+            "http://192.168.1.1/hook",
+            "http://169.254.169.254/latest/meta-data",
+            "http://0.0.0.0/hook",
+            "http://255.255.255.255/hook",
+        ] {
+            assert!(validate_webhook_url(url).is_err(), "should reject {url}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_private_ipv6_ranges() {
+        for url in [
+            "http://[::1]/hook",
+            "http://[::]/hook",
+            "http://[fc00::1]/hook",
+            "http://[fd12:3456::1]/hook",
+            "http://[fe80::1]/hook",
+            "http://[::ffff:127.0.0.1]/hook",
+            "http://[::ffff:10.0.0.1]/hook",
+        ] {
+            assert!(validate_webhook_url(url).is_err(), "should reject {url}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_internal_hostnames() {
+        for url in [
+            "http://localhost/hook",
+            "http://localhost:9200/hook",
+            "http://LOCALHOST/hook",
+            "http://foo.localhost/hook",
+            "http://metadata.internal/computeMetadata",
+            "http://printer.local/hook",
+            "http://db.internal./hook",
+        ] {
+            assert!(validate_webhook_url(url).is_err(), "should reject {url}");
+        }
+    }
+
+    #[test]
+    fn validate_accepts_domains_containing_but_not_ending_in_blocked_suffixes() {
+        // "internal"/"local" only blocked as label suffixes, not substrings.
+        for url in [
+            "https://internal-tools.example.com/hook",
+            "https://localhost.example.com/hook",
+            "https://mylocal.example.com/hook",
+        ] {
+            assert!(validate_webhook_url(url).is_ok(), "should accept {url}");
+        }
     }
 }

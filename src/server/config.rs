@@ -229,6 +229,18 @@ impl Config {
                 "server.port must be between 1 and 65535".to_string(),
             ));
         }
+        if parse_duration_minutes(&self.retention.default).is_none() {
+            return Err(ConfigError::ValidationError(format!(
+                "retention.default must be a duration like '30m', '24h', '30d', got '{}'",
+                self.retention.default
+            )));
+        }
+        if parse_duration_minutes(&self.retention.max).is_none() {
+            return Err(ConfigError::ValidationError(format!(
+                "retention.max must be a duration like '30m', '24h', '30d', got '{}'",
+                self.retention.max
+            )));
+        }
         let valid_formats = ["json", "pretty"];
         if !valid_formats.contains(&self.logging.format.as_str()) {
             return Err(ConfigError::ValidationError(format!(
@@ -272,13 +284,81 @@ impl Config {
         if std::env::var("COPYPASTE_AUTH_TOKEN").is_err() && !self.auth.token.is_empty() {
             std::env::set_var("COPYPASTE_AUTH_TOKEN", &self.auth.token);
         }
-        // Redis URL, if provided.
+        // Redis URL, if provided. The Redis persistence adapter reads
+        // UPSTASH_REDIS_REST_URL (Upstash REST API), so bridge storage.url to
+        // that variable; REDIS_URL is kept for backward compatibility.
         if let Some(url) = &self.storage.url {
             if std::env::var("REDIS_URL").is_err() {
                 std::env::set_var("REDIS_URL", url);
             }
+            if std::env::var("UPSTASH_REDIS_REST_URL").is_err() {
+                std::env::set_var("UPSTASH_REDIS_REST_URL", url);
+            }
+        }
+        // Retention knobs consumed by paste creation (default applied when the
+        // request omits retention_minutes; max rejects longer retentions).
+        if std::env::var("COPYPASTE_RETENTION_DEFAULT_MINUTES").is_err() {
+            if let Some(minutes) = parse_duration_minutes(&self.retention.default) {
+                if minutes > 0 {
+                    std::env::set_var("COPYPASTE_RETENTION_DEFAULT_MINUTES", minutes.to_string());
+                }
+            }
+        }
+        if std::env::var("COPYPASTE_RETENTION_MAX_MINUTES").is_err() {
+            if let Some(minutes) = parse_duration_minutes(&self.retention.max) {
+                if minutes > 0 {
+                    std::env::set_var("COPYPASTE_RETENTION_MAX_MINUTES", minutes.to_string());
+                }
+            }
+        }
+        // Rate-limit knobs consumed by rate_limit::PasteRateLimiter::from_env.
+        if std::env::var("COPYPASTE_RATE_LIMIT_CREATES").is_err()
+            && self.rate_limit.creates_per_minute > 0
+        {
+            std::env::set_var(
+                "COPYPASTE_RATE_LIMIT_CREATES",
+                self.rate_limit.creates_per_minute.to_string(),
+            );
+        }
+        if std::env::var("COPYPASTE_RATE_LIMIT_READS").is_err()
+            && self.rate_limit.reads_per_minute > 0
+        {
+            std::env::set_var(
+                "COPYPASTE_RATE_LIMIT_READS",
+                self.rate_limit.reads_per_minute.to_string(),
+            );
         }
     }
+}
+
+/// Parse a human-friendly duration string into minutes.
+///
+/// Accepts a raw number of minutes (`"90"`) or a number with an `m`/`h`/`d`/`w`
+/// suffix (`"30m"`, `"24h"`, `"30d"`, `"2w"`).
+pub fn parse_duration_minutes(input: &str) -> Option<u64> {
+    let s = input.trim().to_ascii_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(minutes) = s.parse::<u64>() {
+        return Some(minutes);
+    }
+    let (value, multiplier) = if let Some(rest) = s.strip_suffix('m') {
+        (rest, 1u64)
+    } else if let Some(rest) = s.strip_suffix('h') {
+        (rest, 60)
+    } else if let Some(rest) = s.strip_suffix('d') {
+        (rest, 60 * 24)
+    } else if let Some(rest) = s.strip_suffix('w') {
+        (rest, 60 * 24 * 7)
+    } else {
+        return None;
+    };
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .and_then(|n| n.checked_mul(multiplier))
 }
 
 // — Example config ——————————————————————————————————————
@@ -418,6 +498,119 @@ address = "127.0.0.1"
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("port"), "error should mention port: {msg}");
+    }
+
+    #[test]
+    fn parse_duration_minutes_accepts_supported_units() {
+        assert_eq!(parse_duration_minutes("90"), Some(90));
+        assert_eq!(parse_duration_minutes("30m"), Some(30));
+        assert_eq!(parse_duration_minutes("24h"), Some(24 * 60));
+        assert_eq!(parse_duration_minutes("30d"), Some(30 * 24 * 60));
+        assert_eq!(parse_duration_minutes("2w"), Some(2 * 7 * 24 * 60));
+        assert_eq!(parse_duration_minutes(" 1H "), Some(60));
+    }
+
+    #[test]
+    fn parse_duration_minutes_rejects_garbage() {
+        assert_eq!(parse_duration_minutes(""), None);
+        assert_eq!(parse_duration_minutes("abc"), None);
+        assert_eq!(parse_duration_minutes("5x"), None);
+        assert_eq!(parse_duration_minutes("-5m"), None);
+    }
+
+    #[test]
+    fn validation_rejects_unparsable_retention() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("COPYPASTE_RETENTION_MAX");
+        let path = write_temp_config("[retention]\nmax = \"forever\"\n");
+        let result = Config::load(Some(path.to_str().unwrap()));
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("retention.max"),
+            "error should mention field: {msg}"
+        );
+    }
+
+    #[test]
+    fn bridge_to_env_exports_retention_rate_limit_and_upstash_url() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        for var in [
+            "COPYPASTE_RETENTION_DEFAULT_MINUTES",
+            "COPYPASTE_RETENTION_MAX_MINUTES",
+            "COPYPASTE_RATE_LIMIT_CREATES",
+            "COPYPASTE_RATE_LIMIT_READS",
+            "REDIS_URL",
+            "UPSTASH_REDIS_REST_URL",
+        ] {
+            std::env::remove_var(var);
+        }
+
+        let mut config = Config::default();
+        config.storage.url = Some("https://upstash.example.com".to_string());
+        config.bridge_to_env();
+
+        assert_eq!(
+            std::env::var("COPYPASTE_RETENTION_DEFAULT_MINUTES").as_deref(),
+            Ok("1440"),
+            "default 24h must bridge to 1440 minutes"
+        );
+        assert_eq!(
+            std::env::var("COPYPASTE_RETENTION_MAX_MINUTES").as_deref(),
+            Ok("43200"),
+            "max 30d must bridge to 43200 minutes"
+        );
+        assert_eq!(
+            std::env::var("COPYPASTE_RATE_LIMIT_CREATES").as_deref(),
+            Ok("60")
+        );
+        assert_eq!(
+            std::env::var("COPYPASTE_RATE_LIMIT_READS").as_deref(),
+            Ok("300")
+        );
+        assert_eq!(
+            std::env::var("UPSTASH_REDIS_REST_URL").as_deref(),
+            Ok("https://upstash.example.com"),
+            "storage.url must bridge to the variable the Redis adapter reads"
+        );
+        assert_eq!(
+            std::env::var("REDIS_URL").as_deref(),
+            Ok("https://upstash.example.com")
+        );
+
+        for var in [
+            "COPYPASTE_RETENTION_DEFAULT_MINUTES",
+            "COPYPASTE_RETENTION_MAX_MINUTES",
+            "COPYPASTE_RATE_LIMIT_CREATES",
+            "COPYPASTE_RATE_LIMIT_READS",
+            "REDIS_URL",
+            "UPSTASH_REDIS_REST_URL",
+        ] {
+            std::env::remove_var(var);
+        }
+    }
+
+    #[test]
+    fn bridge_to_env_respects_existing_env_values() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::set_var("COPYPASTE_RETENTION_MAX_MINUTES", "5");
+
+        let config = Config::default();
+        config.bridge_to_env();
+
+        assert_eq!(
+            std::env::var("COPYPASTE_RETENTION_MAX_MINUTES").as_deref(),
+            Ok("5"),
+            "pre-set env vars must win over bridged config values"
+        );
+
+        std::env::remove_var("COPYPASTE_RETENTION_MAX_MINUTES");
+        // Clean up variables the bridge may have set from defaults.
+        std::env::remove_var("COPYPASTE_RETENTION_DEFAULT_MINUTES");
+        std::env::remove_var("COPYPASTE_RATE_LIMIT_CREATES");
+        std::env::remove_var("COPYPASTE_RATE_LIMIT_READS");
     }
 
     #[test]
