@@ -3,7 +3,11 @@ open Cohttp_lwt_unix
 open Crypto_verifier
 
 let port = try int_of_string (Sys.getenv "PORT") with _ -> 8001
-let host = try Sys.getenv "HOST" with _ -> "0.0.0.0"
+
+(* Default to "::" (IPv6 any, dual-stack — also accepts IPv4). Fly.io's
+   private 6PN network is IPv6-only, so an IPv4-only 0.0.0.0 bind is
+   unreachable from other machines in the org. *)
+let host = try Sys.getenv "HOST" with _ -> "::"
 
 let json_content_type = ("Content-Type", "application/json")
 let max_body_bytes = 1_048_576 (* 1 MB *)
@@ -75,7 +79,11 @@ let start_server () =
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
   Logs.info (fun m -> m "Starting crypto verification server on %s:%d" host port);
-  Server.create ~mode:(`TCP (`Port port)) (Server.make ~callback ())
+  (* `TCP (`Port _) alone binds IPv4-any; build a conduit context from
+     [host] so the bind address is honoured. *)
+  Lwt.bind (Conduit_lwt_unix.init ~src:host ()) (fun conduit_ctx ->
+      let ctx = Cohttp_lwt_unix.Net.init ~ctx:conduit_ctx () in
+      Server.create ~ctx ~mode:(`TCP (`Port port)) (Server.make ~callback ()))
 
 let () =
   Lwt_main.run (start_server ())
