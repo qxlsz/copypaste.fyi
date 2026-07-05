@@ -70,11 +70,13 @@ pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
     let session_store: SharedSessionStore = std::sync::Arc::new(SessionStore::new());
     let paste_rate_limiter = PasteRateLimiter::from_env();
 
-    rocket::build()
-        .configure(rocket::Config {
-            limits: Limits::default().limit("json", 11u64.mebibytes()),
-            ..Default::default()
-        })
+    // Merge onto Rocket's standard figment so ROCKET_ADDRESS / ROCKET_PORT /
+    // Rocket.toml still apply — `.configure(Config { ..Default::default() })`
+    // would silently discard them (Default binds 127.0.0.1, which broke Fly).
+    rocket::custom(
+        rocket::Config::figment()
+            .merge(("limits", Limits::default().limit("json", 11u64.mebibytes()))),
+    )
         .manage(store)
         .manage(default_anchor_relayer())
         .manage(tor_config)
