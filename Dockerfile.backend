@@ -83,7 +83,7 @@ if [[ "${FLY_PROCESS_GROUP}" == "crypto-verifier" ]]; then\n\
     exec crypto-verifier\n\
 elif [[ "${FLY_PROCESS_GROUP}" == "app" ]]; then\n\
     echo "Starting Rust backend..."\n\
-    exec copypaste\n\
+    exec copypaste serve\n\
 else\n\
     echo "No FLY_PROCESS_GROUP specified, starting both services..."\n\
     # Start OCaml crypto verifier in background\n\
@@ -91,7 +91,7 @@ else\n\
     CRYPTO_PID=$!\n\
     \n\
     # Start Rust backend in foreground\n\
-    copypaste &\n\
+    copypaste serve &\n\
     RUST_PID=$!\n\
     \n\
     # Wait for any process to exit\n\
