@@ -550,7 +550,7 @@ async fn user_paste_list_api(
     }
 
     // Sort by created_at descending (newest first)
-    user_pastes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    user_pastes.sort_by_key(|p| std::cmp::Reverse(p.created_at));
 
     Ok(Json(UserPasteListResponse {
         pastes: user_pastes,
@@ -591,7 +591,7 @@ async fn workspace_pastes_api(
         }
     }
 
-    pastes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    pastes.sort_by_key(|p| std::cmp::Reverse(p.created_at));
 
     Json(WorkspacePasteListResponse { pastes })
 }
