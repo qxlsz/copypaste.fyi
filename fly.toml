@@ -51,7 +51,7 @@ primary_region = 'iad'
 # prevent direct internet access to the OCaml crypto verifier.
 
 [processes]
-  app = 'copypaste'
+  app = 'copypaste serve'
   crypto-verifier = 'crypto-verifier'
 
 [[vm]]
