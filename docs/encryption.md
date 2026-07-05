@@ -17,7 +17,8 @@ revealed.
 ## Key Derivation
 
 1. A 16-byte random salt is generated with `OsRng`.
-2. The passphrase and salt are hashed using SHA-256 (`derive_key_material` in `src/main.rs`).
+2. The passphrase and salt are hashed using SHA-256 (`derive_key_material` in
+   `src/server/crypto.rs`).
    - Hash output (32 bytes) becomes the symmetric key for the chosen algorithm.
 3. The salt is stored with the paste so the same key can be re-derived during decryption.
 
@@ -25,6 +26,19 @@ This approach (salted hash) protects against rainbow-table reuse of passphrases 
 pastes protected by the same passphrase receive different derived keys.
 
 ## Supported Algorithms
+
+| Algorithm | Identifier | Nonce | OCaml dual verification |
+| --- | --- | --- | --- |
+| AES-256-GCM | `aes256_gcm` | 12 bytes | ✅ Yes |
+| ChaCha20-Poly1305 | `chacha20_poly1305` | 12 bytes | ✅ Yes |
+| XChaCha20-Poly1305 | `xchacha20_poly1305` | 24 bytes | ❌ No — Rust-verified only |
+| ML-KEM-768 hybrid | `kyber_hybrid_aes256_gcm` | 12 bytes (AES) | ❌ No — Rust-verified only |
+
+The OCaml verifier (`ocaml-crypto-verifier/`) re-checks AES-GCM and
+ChaCha20-Poly1305 ciphertexts as defense in depth. `mirage-crypto` does not
+expose XChaCha20/HChaCha20 or ML-KEM, so those two algorithms are **not**
+dual-verified; the Rust backend logs a one-time warning the first time either
+is used.
 
 ### AES-256-GCM (`aes256_gcm`)
 - Uses a 96-bit nonce (12 bytes) generated randomly per paste.
@@ -41,6 +55,7 @@ pastes protected by the same passphrase receive different derived keys.
   high-volume scenarios.
 - Recommended when you plan to generate many pastes from the same client session or want the
   additional nonce space for peace of mind.
+- Not covered by the OCaml dual-verification service (no XChaCha20 in `mirage-crypto`).
 
 ## Web UI Helpers
 
@@ -94,6 +109,7 @@ cpaste --format code --encryption-mode chacha20_poly1305 --key retro-synthwave-9
 
 ---
 
-For more details, inspect `encrypt_content` and `decrypt_content` in `src/main.rs`, or run the
-unit tests (`cargo nextest run --workspace --all-features`) which cover round-trips for each
+For more details, inspect `encrypt_content` and `decrypt_content` in
+`src/server/crypto.rs`, or run the unit tests
+(`cargo nextest run --workspace --all-features`) which cover round-trips for each
 algorithm.
