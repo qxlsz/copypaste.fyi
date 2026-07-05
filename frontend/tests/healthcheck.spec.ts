@@ -21,37 +21,45 @@ test.describe("Webpage Health Check", () => {
     await page.goto("http://localhost:5173");
 
     // Check that the main branding is present
-    await expect(page.getByText("copypaste.fyi")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "copypaste.fyi home" }),
+    ).toBeVisible();
 
-    // Check that navigation links are present
-    await expect(page.getByText("Create Paste")).toBeVisible();
-    await expect(page.getByText("Dashboard")).toBeVisible();
-    await expect(page.getByText("Stats")).toBeVisible();
+    // Check that navigation controls are present
+    await expect(
+      page.getByRole("button", { name: "Create new paste" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Service statistics" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Open command menu" }),
+    ).toBeVisible();
   });
 
   test("paste form elements are present", async ({ page }) => {
     await page.goto("http://localhost:5173");
 
-    // Check that the main form heading is present
-    await expect(page.getByText("Create a secure paste")).toBeVisible();
-
-    // Check that form inputs exist
+    // Toolbar controls
+    await expect(page.getByLabel("Retention period")).toBeVisible();
     await expect(
-      page.getByPlaceholder("Paste or type your content here..."),
+      page.getByRole("button", { name: "Encryption options" }),
     ).toBeVisible();
 
     // Check that the submit button is present
-    await expect(page.getByText("Create paste")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Create", exact: true }),
+    ).toBeVisible();
   });
 
-  test("shows key prompt for encrypted paste", async ({ page }) => {
-    // This test would require mocking the API to return a 401 error
-    // For now, we'll just verify the UI structure exists
+  test("encryption key input is available via the lock popover", async ({
+    page,
+  }) => {
     await page.goto("http://localhost:5173");
 
-    // The key prompt form should exist in the component but not be visible initially
-    // This test ensures the form elements are present in the DOM
+    // Open the encryption popover; the key input lives inside it.
+    await page.getByRole("button", { name: "Encryption options" }).click();
     const keyInput = page.locator('input[type="password"]').first();
-    await expect(keyInput).toBeAttached(); // Element exists but may not be visible
+    await expect(keyInput).toBeAttached();
   });
 });

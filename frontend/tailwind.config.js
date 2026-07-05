@@ -8,18 +8,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        border: "var(--color-muted)",
-        input: "var(--color-muted)",
-        ring: "var(--color-primary)",
+        border: "var(--color-border)",
+        input: "var(--color-border)",
+        ring: "var(--color-accent)",
         background: "var(--color-background)",
         surface: "var(--color-surface)",
+        text: "var(--color-text)",
         primary: {
           DEFAULT: "var(--color-primary)",
-          foreground: "#f8fafc",
+          foreground: "var(--color-accent-foreground)",
         },
         accent: {
           DEFAULT: "var(--color-accent)",
-          foreground: "#f8fafc",
+          foreground: "var(--color-accent-foreground)",
         },
         muted: {
           DEFAULT: "var(--color-muted)",
@@ -43,16 +44,12 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Inter"', "system-ui", "sans-serif"],
-        mono: ['"JetBrains Mono"', "monospace"],
+        sans: ['"Inter Variable"', '"Inter"', "system-ui", "sans-serif"],
+        mono: ['"JetBrains Mono Variable"', '"JetBrains Mono"', "monospace"],
       },
       boxShadow: {
         soft: "var(--shadow-soft)",
         strong: "var(--shadow-strong)",
-      },
-      borderRadius: {
-        xl: "1rem",
-        "2xl": "1.5rem",
       },
       keyframes: {
         "fade-in": {

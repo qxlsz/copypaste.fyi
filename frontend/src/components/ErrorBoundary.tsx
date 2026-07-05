@@ -24,7 +24,11 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
     if (import.meta.env.DEV) {
-      console.error("[ErrorBoundary] Uncaught error:", error, info.componentStack);
+      console.error(
+        "[ErrorBoundary] Uncaught error:",
+        error,
+        info.componentStack,
+      );
     }
   }
 
@@ -35,15 +39,15 @@ export class ErrorBoundary extends Component<
       }
       return (
         <div className="mx-auto max-w-md space-y-4 py-16 text-center">
-          <h1 className="text-2xl font-semibold text-red-500">
+          <h1 className="text-xl font-semibold tracking-tight text-danger">
             Something went wrong
           </h1>
-          <p className="text-slate-400">
+          <p className="text-sm text-muted-foreground">
             An unexpected error occurred. Please refresh the page to try again.
           </p>
           <button
             onClick={() => this.setState({ hasError: false })}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             Try again
           </button>

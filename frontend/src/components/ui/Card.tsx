@@ -22,9 +22,9 @@ export const Card = forwardRef<CardElement, CardProps>(
     <div
       ref={ref}
       className={clsx(
-        "rounded-2xl border border-muted/60 bg-surface/90 shadow-soft backdrop-blur-sm transition-colors dark:border-muted/40 dark:bg-surface/80",
+        "rounded-lg border border-border bg-surface transition-colors",
         paddingMap[padding],
-        interactive && "hover:border-primary/50 hover:shadow-strong",
+        interactive && "hover:border-accent/50",
         className,
       )}
       {...props}

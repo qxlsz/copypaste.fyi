@@ -13,11 +13,18 @@ export const API_BASE = import.meta.env.DEV
   ? "/api"
   : (import.meta.env.VITE_API_BASE ?? "/api");
 
-// Debug logging for development (temporarily enabled)
-if (import.meta.env.DEV) {
-  console.log("🚀 Frontend API_BASE:", API_BASE);
-  console.log("🚀 Development mode:", import.meta.env.DEV);
-  console.log("🚀 VITE_API_BASE env:", import.meta.env.VITE_API_BASE);
+// Typed error thrown for non-2xx API responses so callers can branch on
+// status / machine-readable code instead of matching message strings.
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
 }
 
 const jsonFetch = async <T>(
@@ -45,10 +52,14 @@ const jsonFetch = async <T>(
         if (import.meta.env.DEV) {
           console.error(`[API] ${response.status} error:`, body);
         }
-        throw new Error("Something went wrong. Please try again later.");
+        throw new ApiError(
+          "Something went wrong. Please try again later.",
+          response.status,
+        );
       }
       // For 4xx: use structured API error message if schema conforms {code, message}
       let userMessage = `Request failed (${response.status})`;
+      let code: string | undefined;
       try {
         const parsed = JSON.parse(body) as Record<string, unknown>;
         if (
@@ -56,11 +67,12 @@ const jsonFetch = async <T>(
           typeof parsed.code === "string"
         ) {
           userMessage = parsed.message;
+          code = parsed.code;
         }
       } catch {
         // body is not JSON — use generic message
       }
-      throw new Error(userMessage);
+      throw new ApiError(userMessage, response.status, code);
     }
 
     if (response.status === 204) {

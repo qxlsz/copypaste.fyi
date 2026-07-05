@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Shield, Lock, Eye, Globe, Server, Zap } from "lucide-react";
+import { Shield, Lock, Eye, Globe, Server, Zap, X } from "lucide-react";
 
 interface JourneyStep {
   icon: React.ComponentType<{ className?: string }>;
@@ -8,9 +8,32 @@ interface JourneyStep {
   detected: boolean;
 }
 
+type VpnStatus = "unknown" | "checking" | "detected" | "not_detected";
+
 export const PrivacyJourney = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [steps, setSteps] = useState<JourneyStep[]>([]);
+  const [vpnStatus, setVpnStatus] = useState<VpnStatus>("unknown");
+
+  // Opt-in only: contacting a third-party IP API is itself a privacy leak,
+  // so it never runs automatically — only when the user clicks "Check".
+  const checkVpn = async () => {
+    setVpnStatus("checking");
+    let isVpnLikely = false;
+    try {
+      const response = await fetch("https://ipapi.co/json/", {
+        signal: AbortSignal.timeout(3000),
+      });
+      const data = await response.json();
+      isVpnLikely =
+        data.org?.toLowerCase().includes("vpn") ||
+        data.org?.toLowerCase().includes("proxy") ||
+        data.asn?.toString().includes("VPN");
+      setVpnStatus(isVpnLikely ? "detected" : "not_detected");
+    } catch {
+      setVpnStatus("not_detected");
+    }
+  };
 
   useEffect(() => {
     const detectPrivacyFeatures = async () => {
@@ -34,29 +57,6 @@ export const PrivacyJourney = () => {
         label: "Tor Network",
         detail: isTor ? "Accessing via Tor onion service" : "Direct connection",
         detected: isTor,
-      });
-
-      // Check for VPN/Proxy indicators (basic heuristics)
-      let isVpnLikely = false;
-      try {
-        const response = await fetch("https://ipapi.co/json/", {
-          signal: AbortSignal.timeout(3000),
-        });
-        const data = await response.json();
-        isVpnLikely =
-          data.org?.toLowerCase().includes("vpn") ||
-          data.org?.toLowerCase().includes("proxy") ||
-          data.asn?.toString().includes("VPN");
-      } catch {
-        // Ignore errors
-      }
-      journeySteps.push({
-        icon: Shield,
-        label: "VPN/Proxy",
-        detail: isVpnLikely
-          ? "Possible VPN/proxy detected"
-          : "Direct IP connection",
-        detected: isVpnLikely,
       });
 
       // Check for Do Not Track
@@ -105,90 +105,117 @@ export const PrivacyJourney = () => {
     detectPrivacyFeatures();
   }, []);
 
-  const privacyScore = steps.filter((s) => s.detected).length;
-  const totalSteps = steps.length;
+  const vpnDetected = vpnStatus === "detected";
+  const vpnDetail =
+    vpnStatus === "unknown"
+      ? "Unknown — click Check (queries ipapi.co)"
+      : vpnStatus === "checking"
+        ? "Checking…"
+        : vpnDetected
+          ? "Possible VPN/proxy detected"
+          : "Direct IP connection";
+
+  const privacyScore =
+    steps.filter((s) => s.detected).length + (vpnDetected ? 1 : 0);
+  const totalSteps = steps.length + 1;
 
   return (
     <div className="fixed bottom-4 left-4 z-50 sm:bottom-6 sm:left-6">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="group relative flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary/90 to-primary/70 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-primary/30 backdrop-blur-sm transition-all hover:shadow-xl hover:shadow-primary/40 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm"
+        aria-expanded={isExpanded}
         aria-label="Privacy journey details"
+        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 font-mono text-[11px] text-muted-foreground transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
-        <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-        <span className="hidden sm:inline">Privacy:</span>
-        <span className="font-mono">
-          {privacyScore}/{totalSteps}
-        </span>
-        <div className="absolute -top-0.5 -right-0.5 h-2 w-2 animate-pulse rounded-full bg-green-400 sm:-top-1 sm:-right-1 sm:h-3 sm:w-3" />
+        <Shield className="h-3 w-3" aria-hidden="true" />
+        privacy {privacyScore}/{totalSteps}
       </button>
 
       {isExpanded && (
-        <div className="absolute bottom-12 left-0 w-[calc(100vw-2rem)] max-w-sm rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-2xl backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/95 sm:bottom-14 sm:w-80 sm:p-4">
+        <div className="absolute bottom-10 left-0 w-[calc(100vw-2rem)] max-w-sm rounded-lg border border-border bg-surface p-4 sm:w-80">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Your Privacy Journey
+            <h3 className="text-sm font-semibold tracking-tight text-text">
+              Your privacy journey
             </h3>
             <button
               onClick={() => setIsExpanded(false)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label="Close"
             >
-              ✕
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
 
-          <p className="mb-4 text-xs text-slate-600 dark:text-slate-400">
+          <p className="mb-3 text-xs text-muted-foreground">
             We detected {privacyScore} privacy measure
             {privacyScore !== 1 ? "s" : ""} protecting your connection
           </p>
 
-          <div className="space-y-2">
+          <div className="space-y-1">
             {steps.map((step, index) => {
               const Icon = step.icon;
               return (
                 <div
                   key={index}
-                  className={`flex items-start gap-3 rounded-lg p-2 transition ${
-                    step.detected
-                      ? "bg-green-50 dark:bg-green-900/20"
-                      : "bg-slate-50 dark:bg-slate-800/50"
-                  }`}
+                  className="flex items-start gap-3 rounded-md p-2"
                 >
                   <Icon
                     className={`mt-0.5 h-4 w-4 flex-shrink-0 ${
-                      step.detected
-                        ? "text-green-600 dark:text-green-400"
-                        : "text-slate-400 dark:text-slate-600"
+                      step.detected ? "text-success" : "text-muted-foreground"
                     }`}
                   />
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p
-                      className={`text-xs font-semibold ${
-                        step.detected
-                          ? "text-green-900 dark:text-green-100"
-                          : "text-slate-700 dark:text-slate-300"
+                      className={`text-xs font-medium ${
+                        step.detected ? "text-text" : "text-muted-foreground"
                       }`}
                     >
                       {step.label}
                     </p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                    <p className="text-xs text-muted-foreground">
                       {step.detail}
                     </p>
                   </div>
                   {step.detected && (
-                    <span className="text-green-600 dark:text-green-400">
-                      ✓
-                    </span>
+                    <span className="font-mono text-xs text-success">✓</span>
                   )}
                 </div>
               );
             })}
+
+            <div className="flex items-start gap-3 rounded-md p-2">
+              <Shield
+                className={`mt-0.5 h-4 w-4 flex-shrink-0 ${
+                  vpnDetected ? "text-success" : "text-muted-foreground"
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  className={`text-xs font-medium ${
+                    vpnDetected ? "text-text" : "text-muted-foreground"
+                  }`}
+                >
+                  VPN/Proxy
+                </p>
+                <p className="text-xs text-muted-foreground">{vpnDetail}</p>
+              </div>
+              {vpnDetected ? (
+                <span className="font-mono text-xs text-success">✓</span>
+              ) : (
+                <button
+                  onClick={checkVpn}
+                  disabled={vpnStatus === "checking"}
+                  className="rounded border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+                >
+                  {vpnStatus === "checking" ? "…" : "Check"}
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="mt-4 rounded-lg bg-primary/10 p-3 text-xs text-primary">
-            <p className="font-semibold">🔒 Privacy First</p>
-            <p className="mt-1 text-xs opacity-90">
+          <div className="mt-3 rounded-md border border-border p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-text">Privacy first</p>
+            <p className="mt-1">
               All encryption happens in your browser. Your keys never touch our
               servers.
             </p>
@@ -198,7 +225,7 @@ export const PrivacyJourney = () => {
             href="https://how-did-i-get-here.net/"
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 block text-center text-xs text-slate-500 hover:text-primary dark:text-slate-400"
+            className="mt-3 block text-center text-xs text-muted-foreground transition hover:text-text"
           >
             Inspired by how-did-i-get-here.net ↗
           </a>

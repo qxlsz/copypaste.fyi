@@ -14,6 +14,8 @@ interface AreaGroupChartProps {
   data: Array<{ date: string; value: number }>;
   formatLabel?: (date: Date) => string;
   height?: number;
+  /** Stroke/fill color for the series; defaults to the theme accent. */
+  color?: string;
 }
 
 interface ChartComputed {
@@ -31,6 +33,7 @@ export const AreaGroupChart = ({
   data,
   formatLabel,
   height = 240,
+  color = "var(--color-accent)",
 }: AreaGroupChartProps) => {
   const computed = useMemo<ChartComputed | null>(() => {
     if (data.length === 0) {
@@ -77,7 +80,9 @@ export const AreaGroupChart = ({
   }, [data, height]);
 
   if (!computed || !computed.pathData) {
-    return <p className="text-sm text-gray-400">No data available yet.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">No data available yet.</p>
+    );
   }
 
   const { pathData, gradientId, xTicks, yTicks, width, margin } = computed;
@@ -91,15 +96,15 @@ export const AreaGroupChart = ({
     >
       <defs>
         <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.6} />
-          <stop offset="100%" stopColor="#6366f1" stopOpacity={0.05} />
+          <stop offset="0%" stopColor={color} stopOpacity={0.35} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.03} />
         </linearGradient>
       </defs>
       <path
         d={pathData}
         fill={`url(#${gradientId})`}
-        stroke="#6366f1"
-        strokeWidth={2}
+        stroke={color}
+        strokeWidth={1.5}
       />
 
       {xTicks.map(({ tick, x }) => (
@@ -107,11 +112,12 @@ export const AreaGroupChart = ({
           key={`x-${tick.toISOString()}`}
           transform={`translate(${x}, ${height - margin.bottom})`}
         >
-          <line x1={0} x2={0} y1={0} y2={6} stroke="#334155" />
+          <line x1={0} x2={0} y1={0} y2={6} stroke="var(--color-border)" />
           <text
             dy={16}
             textAnchor="middle"
-            className="fill-gray-400 text-[10px]"
+            fill="var(--color-muted-foreground)"
+            className="font-mono text-[10px]"
           >
             {formatLabel ? formatLabel(tick) : tick.toLocaleDateString()}
           </text>
@@ -125,13 +131,14 @@ export const AreaGroupChart = ({
             x2={width - margin.left - margin.right}
             y1={0}
             y2={0}
-            stroke="#1e293b"
+            stroke="var(--color-border)"
           />
           <text
             x={-8}
             dy={4}
             textAnchor="end"
-            className="fill-gray-400 text-[10px]"
+            fill="var(--color-muted-foreground)"
+            className="font-mono text-[10px]"
           >
             {tick}
           </text>

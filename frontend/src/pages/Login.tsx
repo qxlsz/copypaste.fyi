@@ -21,7 +21,7 @@ export const LoginPage = () => {
       setPrivkey(keys.privkey);
       setUseExisting(true);
       toast.success("Keys generated successfully!", {
-        description: `Public key: ${keys.pubkey.slice(0, 20)}...\n\n⚠️ Save your private key securely - it's shown below and stored locally.`,
+        description: `Public key: ${keys.pubkey.slice(0, 20)}...\n\nSave your private key securely - it's shown below and stored locally.`,
         duration: 8000,
       });
     } catch {
@@ -45,150 +45,122 @@ export const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-          Sign in to your account
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600 dark:text-slate-400">
-          Privacy-first authentication with ed25519 keys
-        </p>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-12 text-text transition-colors">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="space-y-1 text-center">
+          <Link
+            to="/"
+            className="inline-flex items-baseline gap-px rounded-md font-mono text-sm font-medium lowercase text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            aria-label="copypaste.fyi home"
+          >
+            copypaste
+            <span
+              aria-hidden="true"
+              className="ml-0.5 inline-block h-[0.9em] w-[0.5em] translate-y-px bg-accent"
+            />
+          </Link>
+          <h1 className="pt-2 text-xl font-semibold tracking-tight text-text">
+            Sign in
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Privacy-first authentication with ed25519 keys
+          </p>
+        </div>
+
         {showHttpsWarning && (
-          <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
-            <div className="flex">
-              <svg
-                className="h-5 w-5 text-yellow-400"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <div className="ml-3">
-                <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                  HTTPS Required: Cryptographic operations require a secure
-                  connection. Please ensure you're accessing this site via
-                  HTTPS.
-                </p>
-              </div>
-            </div>
+          <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
+            <p className="text-xs text-text">
+              HTTPS Required: Cryptographic operations require a secure
+              connection. Please ensure you're accessing this site via HTTPS.
+            </p>
           </div>
         )}
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white dark:bg-slate-800 py-8 px-4 shadow sm:rounded-lg sm:px-10 border dark:border-slate-700">
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
-                Authentication Method
-              </label>
-              <div className="mt-1 space-y-3">
-                <div className="flex items-center">
-                  <input
-                    id="generate-new"
-                    name="key-method"
-                    type="radio"
-                    checked={!useExisting}
-                    onChange={() => setUseExisting(false)}
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-slate-600 dark:bg-slate-700"
-                  />
-                  <label
-                    htmlFor="generate-new"
-                    className="ml-3 block text-sm font-medium text-gray-700 dark:text-slate-300"
-                  >
-                    Generate new keypair
-                  </label>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    id="use-existing"
-                    name="key-method"
-                    type="radio"
-                    checked={useExisting}
-                    onChange={() => setUseExisting(true)}
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-slate-600 dark:bg-slate-700"
-                  />
-                  <label
-                    htmlFor="use-existing"
-                    className="ml-3 block text-sm font-medium text-gray-700 dark:text-slate-300"
-                  >
-                    Use existing private key
-                  </label>
-                </div>
+        <div className="rounded-lg border border-border bg-surface p-6">
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <fieldset className="space-y-2">
+              <legend className="text-xs font-medium text-muted-foreground">
+                authentication method
+              </legend>
+              <div className="flex items-center">
+                <input
+                  id="generate-new"
+                  name="key-method"
+                  type="radio"
+                  checked={!useExisting}
+                  onChange={() => setUseExisting(false)}
+                  className="h-4 w-4 border-border text-accent focus:ring-accent"
+                />
+                <label
+                  htmlFor="generate-new"
+                  className="ml-2.5 block text-sm text-text"
+                >
+                  Generate new keypair
+                </label>
               </div>
-            </div>
+              <div className="flex items-center">
+                <input
+                  id="use-existing"
+                  name="key-method"
+                  type="radio"
+                  checked={useExisting}
+                  onChange={() => setUseExisting(true)}
+                  className="h-4 w-4 border-border text-accent focus:ring-accent"
+                />
+                <label
+                  htmlFor="use-existing"
+                  className="ml-2.5 block text-sm text-text"
+                >
+                  Use existing private key
+                </label>
+              </div>
+            </fieldset>
 
             {!useExisting && (
-              <div>
-                <button
-                  type="button"
-                  onClick={handleGenerateKeys}
-                  className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                >
-                  Generate New Keys
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleGenerateKeys}
+                className="flex w-full justify-center rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                Generate New Keys
+              </button>
             )}
 
             {useExisting && (
-              <div>
+              <div className="space-y-1.5">
                 <label
                   htmlFor="privkey"
-                  className="block text-sm font-medium text-gray-700 dark:text-slate-300"
+                  className="block text-xs font-medium text-muted-foreground"
                 >
-                  Private Key (base64)
+                  private key (base64)
                 </label>
-                <div className="mt-1">
-                  <textarea
-                    id="privkey"
-                    name="privkey"
-                    rows={3}
-                    value={privkey}
-                    onChange={(e) => setPrivkey(e.target.value)}
-                    className="appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md placeholder-gray-400 dark:placeholder-slate-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    placeholder="Enter your base64-encoded private key..."
-                  />
-                </div>
+                <textarea
+                  id="privkey"
+                  name="privkey"
+                  rows={3}
+                  value={privkey}
+                  onChange={(e) => setPrivkey(e.target.value)}
+                  className="block w-full appearance-none rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  placeholder="Enter your base64-encoded private key…"
+                />
               </div>
             )}
 
-            <div>
-              <button
-                type="submit"
-                disabled={isLoading || (useExisting && !privkey.trim())}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? "Signing in..." : "Sign in"}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={isLoading || (useExisting && !privkey.trim())}
+              className="flex w-full justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? "Signing in…" : "Sign in"}
+            </button>
           </form>
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300 dark:border-slate-600" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400">
-                  Or
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-6 text-center">
-              <Link
-                to="/"
-                className="font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
-              >
-                Back to home
-              </Link>
-            </div>
-          </div>
         </div>
+
+        <p className="text-center text-xs text-muted-foreground">
+          <Link to="/" className="transition hover:text-text">
+            ← Back to home
+          </Link>
+        </p>
       </div>
     </div>
   );

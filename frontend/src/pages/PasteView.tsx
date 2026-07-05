@@ -1,10 +1,18 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Copy, Download, ExternalLink, GitFork, Share2 } from "lucide-react";
+import { toast } from "sonner";
 
-import { fetchPaste } from "../api/viewer";
+import { ApiError, fetchPaste } from "../api/client";
 import type { PasteViewResponse } from "../server/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
+import { formatCountdown } from "../lib/countdown";
 
 const formatLabel = (format: string) => {
   switch (format) {
@@ -119,19 +127,96 @@ const formatWebhook = (webhook?: PasteViewResponse["webhook"]) => {
   }
 };
 
+// Extract the encryption key from a URL fragment of the form `#key=...`.
+const parseHashKey = (hash: string): string | undefined => {
+  if (!hash) return undefined;
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const key = params.get("key");
+  return key ?? undefined;
+};
+
+const iconActionClasses =
+  "inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+
+// Live "expires in …" countdown for the metadata row. Ticks every second
+// under an hour (seconds are visible), every minute otherwise, and stops
+// once the paste has expired.
+const ExpiryCountdown = ({ expiresAt }: { expiresAt: number }) => {
+  const [now, setNow] = useState(() => Date.now());
+  const remainingMs = expiresAt * 1000 - now;
+  const expired = remainingMs <= 0;
+  const underHour = remainingMs < 3_600_000;
+
+  useEffect(() => {
+    if (expired) {
+      return;
+    }
+    const intervalId = window.setInterval(
+      () => setNow(Date.now()),
+      underHour ? 1_000 : 60_000,
+    );
+    return () => window.clearInterval(intervalId);
+  }, [expired, underHour]);
+
+  const absolute = new Date(expiresAt * 1000).toLocaleString();
+  if (expired) {
+    return (
+      <span className="text-danger" title={absolute}>
+        expired
+      </span>
+    );
+  }
+  return (
+    <span title={absolute}>expires in {formatCountdown(remainingMs)}</span>
+  );
+};
+
+const PasteViewSkeleton = () => (
+  <div className="animate-pulse space-y-6" aria-hidden="true">
+    <div className="space-y-2">
+      <div className="h-5 w-48 rounded bg-muted" />
+      <div className="h-3 w-72 rounded bg-muted" />
+    </div>
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="h-64 rounded-md bg-muted" />
+    </div>
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="h-5 w-32 rounded bg-muted" />
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="h-10 rounded bg-muted" />
+        <div className="h-10 rounded bg-muted" />
+        <div className="h-10 rounded bg-muted" />
+        <div className="h-10 rounded bg-muted" />
+      </div>
+    </div>
+  </div>
+);
+
 export const PasteViewPage = () => {
   const { id } = useParams<{ id: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const key = searchParams.get("key") ?? undefined;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Prefer the fragment (never sent to servers); fall back to the legacy
+  // `?key=` search param so old share links keep working.
+  const key =
+    parseHashKey(location.hash) ?? searchParams.get("key") ?? undefined;
   const [enteredKey, setEnteredKey] = useState(() => key ?? "");
 
   const handleKeySubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = enteredKey.trim();
     if (trimmed) {
-      const next = new URLSearchParams(searchParams);
-      next.set("key", trimmed);
-      setSearchParams(next);
+      // Write the key into the fragment (not the query string) so it stays
+      // out of history syncing, referrers, and server logs.
+      navigate(
+        {
+          pathname: location.pathname,
+          search: location.search,
+          hash: `key=${encodeURIComponent(trimmed)}`,
+        },
+        { replace: true },
+      );
     }
   };
 
@@ -156,13 +241,66 @@ export const PasteViewPage = () => {
     return `${clamped * 20}px`;
   }, [data?.content]);
 
+  const handleCopyContent = async () => {
+    if (!data?.content) return;
+    try {
+      await navigator.clipboard.writeText(data.content);
+      toast.success("Content copied to clipboard");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast.error("Unable to copy content", { description: message });
+    }
+  };
+
+  const handleShare = async () => {
+    const url = window.location.href;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: `copypaste.fyi — ${id}`, url });
+      } catch (err) {
+        // The user dismissing the share sheet is not an error worth surfacing.
+        if (err instanceof Error && err.name === "AbortError") return;
+        const message = err instanceof Error ? err.message : "Unknown error";
+        toast.error("Unable to share link", { description: message });
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied to clipboard");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast.error("Unable to copy link", { description: message });
+    }
+  };
+
+  const handleFork = () => {
+    if (!data) return;
+    navigate("/", {
+      state: { content: data.content, format: data.format },
+    });
+  };
+
+  const handleDownload = () => {
+    if (!data?.content) return;
+    const blob = new Blob([data.content], {
+      type: "text/plain;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `copypaste-${data.id}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (!id) {
     return (
       <div className="mx-auto max-w-3xl space-y-4 text-center">
-        <h1 className="text-2xl font-semibold text-slate-100">
+        <h1 className="text-xl font-semibold tracking-tight text-text">
           Paste not found
         </h1>
-        <p className="text-slate-400">
+        <p className="text-sm text-muted-foreground">
           The requested paste ID is missing or invalid.
         </p>
       </div>
@@ -170,52 +308,52 @@ export const PasteViewPage = () => {
   }
 
   if (isLoading) {
-    return <p className="text-slate-400">Loading paste…</p>;
+    return <PasteViewSkeleton />;
   }
 
   if (isError || !data) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const isBackendDown =
       message.includes("timed out") || message.includes("Failed to fetch");
-    const isUnauthorized =
-      message.includes("401") ||
-      message.toLowerCase().includes("unauthorized") ||
-      message.toLowerCase().includes("missing key");
+    const keyRequired =
+      error instanceof ApiError &&
+      (error.status === 401 || error.code === "key_required");
+    const keyRejected =
+      error instanceof ApiError &&
+      (error.status === 403 || error.code === "invalid_key");
 
-    const requiresKey = isUnauthorized;
-
-    if (requiresKey) {
+    if (keyRequired || keyRejected) {
       return (
-        <div className="mx-auto max-w-md space-y-6">
+        <div className="mx-auto max-w-sm space-y-6 py-8">
           <div className="space-y-2 text-center">
-            <h1 className="text-2xl font-semibold text-slate-100">
+            <h1 className="text-xl font-semibold tracking-tight text-text">
               Encrypted paste
             </h1>
-            <p className="text-slate-400">
+            <p className="text-sm text-muted-foreground">
               This paste requires an encryption key to view.
             </p>
           </div>
 
           <form onSubmit={handleKeySubmit} className="space-y-4">
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <label
-                className="block text-sm font-medium text-slate-300"
+                className="block text-xs font-medium text-muted-foreground"
                 htmlFor="pasteKey"
               >
-                Encryption key
+                encryption key
               </label>
               <input
                 id="pasteKey"
                 type="password"
                 value={enteredKey}
                 onChange={(event) => setEnteredKey(event.target.value)}
-                placeholder="Enter the encryption key..."
-                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20"
+                placeholder="Enter the encryption key…"
+                className="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 required
                 autoFocus
               />
-              {key && (
-                <p className="text-sm text-danger">
+              {keyRejected && key && (
+                <p className="text-xs text-danger">
                   The provided key was rejected. Please double-check and try
                   again.
                 </p>
@@ -224,13 +362,13 @@ export const PasteViewPage = () => {
 
             <button
               type="submit"
-              className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30"
+              className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               View paste
             </button>
           </form>
 
-          <div className="text-center text-xs text-slate-500">
+          <div className="text-center text-xs text-muted-foreground">
             <p>The key was provided when the paste was created.</p>
             <p>If you don't have the key, the paste cannot be viewed.</p>
           </div>
@@ -240,16 +378,16 @@ export const PasteViewPage = () => {
 
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-semibold text-danger">
+        <h1 className="text-xl font-semibold tracking-tight text-danger">
           {isBackendDown ? "Backend unavailable" : "Unable to load paste"}
         </h1>
-        <p className="text-slate-400">
+        <p className="text-sm text-muted-foreground">
           {isBackendDown
             ? "The paste service is currently unavailable. Please try again later or contact support if the issue persists."
             : message}
         </p>
         {isBackendDown && (
-          <p className="text-sm text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Make sure the backend server is running on port 8000.
           </p>
         )}
@@ -258,49 +396,104 @@ export const PasteViewPage = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-2">
-        <p className="text-slate-400">
-          Format:{" "}
-          <span className="font-medium text-primary">
-            {formatLabel(data.format)}
-          </span>
-        </p>
-        <div className="flex flex-wrap gap-4 text-xs text-slate-500">
+    <div className="space-y-4">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h1 className="font-mono text-sm font-medium text-text">{data.id}</h1>
+        <p className="flex flex-wrap items-center gap-x-2 font-mono text-xs text-muted-foreground">
+          <span>{formatLabel(data.format)}</span>
+          <span aria-hidden="true">·</span>
           <span>
-            Created: {new Date(data.createdAt * 1000).toLocaleString()}
+            created {new Date(data.createdAt * 1000).toLocaleString()}
           </span>
+          <span aria-hidden="true">·</span>
           {data.expiresAt ? (
-            <span>
-              Expires: {new Date(data.expiresAt * 1000).toLocaleString()}
-            </span>
+            <ExpiryCountdown expiresAt={data.expiresAt} />
           ) : (
-            <span>Expires: Never</span>
+            <span>never expires</span>
           )}
-          {data.burnAfterReading ? (
-            <span className="text-danger font-medium">Burn after reading</span>
-          ) : null}
-        </div>
+        </p>
+        {data.burnAfterReading ? (
+          <span className="rounded border border-danger/40 bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] text-danger">
+            burn-after-read
+          </span>
+        ) : null}
+        {data.encryption.requiresKey ? (
+          <span className="rounded border border-accent/40 px-1.5 py-0.5 font-mono text-[10px] text-accent">
+            {formatEncryption(
+              data.encryption.requiresKey,
+              data.encryption.algorithm,
+            ).toLowerCase()}
+          </span>
+        ) : null}
       </header>
 
-      <section className="rounded-2xl border border-slate-800 bg-surface/80 p-6">
+      <section className="overflow-hidden rounded-lg border border-border bg-surface">
+        <div className="flex items-center justify-end gap-1 border-b border-border px-2 py-1.5">
+          <button
+            type="button"
+            onClick={handleCopyContent}
+            className={iconActionClasses}
+            aria-label="Copy content"
+            title="Copy content"
+          >
+            <Copy className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <a
+            href={`/p/${data.id}/raw`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={iconActionClasses}
+            aria-label="Open raw plaintext"
+            title="Raw"
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          </a>
+          <button
+            type="button"
+            onClick={handleDownload}
+            className={iconActionClasses}
+            aria-label="Download content"
+            title="Download"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={handleShare}
+            className={iconActionClasses}
+            aria-label="Share link"
+            title="Share"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={handleFork}
+            className={iconActionClasses}
+            aria-label="New paste from this content"
+            title="Fork into a new paste"
+          >
+            <GitFork className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
         <MonacoEditor
           value={data.content}
           format={data.format}
           readOnly
           height={editorHeight}
-          className="rounded-xl border border-slate-700"
         />
       </section>
 
-      <section className="rounded-2xl border border-slate-800 bg-surface/80 p-6">
-        <h2 className="text-lg font-semibold text-slate-100">Paste options</h2>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+      <details className="group rounded-lg border border-border bg-surface">
+        <summary className="cursor-pointer select-none list-none px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          details
+        </summary>
+        <dl className="grid gap-3 border-t border-border px-4 py-4 sm:grid-cols-2">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               Encryption
             </dt>
-            <dd className="text-sm text-slate-200">
+            <dd className="font-mono text-sm text-text">
               {formatEncryption(
                 data.encryption.requiresKey,
                 data.encryption.algorithm,
@@ -309,77 +502,77 @@ export const PasteViewPage = () => {
           </div>
           {data.attestation ? (
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                 Attestation
               </dt>
-              <dd className="text-sm text-slate-200">
+              <dd className="text-sm text-text">
                 {formatAttestation(data.attestation)}
               </dd>
             </div>
           ) : null}
           {data.timeLock ? (
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                 Time lock
               </dt>
-              <dd className="text-sm text-slate-200">
+              <dd className="font-mono text-sm text-text">
                 {formatTimeLock(data.timeLock)}
               </dd>
             </div>
           ) : null}
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               Persistence
             </dt>
-            <dd className="text-sm text-slate-200">
+            <dd className="text-sm text-text">
               {formatPersistence(data.persistence)}
             </dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               Webhook
             </dt>
-            <dd className="text-sm text-slate-200">
-              {formatWebhook(data.webhook)}
-            </dd>
+            <dd className="text-sm text-text">{formatWebhook(data.webhook)}</dd>
           </div>
           {data.bundle?.children?.length ? (
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                 Bundle shares
               </dt>
-              <dd className="text-sm text-slate-200">
+              <dd className="text-sm text-text">
                 {data.bundle.children.length}
               </dd>
             </div>
           ) : null}
         </dl>
-      </section>
+      </details>
 
       {data.stego ? (
-        <section className="rounded-2xl border border-emerald-700/40 bg-emerald-900/30 p-6">
+        <section className="rounded-lg border border-success/30 bg-success/5 p-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
-              <h2 className="text-lg font-semibold text-emerald-200">
+              <h2 className="text-sm font-semibold tracking-tight text-text">
                 Steganographic carrier
               </h2>
-              <p className="text-sm text-emerald-100/70">
+              <p className="text-xs text-muted-foreground">
                 The encrypted payload is embedded in the carrier image below.
                 Share this cover along with the encryption key to allow
                 recipients to extract and decrypt the paste locally.
               </p>
-              <dl className="mt-3 space-y-2 text-xs text-emerald-100/70">
+              <dl className="mt-3 space-y-2 text-xs">
                 <div>
-                  <dt className="font-semibold uppercase tracking-wide text-emerald-300">
+                  <dt className="uppercase tracking-wide text-muted-foreground">
                     Mime type
                   </dt>
-                  <dd className="text-emerald-100">{data.stego.carrierMime}</dd>
+                  <dd className="font-mono text-text">
+                    {data.stego.carrierMime}
+                  </dd>
                 </div>
                 <div>
-                  <dt className="font-semibold uppercase tracking-wide text-emerald-300">
+                  <dt className="uppercase tracking-wide text-muted-foreground">
                     Payload digest (SHA-256)
                   </dt>
-                  <dd className="font-mono text-emerald-100 break-all">
+                  <dd className="break-all font-mono text-text">
                     {data.stego.payloadDigest}
                   </dd>
                 </div>
@@ -388,14 +581,15 @@ export const PasteViewPage = () => {
                 <a
                   href={stegoDataUrl}
                   download={`copypaste-stego-${data.id}.png`}
-                  className="inline-flex items-center gap-2 rounded-full bg-emerald-500/80 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm shadow-emerald-500/20 transition hover:bg-emerald-400 focus:outline-none focus:ring focus:ring-emerald-400/40"
+                  className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
                   Download carrier image
                 </a>
               ) : null}
             </div>
             {stegoDataUrl ? (
-              <div className="overflow-hidden rounded-xl border border-emerald-600/40 bg-black/20">
+              <div className="overflow-hidden rounded-md border border-border bg-surface">
                 <img
                   src={stegoDataUrl}
                   alt="Steganographic carrier"
@@ -406,21 +600,6 @@ export const PasteViewPage = () => {
           </div>
         </section>
       ) : null}
-
-      <footer className="rounded-xl border border-slate-200 bg-background/80 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-background/60 dark:text-slate-300">
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Crafted by{" "}
-          <a
-            href="https://x.com/qxlsz"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-semibold text-primary underline-offset-2 hover:underline"
-          >
-            @qxlsz
-          </a>{" "}
-          © 2025 · copypaste.fyi
-        </p>
-      </footer>
     </div>
   );
 };

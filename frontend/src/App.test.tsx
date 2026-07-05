@@ -34,7 +34,11 @@ describe("App", () => {
   it("renders the basic layout elements", () => {
     renderApp();
 
-    // Check that the header with branding is present
-    expect(screen.getByText("copypaste.fyi")).toBeInTheDocument();
+    // Header wordmark links home
+    expect(
+      screen.getByRole("link", { name: /copypaste\.fyi home/i }),
+    ).toBeInTheDocument();
+    // Composer primary action
+    expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
   });
 });

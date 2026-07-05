@@ -1,7 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
+import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import QRCode from "qrcode";
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  Flame,
+  Lock,
+  QrCode,
+  Share2,
+} from "lucide-react";
 
 import { createPaste } from "../api/client";
 import type {
@@ -11,6 +22,7 @@ import type {
   StegoRequest,
 } from "../api/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
+import { useHotkeys } from "../hooks/useHotkeys";
 import { useAuth } from "../stores/auth";
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -48,6 +60,24 @@ const encryptionOptions: Array<{ label: string; value: EncryptionAlgorithm }> =
       value: "kyber_hybrid_aes256_gcm",
     },
   ];
+
+const encryptionChipLabel: Record<EncryptionAlgorithm, string> = {
+  none: "",
+  aes256_gcm: "aes-256-gcm",
+  chacha20_poly1305: "chacha20-poly1305",
+  xchacha20_poly1305: "xchacha20-poly1305",
+  kyber_hybrid_aes256_gcm: "kyber-hybrid",
+};
+
+const retentionOptions: Array<{ label: string; value: number }> = [
+  { label: "1m", value: 1 },
+  { label: "10m", value: 10 },
+  { label: "1h", value: 60 },
+  { label: "3h", value: 180 },
+  { label: "1d", value: 1440 },
+  { label: "7d", value: 10080 },
+  { label: "30d", value: 43200 },
+];
 
 const BUILTIN_STEGO_CARRIERS: Array<{
   id: string;
@@ -122,16 +152,42 @@ const PASS_SUFFIXES = [
   "vortex",
 ];
 
+const fieldLabelClasses = "block text-xs font-medium text-muted-foreground";
+
+const inputClasses =
+  "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
+
+// State passed via `navigate("/", { state })` when forking an existing paste.
+interface ForkState {
+  content?: unknown;
+  format?: unknown;
+}
+
+const isPasteFormat = (value: unknown): value is PasteFormat =>
+  typeof value === "string" &&
+  formatOptions.some((option) => option.value === value);
+
 export const PasteFormPage = () => {
   const { user } = useAuth();
-  const [content, setContent] = useState("");
-  const [format, setFormat] = useState<PasteFormat>("plain_text");
+  const location = useLocation();
+  // Seed the editor from router state (fork flow) on mount only; the lazy
+  // initializers never re-run, so later navigation state changes can't loop.
+  const [content, setContent] = useState(() => {
+    const state = location.state as ForkState | null;
+    return typeof state?.content === "string" ? state.content : "";
+  });
+  const [format, setFormat] = useState<PasteFormat>(() => {
+    const state = location.state as ForkState | null;
+    return isPasteFormat(state?.format) ? state.format : "plain_text";
+  });
   const [retentionMinutes, setRetentionMinutes] = useState<number>(0);
   const [encryption, setEncryption] = useState<EncryptionAlgorithm>("none");
   const [encryptionKey, setEncryptionKey] = useState("");
   const [burnAfterReading, setBurnAfterReading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [pasteEncryption, setPasteEncryption] =
     useState<EncryptionAlgorithm>("none");
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState("");
@@ -141,6 +197,8 @@ export const PasteFormPage = () => {
   const [stegoUploadName, setStegoUploadName] = useState<string | null>(null);
   const [stegoUploadData, setStegoUploadData] = useState<string | null>(null);
   const [stegoError, setStegoError] = useState<string | null>(null);
+  const [isEncryptionOpen, setEncryptionOpen] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const handleStegoFileUpload = async (
     event: ChangeEvent<HTMLInputElement>,
@@ -239,6 +297,14 @@ export const PasteFormPage = () => {
     mutation.mutate();
   };
 
+  const submitForm = () => {
+    formRef.current?.requestSubmit();
+  };
+
+  // ⌘⏎ / Ctrl+⏎ submits the composer from anywhere on the page.
+  useHotkeys({ shortcut: "meta+enter", handler: submitForm });
+  useHotkeys({ shortcut: "ctrl+enter", handler: submitForm });
+
   const requiresKey = encryption !== "none";
 
   useEffect(() => {
@@ -270,11 +336,13 @@ export const PasteFormPage = () => {
     try {
       const path = `/p${shareUrl}`;
       const url = new URL(path, window.location.origin);
-      if (pasteEncryption !== "none" && pasteEncryptionKey.trim()) {
-        url.searchParams.set("key", pasteEncryptionKey);
-      }
       if (retentionMinutes && retentionMinutes > 0) {
         url.searchParams.set("ttl", retentionMinutes.toString());
+      }
+      // Keep the key in the URL fragment so it never reaches server logs,
+      // browser history sync, or Referer headers.
+      if (pasteEncryption !== "none" && pasteEncryptionKey.trim()) {
+        url.hash = `key=${encodeURIComponent(pasteEncryptionKey)}`;
       }
       return url.toString();
     } catch {
@@ -297,420 +365,490 @@ export const PasteFormPage = () => {
     }
   };
 
+  const handleShareLink = async () => {
+    const urlToShare = shareLink || shareUrl;
+    if (!urlToShare) return;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: "copypaste.fyi paste",
+          url: urlToShare,
+        });
+      } catch (error) {
+        // The user dismissing the share sheet is not an error worth surfacing.
+        if (error instanceof Error && error.name === "AbortError") return;
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        toast.error("Unable to share link", { description: message });
+      }
+      return;
+    }
+    await handleCopyShareUrl();
+  };
+
+  // Render the QR code lazily — only once the toggle is opened.
+  useEffect(() => {
+    if (!shareLink || !showQr) {
+      setQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(shareLink, { margin: 1, width: 160 })
+      .then((dataUrl) => {
+        if (!cancelled) setQrDataUrl(dataUrl);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setQrDataUrl(null);
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        toast.error("Unable to generate QR code", { description: message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shareLink, showQr]);
+
   return (
-    <div className="space-y-6">
-      <section className="space-y-6">
-        <form className="space-y-5" onSubmit={handleSubmit}>
-          {shareLink && (
-            <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4 text-sm text-primary">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <span className="font-semibold">Shareable link:</span>
-                <a
-                  href={shareLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 break-all rounded-lg bg-slate-900/70 px-3 py-2 text-xs font-semibold text-white underline-offset-2 transition hover:bg-slate-900/80 hover:underline"
-                >
-                  {shareLink}
-                </a>
-                <button
-                  type="button"
-                  onClick={handleCopyShareUrl}
-                  className="inline-flex items-center justify-center rounded-full bg-primary p-2 text-white shadow-sm shadow-primary/30 transition hover:bg-primary/90 focus:outline-none focus:ring focus:ring-primary/30"
-                  disabled={isCopying}
-                >
-                  <svg
-                    className="h-4 w-4"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth="1.5"
-                    stroke="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M8 16h8a2 2 0 002-2V6a2 2 0 00-2-2H8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M16 8h2a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-2"
-                    />
-                  </svg>
-                  <span className="sr-only">
-                    {isCopying ? "Copying link…" : "Copy link"}
-                  </span>
-                </button>
-              </div>
-              {pasteEncryption !== "none" && pasteEncryptionKey && (
-                <p className="mt-2 text-xs text-primary/80">
-                  Remember to share the encryption key separately:{" "}
-                  <span className="font-semibold">{pasteEncryptionKey}</span>
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label
-              className="block text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500"
-              htmlFor="content"
-            >
-              Content
-            </label>
-            <div className="relative">
-              <MonacoEditor
-                value={content}
-                onChange={setContent}
-                format={format}
-                height="min(75vh, 52rem)"
-                className="w-full rounded-2xl border border-slate-200 bg-surface pr-36 text-base transition focus-within:border-primary focus-within:outline-none focus-within:ring focus-within:ring-primary/20 dark:border-slate-700 dark:bg-surface md:min-h-[60vh] min-h-[45vh]"
-              />
-              <label className="sr-only" htmlFor="format">
-                Format
-              </label>
-              <select
-                id="format"
-                value={format}
-                onChange={(event) =>
-                  setFormat(event.target.value as PasteFormat)
-                }
-                className="absolute top-4 right-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 pl-3 pr-8 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-primary/60 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-600 dark:bg-slate-900/80 dark:text-slate-200"
-              >
-                {formatOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+    <form ref={formRef} className="space-y-4" onSubmit={handleSubmit}>
+      {shareLink && (
+        <section
+          className="space-y-3 rounded-lg border border-border bg-surface p-4"
+          aria-label="Paste created"
+        >
+          <div className="flex items-center gap-2">
+            <Check className="h-4 w-4 text-success" aria-hidden="true" />
+            <h2 className="text-sm font-semibold tracking-tight text-text">
+              Paste created
+            </h2>
           </div>
-
-          <div className="space-y-4">
-            <div className="w-full space-y-3 rounded-2xl border border-slate-200 bg-surface/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Retention
-                </p>
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Retention period">
-                  {(
-                    [
-                      { label: "1m", value: 1 },
-                      { label: "10m", value: 10 },
-                      { label: "1h", value: 60 },
-                      { label: "3h", value: 180 },
-                      { label: "1d", value: 1440 },
-                      { label: "7d", value: 10080 },
-                      { label: "30d", value: 43200 },
-                    ] as Array<{ label: string; value: number }>
-                  ).map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setRetentionMinutes(opt.value)}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
-                        retentionMinutes === opt.value
-                          ? "bg-primary text-white shadow-sm shadow-primary/40 scale-105"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={burnAfterReading}
-                  onClick={() => setBurnAfterReading(!burnAfterReading)}
-                  className="inline-flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300 focus:outline-none group"
-                >
-                  <span
-                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      burnAfterReading
-                        ? "bg-danger"
-                        : "bg-slate-300 dark:bg-slate-600"
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        burnAfterReading ? "translate-x-4" : "translate-x-0"
-                      }`}
-                    />
-                  </span>
-                  <span className="inline-flex items-center gap-1 font-medium">
-                    <span role="img" aria-label="fire">🔥</span>
-                    Burn after use
-                  </span>
-                </button>
-                <p className={`text-xs transition-colors ${burnAfterReading ? "text-danger/80" : "text-slate-500 dark:text-slate-400"}`}>
-                  {burnAfterReading
-                    ? "Disables after first view."
-                    : "Keep off for multi-view sharing."}
-                </p>
-              </div>
-            </div>
-
-            <div className="w-full space-y-4 rounded-2xl border border-slate-200 bg-surface/70 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Encryption
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Keys stay client-side—share them out-of-band.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_1fr]">
-                  <div className="space-y-2">
-                    <label
-                      className="text-sm font-medium text-slate-700 dark:text-slate-300"
-                      htmlFor="encryption"
-                    >
-                      Algorithm
-                    </label>
-                    <select
-                      id="encryption"
-                      value={encryption}
-                      onChange={(event) =>
-                        setEncryption(event.target.value as EncryptionAlgorithm)
-                      }
-                      className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    >
-                      {encryptionOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label
-                      className="text-sm font-medium text-slate-700 dark:text-slate-300"
-                      htmlFor="encryptionKey"
-                    >
-                      Encryption key
-                    </label>
-                    <div className="relative">
-                      <input
-                        id="encryptionKey"
-                        type="password"
-                        autoComplete="new-password"
-                        value={encryptionKey}
-                        onChange={(event) =>
-                          setEncryptionKey(event.target.value)
-                        }
-                        disabled={!requiresKey}
-                        placeholder={
-                          requiresKey
-                            ? "Shared secret or passphrase"
-                            : "Enable encryption to set a key"
-                        }
-                        className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 pr-24 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-surface/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                        required={requiresKey}
-                      />
-                      <button
-                        type="button"
-                        onClick={generatePassphrase}
-                        className="absolute inset-y-1 right-1 inline-flex items-center justify-center rounded-md border border-primary/40 bg-primary/10 px-4 text-xs font-semibold text-primary transition hover:bg-primary/20 focus:outline-none focus:ring focus:ring-primary/30"
-                      >
-                        Generate
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                        Steganographic cover
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Hide ciphertext inside a carrier image.
-                      </p>
-                    </div>
-                    <label
-                      className={`inline-flex items-center gap-2 text-sm ${!requiresKey ? "opacity-60" : ""}`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-slate-700 bg-surface text-primary focus:ring-primary/30"
-                        checked={useStego}
-                        onChange={(event) => {
-                          const checked = event.target.checked;
-                          if (checked) {
-                            if (encryption === "none") {
-                              const phrase = buildRandomPassphrase();
-                              setEncryption("aes256_gcm");
-                              setEncryptionKey(phrase);
-                              toast.message(
-                                "Encryption enabled for steganography",
-                                {
-                                  description: phrase,
-                                },
-                              );
-                            } else if (!encryptionKey.trim()) {
-                              const phrase = buildRandomPassphrase();
-                              setEncryptionKey(phrase);
-                              toast.message(
-                                "Encryption key generated for steganography",
-                                {
-                                  description: phrase,
-                                },
-                              );
-                            }
-                          }
-                          setUseStego(checked);
-                        }}
-                      />
-                      Enable
-                    </label>
-                  </div>
-
-                  {useStego ? (
-                    <div className="rounded-lg border border-slate-200 bg-surface/60 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-200">
-                      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.65fr)_1fr]">
-                        <fieldset className="space-y-2">
-                          <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                            Carrier source
-                          </legend>
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="stego-mode"
-                              value="builtin"
-                              checked={stegoMode === "builtin"}
-                              onChange={() => setStegoMode("builtin")}
-                            />
-                            Bundled artwork
-                          </label>
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="radio"
-                              name="stego-mode"
-                              value="uploaded"
-                              checked={stegoMode === "uploaded"}
-                              onChange={() => setStegoMode("uploaded")}
-                            />
-                            Upload my own image
-                          </label>
-                        </fieldset>
-
-                        {stegoMode === "builtin" ? (
-                          <div className="space-y-2">
-                            <label
-                              className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-                              htmlFor="builtinCarrier"
-                            >
-                              Select carrier
-                            </label>
-                            <select
-                              id="builtinCarrier"
-                              value={stegoCarrierId}
-                              onChange={(event) =>
-                                setStegoCarrierId(event.target.value)
-                              }
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                            >
-                              {BUILTIN_STEGO_CARRIERS.map((carrier) => (
-                                <option key={carrier.id} value={carrier.id}>
-                                  {carrier.name} — {carrier.description}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <label
-                              className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-                              htmlFor="stegoUpload"
-                            >
-                              Upload carrier image (PNG recommended)
-                            </label>
-                            <input
-                              id="stegoUpload"
-                              type="file"
-                              accept="image/png,image/bmp"
-                              onChange={handleStegoFileUpload}
-                              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-primary hover:file:bg-primary/20 dark:text-slate-200"
-                            />
-                            {stegoUploadName ? (
-                              <p className="text-xs text-slate-500 dark:text-slate-400">
-                                Selected: {stegoUploadName}
-                              </p>
-                            ) : (
-                              <p className="text-xs text-slate-500 dark:text-slate-400">
-                                Lossless formats yield better hiding capacity.
-                                1&nbsp;MB max.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      {stegoError ? (
-                        <p className="mt-2 text-xs text-danger">{stegoError}</p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {requiresKey
-                        ? "Enable steganography to embed the encrypted payload inside a carrier image."
-                        : "Turn on encryption to unlock steganographic embedding."}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex w-full justify-end lg:w-auto lg:justify-start">
+          <div className="space-y-1.5">
+            <label className={fieldLabelClasses} htmlFor="share-url">
+              share url
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="share-url"
+                readOnly
+                value={shareLink}
+                onFocus={(event) => event.target.select()}
+                className={`${inputClasses} font-mono text-xs`}
+              />
               <button
-                type="submit"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#0a84ff] to-[#3b6ef0] px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition-all hover:shadow-primary/50 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring focus:ring-primary/30 disabled:opacity-60 disabled:scale-100 lg:w-auto"
-                disabled={mutation.isPending}
+                type="button"
+                onClick={handleCopyShareUrl}
+                disabled={isCopying}
+                className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
+                aria-label={isCopying ? "Copying link…" : "Copy link"}
+                title="Copy link"
               >
-                {mutation.isPending ? (
-                  <>
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Creating…
-                  </>
-                ) : (
-                  <>
-                    CopyPaste
-                    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </>
-                )}
+                <Copy className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={handleShareLink}
+                className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                aria-label="Share link"
+                title="Share link"
+              >
+                <Share2 className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowQr((open) => !open)}
+                aria-pressed={showQr}
+                className={`inline-flex h-9 flex-shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 font-mono text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  showQr
+                    ? "bg-accent/10 text-accent"
+                    : "text-muted-foreground hover:bg-muted hover:text-text"
+                }`}
+                aria-label={showQr ? "Hide QR code" : "Show QR code"}
+                title={showQr ? "Hide QR code" : "Show QR code"}
+              >
+                <QrCode className="h-4 w-4" aria-hidden="true" />
+                qr
               </button>
             </div>
+            {showQr && qrDataUrl && (
+              <div className="w-fit rounded-md border border-border bg-surface p-2">
+                <img
+                  src={qrDataUrl}
+                  alt="QR code for the paste share link"
+                  width={160}
+                  height={160}
+                  className="block h-40 w-40 rounded-sm"
+                />
+              </div>
+            )}
+            <a
+              href={shareLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-xs text-accent underline-offset-2 hover:underline"
+            >
+              Open paste
+            </a>
           </div>
-        </form>
-      </section>
-      <footer className="rounded-xl border border-slate-200 bg-background/80 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-background/60 dark:text-slate-300">
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Crafted by{" "}
-          <a
-            href="https://x.com/qxlsz"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-semibold text-primary underline-offset-2 hover:underline"
+          {pasteEncryption !== "none" && pasteEncryptionKey && (
+            <div className="space-y-1.5">
+              <label className={fieldLabelClasses} htmlFor="share-key">
+                encryption key — share out of band
+              </label>
+              <input
+                id="share-key"
+                readOnly
+                value={pasteEncryptionKey}
+                onFocus={(event) => event.target.select()}
+                className={`${inputClasses} font-mono text-xs`}
+              />
+            </div>
+          )}
+        </section>
+      )}
+
+      <section className="overflow-visible rounded-lg border border-border bg-surface">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2">
+          <div className="relative">
+            <label className="sr-only" htmlFor="format">
+              Format
+            </label>
+            <select
+              id="format"
+              value={format}
+              onChange={(event) => setFormat(event.target.value as PasteFormat)}
+              className="appearance-none rounded-md border-0 bg-transparent py-1 pl-2 pr-7 font-mono text-xs text-text transition hover:bg-muted focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              {formatOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+          </div>
+
+          <div
+            className="flex items-center overflow-hidden rounded-md border border-border"
+            role="group"
+            aria-label="Retention period"
           >
-            @qxlsz
-          </a>{" "}
-          © 2025 · copypaste.fyi
-        </p>
-      </footer>
-    </div>
+            {retentionOptions.map((opt, index) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setRetentionMinutes(opt.value)}
+                aria-pressed={retentionMinutes === opt.value}
+                className={`px-2 py-1 font-mono text-[11px] transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent ${
+                  index > 0 ? "border-l border-border" : ""
+                } ${
+                  retentionMinutes === opt.value
+                    ? "bg-accent/10 font-semibold text-accent"
+                    : "text-muted-foreground hover:bg-muted hover:text-text"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={burnAfterReading}
+            onClick={() => setBurnAfterReading(!burnAfterReading)}
+            title={
+              burnAfterReading
+                ? "Burn after reading: paste disappears after first view"
+                : "Burn after reading is off"
+            }
+            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+              burnAfterReading
+                ? "bg-danger/10 font-medium text-danger"
+                : "text-muted-foreground hover:bg-muted hover:text-text"
+            }`}
+          >
+            <Flame className="h-3.5 w-3.5" aria-hidden="true" />
+            burn
+          </button>
+
+          <div className="ml-auto flex items-center gap-2">
+            {requiresKey && (
+              <span className="hidden rounded border border-accent/40 px-1.5 py-0.5 font-mono text-[10px] text-accent sm:inline-block">
+                {encryptionChipLabel[encryption]}
+              </span>
+            )}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setEncryptionOpen((open) => !open)}
+                aria-expanded={isEncryptionOpen}
+                aria-haspopup="dialog"
+                aria-label="Encryption options"
+                title="Encryption options"
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  requiresKey
+                    ? "bg-accent/10 text-accent"
+                    : "text-muted-foreground hover:bg-muted hover:text-text"
+                }`}
+              >
+                <Lock className="h-4 w-4" aria-hidden="true" />
+              </button>
+              {isEncryptionOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    aria-hidden="true"
+                    onClick={() => setEncryptionOpen(false)}
+                  />
+                  <div
+                    role="dialog"
+                    aria-label="Encryption settings"
+                    className="absolute right-0 top-full z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] space-y-4 rounded-lg border border-border bg-surface p-4"
+                  >
+                    <p className="text-xs text-muted-foreground">
+                      Keys stay client-side — share them out of band.
+                    </p>
+                    <div className="space-y-1.5">
+                      <label className={fieldLabelClasses} htmlFor="encryption">
+                        algorithm
+                      </label>
+                      <select
+                        id="encryption"
+                        value={encryption}
+                        onChange={(event) =>
+                          setEncryption(
+                            event.target.value as EncryptionAlgorithm,
+                          )
+                        }
+                        className={inputClasses}
+                      >
+                        {encryptionOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label
+                        className={fieldLabelClasses}
+                        htmlFor="encryptionKey"
+                      >
+                        encryption key
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id="encryptionKey"
+                          type="password"
+                          autoComplete="new-password"
+                          value={encryptionKey}
+                          onChange={(event) =>
+                            setEncryptionKey(event.target.value)
+                          }
+                          disabled={!requiresKey}
+                          placeholder={
+                            requiresKey
+                              ? "Shared secret or passphrase"
+                              : "Enable encryption to set a key"
+                          }
+                          className={`${inputClasses} font-mono`}
+                          required={requiresKey}
+                        />
+                        <button
+                          type="button"
+                          onClick={generatePassphrase}
+                          className="inline-flex flex-shrink-0 items-center rounded-md border border-border px-2.5 text-xs font-medium text-text transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                        >
+                          Generate
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 border-t border-border pt-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-medium text-text">
+                            Steganographic cover
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Hide ciphertext inside a carrier image.
+                          </p>
+                        </div>
+                        <label
+                          className={`inline-flex items-center gap-1.5 text-xs text-text ${!requiresKey ? "opacity-60" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 rounded border-border bg-surface text-accent focus:ring-accent"
+                            checked={useStego}
+                            onChange={(event) => {
+                              const checked = event.target.checked;
+                              if (checked) {
+                                if (encryption === "none") {
+                                  const phrase = buildRandomPassphrase();
+                                  setEncryption("aes256_gcm");
+                                  setEncryptionKey(phrase);
+                                  toast.message(
+                                    "Encryption enabled for steganography",
+                                    {
+                                      description: phrase,
+                                    },
+                                  );
+                                } else if (!encryptionKey.trim()) {
+                                  const phrase = buildRandomPassphrase();
+                                  setEncryptionKey(phrase);
+                                  toast.message(
+                                    "Encryption key generated for steganography",
+                                    {
+                                      description: phrase,
+                                    },
+                                  );
+                                }
+                              }
+                              setUseStego(checked);
+                            }}
+                          />
+                          Enable
+                        </label>
+                      </div>
+
+                      {useStego ? (
+                        <div className="space-y-3">
+                          <fieldset className="space-y-1.5">
+                            <legend className={fieldLabelClasses}>
+                              carrier source
+                            </legend>
+                            <label className="flex items-center gap-2 text-xs text-text">
+                              <input
+                                type="radio"
+                                name="stego-mode"
+                                value="builtin"
+                                checked={stegoMode === "builtin"}
+                                onChange={() => setStegoMode("builtin")}
+                                className="h-3.5 w-3.5 border-border text-accent focus:ring-accent"
+                              />
+                              Bundled artwork
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-text">
+                              <input
+                                type="radio"
+                                name="stego-mode"
+                                value="uploaded"
+                                checked={stegoMode === "uploaded"}
+                                onChange={() => setStegoMode("uploaded")}
+                                className="h-3.5 w-3.5 border-border text-accent focus:ring-accent"
+                              />
+                              Upload my own image
+                            </label>
+                          </fieldset>
+
+                          {stegoMode === "builtin" ? (
+                            <div className="space-y-1.5">
+                              <label
+                                className={fieldLabelClasses}
+                                htmlFor="builtinCarrier"
+                              >
+                                select carrier
+                              </label>
+                              <select
+                                id="builtinCarrier"
+                                value={stegoCarrierId}
+                                onChange={(event) =>
+                                  setStegoCarrierId(event.target.value)
+                                }
+                                className={inputClasses}
+                              >
+                                {BUILTIN_STEGO_CARRIERS.map((carrier) => (
+                                  <option key={carrier.id} value={carrier.id}>
+                                    {carrier.name} — {carrier.description}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <label
+                                className={fieldLabelClasses}
+                                htmlFor="stegoUpload"
+                              >
+                                upload carrier image (png recommended)
+                              </label>
+                              <input
+                                id="stegoUpload"
+                                type="file"
+                                accept="image/png,image/bmp"
+                                onChange={handleStegoFileUpload}
+                                className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border file:border-solid file:border-border file:bg-surface file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-text hover:file:bg-muted"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {stegoUploadName
+                                  ? `Selected: ${stegoUploadName}`
+                                  : "Lossless formats yield better hiding capacity. 1 MB max."}
+                              </p>
+                            </div>
+                          )}
+                          {stegoError ? (
+                            <p className="text-xs text-danger">{stegoError}</p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {requiresKey
+                            ? "Enable steganography to embed the encrypted payload inside a carrier image."
+                            : "Turn on encryption to unlock steganographic embedding."}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-4 text-xs font-medium text-accent-foreground transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
+              disabled={mutation.isPending}
+              title="Create paste (⌘⏎)"
+            >
+              {mutation.isPending ? (
+                <>
+                  <span
+                    className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+                    aria-hidden="true"
+                  />
+                  Creating…
+                </>
+              ) : (
+                <>
+                  Create
+                  <kbd
+                    className="hidden font-mono text-[10px] opacity-70 sm:inline"
+                    aria-hidden="true"
+                  >
+                    ⌘⏎
+                  </kbd>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Editor */}
+        <label className="sr-only" htmlFor="content">
+          Content
+        </label>
+        <MonacoEditor
+          value={content}
+          onChange={setContent}
+          format={format}
+          height="min(68vh, 52rem)"
+          className="min-h-[45vh] w-full md:min-h-[60vh]"
+        />
+      </section>
+    </form>
   );
 };

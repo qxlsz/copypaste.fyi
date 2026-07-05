@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 
 import { useHotkeys } from "../hooks/useHotkeys.ts";
 import type { CommandPaletteAction } from "../types/commandPalette";
-import { Button } from "./ui/Button";
 
 interface CommandPaletteProps {
   actions: CommandPaletteAction[];
@@ -20,6 +20,9 @@ interface CommandPaletteOverlayProps {
   onSelect: (action: CommandPaletteAction) => void;
 }
 
+const focusableSelector =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 const CommandPaletteOverlay = ({
   isOpen,
   onClose,
@@ -29,85 +32,152 @@ const CommandPaletteOverlay = ({
   onSelect,
 }: CommandPaletteOverlayProps) => {
   const [mounted, setMounted] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
+  // Focus management: remember the trigger, focus the input on open, and
+  // restore focus to the trigger when the palette closes.
+  useEffect(() => {
+    if (isOpen) {
+      previousFocusRef.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      inputRef.current?.focus();
+      return () => {
+        previousFocusRef.current?.focus();
+      };
+    }
+  }, [isOpen]);
+
+  // Focus trap: keep Tab / Shift+Tab cycling within the panel.
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = Array.from(
+      panel.querySelectorAll<HTMLElement>(focusableSelector),
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey) {
+      if (active === first || !panel.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || !panel.contains(active)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   if (!isOpen || !mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/60 px-4 pt-[15vh] backdrop-blur">
-      <div className="w-full max-w-2xl rounded-2xl border border-muted/60 bg-surface/95 p-6 shadow-strong">
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
-            <span>Command palette</span>
-            <span className="font-medium text-primary">⌘K</span>
-          </div>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[15vh]"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={handleKeyDown}
+        className="w-full max-w-lg rounded-lg border border-border bg-surface"
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            Command palette
+          </span>
+          <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            ⌘K
+          </span>
+        </div>
+        <div className="border-b border-border px-4 py-2">
           <input
-            autoFocus
+            ref={inputRef}
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Type a command or search..."
-            className="w-full rounded-xl border border-muted bg-background/90 px-4 py-3 text-base shadow-inner focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            placeholder="Type a command or search…"
+            aria-label="Search commands"
+            className="w-full border-0 bg-transparent p-1 font-mono text-sm text-text placeholder:text-muted-foreground focus:outline-none focus:ring-0"
           />
-          <div className="space-y-3">
-            {actions.length ? (
-              Object.entries(
-                actions.reduce<Record<string, CommandPaletteAction[]>>(
-                  (grouped, action) => {
-                    const group = action.group ?? "General";
-                    if (!grouped[group]) {
-                      grouped[group] = [];
-                    }
-                    grouped[group].push(action);
-                    return grouped;
-                  },
-                  {},
-                ),
-              ).map(([group, groupActions]) => (
-                <div key={group} className="space-y-2">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    {group}
-                  </p>
-                  <div className="grid gap-1">
-                    {groupActions.map((action) => (
-                      <button
-                        key={action.id}
-                        type="button"
-                        onClick={() => onSelect(action)}
-                        className="flex items-center justify-between rounded-xl border border-transparent px-4 py-2 text-left text-sm font-medium text-slate-700 transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary dark:text-slate-200"
-                      >
-                        <span>
-                          {action.label}
-                          {action.description ? (
-                            <span className="block text-xs font-normal text-muted-foreground">
-                              {action.description}
-                            </span>
-                          ) : null}
-                        </span>
-                        {action.shortcut ? (
-                          <span className="text-xs text-muted-foreground">
-                            {action.shortcut}
+        </div>
+        <div className="max-h-[50vh] space-y-3 overflow-y-auto p-2">
+          {actions.length ? (
+            Object.entries(
+              actions.reduce<Record<string, CommandPaletteAction[]>>(
+                (grouped, action) => {
+                  const group = action.group ?? "General";
+                  if (!grouped[group]) {
+                    grouped[group] = [];
+                  }
+                  grouped[group].push(action);
+                  return grouped;
+                },
+                {},
+              ),
+            ).map(([group, groupActions]) => (
+              <div key={group}>
+                <p className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {group}
+                </p>
+                <div className="grid gap-0.5">
+                  {groupActions.map((action) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={() => onSelect(action)}
+                      className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-text transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                    >
+                      <span>
+                        {action.label}
+                        {action.description ? (
+                          <span className="block text-xs text-muted-foreground">
+                            {action.description}
                           </span>
                         ) : null}
-                      </button>
-                    ))}
-                  </div>
+                      </span>
+                      {action.shortcut ? (
+                        <span className="ml-3 flex-shrink-0 font-mono text-[10px] text-muted-foreground">
+                          {action.shortcut}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
                 </div>
-              ))
-            ) : (
-              <div className="rounded-xl border border-dashed border-muted px-4 py-10 text-center text-sm text-muted-foreground">
-                No commands found{query ? ` for "${query}"` : ""}.
               </div>
-            )}
-          </div>
-          <div className="flex justify-end">
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              Close
-            </Button>
-          </div>
+            ))
+          ) : (
+            <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+              No commands found{query ? ` for "${query}"` : ""}.
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-between border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
+          <span className="font-mono">esc to close</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>,

@@ -39,10 +39,10 @@ interface StatsContentProps {
 
 const StatsContent = ({ summary }: StatsContentProps) => {
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold tracking-tight text-text">
             Usage insights
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -64,25 +64,12 @@ const StatsContent = ({ summary }: StatsContentProps) => {
       </header>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Total pastes"
-          value={summary.totalPastes}
-          accent="text-primary"
-        />
-        <StatCard
-          label="Active"
-          value={summary.activePastes}
-          accent="text-success"
-        />
-        <StatCard
-          label="Expired"
-          value={summary.expiredPastes}
-          accent="text-danger"
-        />
+        <StatCard label="Total pastes" value={summary.totalPastes} />
+        <StatCard label="Active" value={summary.activePastes} />
+        <StatCard label="Expired" value={summary.expiredPastes} />
         <StatCard
           label="Burn after reading"
           value={summary.burnAfterReadingCount}
-          accent="text-info"
         />
       </section>
 
@@ -110,10 +97,10 @@ const StatsContent = ({ summary }: StatsContentProps) => {
       </section>
 
       <Card padding="lg">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+        <h2 className="text-sm font-semibold tracking-tight text-text">
           Pastes created over time
         </h2>
-        <p className="mb-4 text-sm text-muted-foreground">
+        <p className="mb-4 text-xs text-muted-foreground">
           Highlight spikes driven by product launches or campaigns.
         </p>
         <AreaGroupChart
@@ -144,24 +131,16 @@ const StatsContent = ({ summary }: StatsContentProps) => {
 interface StatCardProps {
   label: string;
   value: number;
-  accent?: string;
 }
 
-const StatCard = ({ label, value, accent }: StatCardProps) => (
-  <Card padding="lg">
+const StatCard = ({ label, value }: StatCardProps) => (
+  <Card padding="md">
     <p className="text-xs uppercase tracking-wide text-muted-foreground">
       {label}
     </p>
-    <p
-      className={`mt-3 text-3xl font-semibold text-slate-900 dark:text-slate-100`}
-    >
+    <p className="mt-3 font-mono text-3xl font-semibold tracking-tight text-text">
       {value.toLocaleString()}
     </p>
-    {accent ? (
-      <span className={`mt-2 inline-flex text-xs font-medium ${accent}`}>
-        vs. last period
-      </span>
-    ) : null}
   </Card>
 );
 
@@ -173,10 +152,8 @@ interface InsightCardProps {
 
 const InsightCard = ({ title, description, value }: InsightCardProps) => (
   <Card padding="lg">
-    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-      {title}
-    </h3>
-    <p className="mt-2 text-sm text-muted-foreground">{description}</p>
-    <p className="mt-4 text-xl font-semibold text-primary">{value}</p>
+    <h3 className="text-sm font-semibold tracking-tight text-text">{title}</h3>
+    <p className="mt-2 text-xs text-muted-foreground">{description}</p>
+    <p className="mt-4 font-mono text-sm font-medium text-accent">{value}</p>
   </Card>
 );

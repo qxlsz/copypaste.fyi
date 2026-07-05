@@ -2,7 +2,7 @@ import clsx from "clsx";
 import type { ReactElement } from "react";
 import { useMemo } from "react";
 
-import { useTheme } from "../hooks/useTheme";
+import { useTheme } from "../theme/ThemeContext";
 import type { Theme } from "../theme/ThemeContext";
 
 const icons: Record<Theme, ReactElement> = {
@@ -39,8 +39,8 @@ export const ThemeToggle = () => {
       type="button"
       onClick={toggleTheme}
       className={clsx(
-        "inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-surface text-xs font-medium shadow-sm transition",
-        "hover:border-primary hover:text-primary focus:outline-none focus:ring focus:ring-primary/30 dark:border-slate-700 dark:hover:border-accent",
+        "inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition",
+        "hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
       )}
       aria-label={label}
       title={label}
