@@ -1,7 +1,7 @@
 use crate::server::api_keys::ApiScope;
 use crate::{
-    BundleMetadata, DailyCount, EncryptionAlgorithm, EncryptionUsage, FormatUsage, PasteFormat,
-    StoreStats, WebhookProvider,
+    DailyCount, EncryptionAlgorithm, EncryptionUsage, FormatUsage, PasteFormat, StoreStats,
+    WebhookProvider,
 };
 use rocket::form::FromForm;
 use rocket::serde::{Deserialize, Serialize};
@@ -62,26 +62,13 @@ pub struct PasteViewResponse {
     pub created_at: i64,
     pub expires_at: Option<i64>,
     pub burn_after_reading: bool,
-    pub bundle: Option<BundleMetadata>,
     pub encryption: PasteEncryptionInfo,
     #[serde(default)]
     pub tor_access_only: bool,
     #[serde(default)]
-    pub access_count: u64,
-    #[serde(default)]
     pub is_live: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_lock: Option<PasteTimeLockInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attestation: Option<PasteAttestationInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub persistence: Option<PastePersistenceInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub webhook: Option<PasteWebhookInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stego: Option<PasteStegoInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -98,37 +85,6 @@ pub struct PasteTimeLockInfo {
     pub not_before: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_after: Option<i64>,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct PasteAttestationInfo {
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub issuer: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct PastePersistenceInfo {
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct PasteWebhookInfo {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<WebhookProvider>,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct PasteStegoInfo {
-    pub carrier_mime: String,
-    pub carrier_image: String,
-    pub payload_digest: String,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -251,6 +207,22 @@ pub struct CreatePasteRequest {
     pub live: bool,
 }
 
+/// Hardened public create schema. Disabled legacy feature fields remain in the
+/// runtime request solely so the server can reject them explicitly; they are
+/// intentionally not advertised as supported API capabilities.
+#[derive(ToSchema)]
+pub struct CreatePasteApiSchema {
+    pub content: String,
+    pub format: Option<PasteFormat>,
+    pub retention_minutes: Option<u64>,
+    pub encryption: Option<EncryptionRequest>,
+    pub burn_after_reading: Option<bool>,
+    pub time_lock: Option<TimeLockRequest>,
+    pub tor_access_only: Option<bool>,
+    pub workspace: Option<String>,
+    pub live: Option<bool>,
+}
+
 /// Request body for `PUT /api/pastes/{id}` (update live paste content).
 #[derive(Serialize, Deserialize, Default, ToSchema)]
 #[serde(default)]
@@ -343,7 +315,6 @@ pub struct UserPasteListItem {
     pub retention_minutes: Option<i64>,
     pub burn_after_reading: bool,
     pub format: String,
-    pub access_count: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
 }
@@ -439,6 +410,36 @@ pub struct ListApiKeysResponse {
 #[serde(rename_all = "camelCase")]
 pub struct RevokeApiKeyResponse {
     pub revoked: bool,
+}
+
+// ── Admin paste moderation ───────────────────────────────────────────────────
+
+/// Deliberately metadata-only view for moderation triage. Content, encryption
+/// material, attestation secrets, ownership tokens, webhook URLs, and raw
+/// workspace labels are never part of this response type.
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminPasteMetadataResponse {
+    pub id: String,
+    pub format: PasteFormat,
+    pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+    pub burn_after_reading: bool,
+    pub encrypted: bool,
+    pub encryption_algorithm: EncryptionAlgorithm,
+    pub approximate_stored_bytes: usize,
+    pub tor_access_only: bool,
+    pub has_attestation: bool,
+    pub has_webhook: bool,
+    pub has_workspace: bool,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminDeletePasteResponse {
+    pub id: String,
+    pub deleted: bool,
 }
 
 // ── Standardised error shape ──────────────────────────────────────────────────

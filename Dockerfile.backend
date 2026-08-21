@@ -1,7 +1,7 @@
 # Backend-only Dockerfile for Fly.io deployments
 # Now includes both Rust backend and OCaml crypto verifier
 
-FROM rust:1.84 AS rust-builder
+FROM rust:1.88 AS rust-builder
 WORKDIR /app
 
 # Build args for version info (GIT_COMMIT_MESSAGE intentionally omitted —
@@ -121,5 +121,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 USER copypaste
 
-# Fly.io will set FLY_PROCESS_GROUP to determine which service to run
-CMD if [ "$FLY_PROCESS_GROUP" = "crypto-verifier" ]; then crypto-verifier; else copypaste; fi
+# Fly.io process commands may override this; custom/default image runs use the
+# same subcommand-aware launcher.
+CMD ["/usr/local/bin/start-services.sh"]

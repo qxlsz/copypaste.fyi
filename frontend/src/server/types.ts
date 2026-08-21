@@ -26,12 +26,6 @@ export interface PasteViewResponse {
   createdAt: number;
   expiresAt?: number | null;
   burnAfterReading: boolean;
-  bundle: {
-    children: Array<{
-      id: string;
-      label?: string | null;
-    }>;
-  } | null;
   encryption: {
     algorithm:
       | "none"
@@ -41,24 +35,8 @@ export interface PasteViewResponse {
     requiresKey: boolean;
   };
   torAccessOnly: boolean;
-  stego?: {
-    carrierMime: string;
-    carrierImage: string;
-    payloadDigest: string;
-  } | null;
   timeLock?: {
     notBefore?: number | null;
     notAfter?: number | null;
-  } | null;
-  attestation?: {
-    kind: string;
-    issuer?: string | null;
-  } | null;
-  persistence?: {
-    kind: string;
-    detail?: string | null;
-  } | null;
-  webhook?: {
-    provider?: "slack" | "teams" | "generic" | null;
   } | null;
 }

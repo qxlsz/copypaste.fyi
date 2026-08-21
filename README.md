@@ -2,558 +2,486 @@
 
 # copypaste.fyi
 
-Lightweight, open-source paste sharing with **client-side encryption**, burn-after-reading links,
-post-quantum cryptography, and **dual cryptographic verification** (Rust + independent OCaml service).
+Lightweight paste sharing with authenticated server-side encryption, controlled write admission,
+targeted moderation, and optional independent cryptographic verification.
 
 [![CI](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml/badge.svg)](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-%E2%89%A575%25-brightgreen)](#)
-[![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)](#deploy)
+[![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)](#run-with-docker-compose)
 [![crates.io](https://img.shields.io/crates/v/copypaste.svg)](https://crates.io/crates/copypaste)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.82+-orange?logo=rust)](#run-locally)
+[![Rust](https://img.shields.io/badge/rust-1.88+-orange?logo=rust)](#run-from-source)
 
 </div>
 
-## 60-second start
+## Security boundary
 
-```bash
-docker compose up --build   # backend :8000  +  crypto verifier :8001
-```
+copypaste.fyi encrypts selected pastes in the Rust service. Clients must use TLS to a trusted edge,
+but plaintext and the supplied key can also traverse the edge-to-Rocket hop and exist in service
+memory while the app encrypts or decrypts the paste. The key is not intentionally persisted, but
+this is not browser-only, end-to-end, or zero-knowledge encryption. Encrypt locally before upload
+if every component in that path must not see plaintext.
 
-Open <http://127.0.0.1:8000>, paste text, click **Create paste**. Done.
-For CLI or source builds see [Getting Started](#getting-started).
+For AES-256-GCM and ChaCha20-Poly1305 creation, the Rust service also sends the plaintext, supplied
+key, ciphertext, nonce, and salt to the OCaml verifier. On Fly, that request uses application-layer
+HTTP over the private network to a separate VM. Treat the verifier VM and that private transport as
+part of the trusted plaintext boundary.
 
-## Overview
+The hardened build also has these deliberate limits:
 
-copypaste.fyi is a lightweight web service for creating and sharing plaintext snippets. It focuses on fast paste creation, predictable URLs, and minimal operational overhead. The UI is intentionally simple and responsive, making it easy to share links from any device.
+- Public Fly deployments require a service admission credential. Current clients put it in
+  `X-CopyPaste-Write-Token`. A signed login session in `Authorization` may provide user identity,
+  but it is not write admission on the supplied Fly configuration.
+- Bundles, attestations, webhooks, and steganography are disabled. Requests for them are rejected,
+  and setting their former allow flags to `true` stops startup.
+- Burn-after-reading is best-effort. It is not an exactly-once, cross-instance redemption protocol.
+- Sessions, user/workspace listings, statistics, and the Redis read cache are process-local. Run one
+  `app` instance until these indexes and mutation controls use shared state.
 
-## Why copypaste.fyi?
+Read [Security policy](SECURITY.md) before exposing an instance to the internet. Operators should
+also prepare the [abuse-response runbook](docs/abuse-response.md) before accepting writes.
 
-Unlike [PrivateBin](https://privatebin.info/) (PHP, requires server-side config) or
-[microbin](https://github.com/szabodanika/microbin) (no CLI), copypaste.fyi is built for
-operators who want a single binary with no database and for users who want verifiable client-side
-encryption.
+## Quick start
 
-| Feature | copypaste.fyi | PrivateBin | microbin | rustypaste |
-|---|:---:|:---:|:---:|:---:|
-| Rust backend | ✅ | ❌ PHP | ✅ | ✅ |
-| No database required | ✅ | ❌ | ❌ SQLite | ✅ filesystem |
-| Post-quantum crypto | ✅ | ❌ | ❌ | ❌ |
-| Dual crypto verification | ✅ | ❌ | ❌ | ❌ |
-| CLI client | ✅ `cpaste` | ❌ | ❌ | ✅ |
-| Steganography | ✅ | ❌ | ❌ | ❌ |
-| Burn-after-reading | ✅ | ✅ | ✅ | ✅ |
-
-Key traits:
-
-- 🔐 **Client-side encryption** – AES-256-GCM, ChaCha20-Poly1305, XChaCha20-Poly1305, Kyber hybrid (post-quantum). Keys never touch the server.
-- 🔬 **Dual crypto verification** – every encrypt/decrypt operation is independently confirmed by a secondary OCaml service (`mirage-crypto`) for defense-in-depth assurance.
-- 🧨 **Burn-after-reading** – optional one-time links that self-destruct on first view.
-- 🛡️ **Privacy journey tracker** – real-time indicator showing HTTPS, Tor, VPN, DNT, and encryption status.
-- 🔗 **Scriptable** – companion CLI (`cpaste`) and JSON REST API for shell automation.
-- 🐳 **Container-first** – single `docker compose up --build` brings up backend + crypto verifier.
-- ⚡ **Fast** – async Rocket (Rust) backend; no database required by default.
-
-## Architecture
-
-```mermaid
-graph TD
-    classDef client fill:#2563eb,stroke:#1e3a8a,color:#fff;
-    classDef service fill:#10b981,stroke:#047857,color:#fff;
-    classDef logic fill:#f59e0b,stroke:#b45309,color:#fff;
-    classDef storage fill:#f87171,stroke:#b91c1c,color:#fff;
-    classDef util fill:#8b5cf6,stroke:#5b21b6,color:#fff;
-    classDef tooling fill:#0ea5e9,stroke:#0369a1,color:#fff;
-    classDef link stroke-width:2px;
-
-    subgraph Client Tier
-        A[React SPA\nVite dev server]
-        B[CLI\n`cpaste` binary]
-        C[Server-rendered fallback]
-    end
-
-    subgraph Service Layer
-        D[Rocket Router\n`GET /`, `GET /p/<id>`]
-        E[REST API\n`POST /api/pastes`, `GET /api/pastes/<id>`]
-        F[Static assets\n`/static`, SPA fallback]
-    end
-
-    subgraph Domain Logic
-        G[Encryption & Key Derivation]
-        H[Attestation & Time Locks]
-        I[Bundle + Burn-after-reading]
-        J[Renderers\nMarkdown / code / raw]
-        K[Webhooks]
-        L[Crypto Verification\nOCaml Service]
-    end
-
-    subgraph Persistence
-        N[PasteStore Trait]
-        O[MemoryPasteStore\nEphemeral HashMap]
-    end
-
-    subgraph Tooling
-        P[Vitest + ESLint]
-        Q[Cargo fmt / clippy / nextest]
-    end
-
-    A -->|fetch| E
-    B -->|HTTP JSON| E
-    C -->|HTML view| D
-    D --> F
-    D --> G
-    D --> H
-    E --> G
-    E --> H
-    G --> L
-    H --> L
-    I --> L
-    L --> N
-    D --> J
-    E --> I
-    I --> K
-    P --> A
-    Q --> D
-    Q --> L
-
-    class A,B,C client;
-    class D,E,F service;
-    class G,H,I,J,K,L logic;
-    class N,O storage;
-    class P,Q tooling;
-    class A,B,C,D,E,F,G,H,I,J,K,L,N,O,P,Q link;
-```
-
-The SPA communicates with the Rocket REST API for creation and viewing, while the server still renders HTML for raw links and one-time fallbacks. Domain helpers handle encryption, attestations, bundles, and webhook notifications before persisting to the in-memory store.
-
-- **Backend:** Rust (edition 2021), Rocket 0.5, Tokio 1.x
-- **Cryptographic Verification:** OCaml service with `mirage-crypto` for independent security validation
-- **Frontend:** React 19 + Vite 7, TanStack Query, Tailwind CSS
-- **Storage:** Ephemeral in-memory `PasteStore`
-- **CLI:** `copypaste send` using `reqwest`
-- **Tooling:** Cargo fmt/clippy/nextest, Vitest, ESLint
-
-## Near-term roadmap
-
-- [ ] Persistent storage option (SQLite adapter behind the `PasteStore` trait) so pastes survive restarts without Redis
-- [ ] Rate limiting middleware (leaky-bucket per IP) to harden public deployments
-- [ ] Real Kyber-1024 KEM via `pqcrypto` crate (current implementation uses SHA-256 as KEM simulation)
-- [x] `SECURITY.md` and CVE reporting process
-- [x] Post-quantum Kyber hybrid encryption
-- [x] OCaml dual cryptographic verification
-- [x] Burn-after-reading
-- [x] Fly.io process-group deployment
-
-Contributions welcome — pick any unchecked item and open a PR.
-
-## Getting Started
-
-### Prerequisites
-
-- Rust toolchain (1.82+) installed via [rustup](https://rustup.rs/) – for local builds
-- Docker (24+) and Docker Compose v2 – for containerized setup
-
-### Via cargo (all platforms)
-
-```bash
-cargo install copypaste
-copypaste serve &
-echo "hello world" | copypaste send --stdin
-```
-
-### Via Homebrew (macOS/Linux)
-
-```bash
-brew install qxlsz/tap/copypaste
-```
-
-### Via install script (Linux/macOS)
-
-```bash
-curl -sSf https://raw.githubusercontent.com/qxlsz/copypaste.fyi/main/scripts/install.sh | sh
-```
-
-### Repository setup
-
-Clone the repository, then install the tooling and git hooks used by CI:
-
-```bash
-# Install rustup toolchain, fmt/clippy, cargo-nextest, cargo-llvm-cov
-./scripts/install_deps.sh
-
-# Install the pre-commit hook (runs fmt, clippy, nextest on every commit)
-./scripts/setup_git_hooks.sh
-```
-
-If the hook rewrites files (via `cargo fmt`) or a check fails, the commit is aborted so you can address the issue and re-stage. You can always run the steps manually with `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace --all-features`.
-
-### Run Locally
-
-```bash
-# Fetch dependencies and build
-cargo build
-
-# Start the web server
-cargo run --bin copypaste
-
-# Application available at http://127.0.0.1:8000/
-```
-
-Once running, open a browser to `http://127.0.0.1:8000/`, enter text, and hit **Create paste** to receive a link. The backend serves the pre-built SPA from `static/dist` when the Vite dev server is not running.
-
-### Frontend development
-
-```bash
-cd frontend
-npm install               # run once; scripts/precommit.sh handles this too
-npm run dev               # Vite dev server at http://127.0.0.1:5173/
-
-# Lint + unit tests (Vitest)
-npm run lint
-npm test -- --run
-
-# Build production assets (writes to static/dist)
-npm run build
-```
-
-For an all-in-one local environment (Rocket API + Vite dev server) run `./scripts/run_both.sh`. The script automatically configures the frontend to communicate with the backend API, ensuring proper functionality for features like Kyber encryption. Stop everything with `./scripts/stop.sh`.
-
-## Deploy
-
-### Docker Compose (recommended)
+Run the backend and its OCaml verifier locally:
 
 ```bash
 docker compose up --build
 ```
 
-Starts the Rust backend on `:8000` and the OCaml crypto verifier on `:8001`. Data is in-memory; restart clears pastes. Persistent storage via Redis:
+Then open <http://127.0.0.1:8000>. The Compose port mapping publishes port 8000 on the host's
+interfaces and permits anonymous writes by default. Use it only on an isolated development host or
+behind a firewall; do not copy that setting to a public deployment.
 
-```bash
-COPYPASTE_REDIS_URL=redis://redis:6379 docker compose up --build
+## Features
+
+- Server-side authenticated encryption with AES-256-GCM, ChaCha20-Poly1305,
+  XChaCha20-Poly1305, and an experimental ML-KEM-768 plus AES-256-GCM envelope
+- Optional strict OCaml verification for AES-256-GCM and ChaCha20-Poly1305 creation
+- Cryptographically random 24-character paste IDs
+- Time locks, retention limits, and best-effort burn-after-reading
+- Exact-ID quarantine and metadata-only administrator moderation
+- Optional Upstash Redis REST persistence
+- Tor-only pastes behind a trusted ingress contract
+- Administrator-only, content-safe manifest anchoring
+- React web application, JSON API, raw route, and a secret-file-aware CLI
+
+## Architecture
+
+```mermaid
+flowchart LR
+    browser[React browser client]
+    cli[copypaste CLI]
+    edge[Trusted TLS and optional onion ingress]
+    app[Rocket app]
+    cache[Process-local paste cache]
+    redis[Optional Upstash Redis REST]
+    verifier[OCaml verifier on private network]
+    relayer[Optional anchor relayer]
+
+    browser --> edge
+    cli --> edge
+    edge --> app
+    app --> cache
+    cache <--> redis
+    app --> verifier
+    app --> relayer
 ```
 
-### Fly.io
+The in-memory store remains the application cache even when Redis persistence is enabled. Creates,
+updates, and finalization are persisted before success is acknowledged. A persistence failure is
+reported instead of silently falling back to memory. Per-ID mutation ordering is local to one app
+process; there is no distributed compare-and-swap or tombstone across app instances.
+
+Fly process groups do not share a machine. The supplied configuration runs `app` and
+`crypto-verifier` on separate VMs and connects them over Fly private DNS.
+
+## Install
+
+### Cargo
 
 ```bash
-fly launch   # first time; creates fly.toml
+cargo install copypaste
+ROCKET_ADDRESS=127.0.0.1 copypaste serve
+```
+
+### Homebrew
+
+```bash
+brew install qxlsz/tap/copypaste
+```
+
+## Run from source
+
+Install Rust 1.88 or newer, Node.js 20, and the repository tools, then run:
+
+```bash
+./scripts/install_deps.sh
+./scripts/setup_git_hooks.sh
+ROCKET_ADDRESS=127.0.0.1 cargo run --bin copypaste -- serve
+```
+
+The explicit address above limits this local example to loopback. The configuration default is
+`0.0.0.0`, so set `ROCKET_ADDRESS` deliberately before running the server outside a container.
+
+For frontend development:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite server listens on <http://127.0.0.1:5173> and proxies API requests to the backend. Run
+`ROCKET_ADDRESS=127.0.0.1 ./scripts/run_both.sh` to start both development processes and
+`./scripts/stop.sh` to stop them.
+
+## Run with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+The backend port mapping listens on the host's interfaces at port 8000. The verifier is reachable
+only on its internal Docker network. Paste storage defaults to memory; the `/data` volume is for the
+SQLite API-key database, not paste content.
+
+To persist pastes through the supported Upstash REST adapter, supply all three values through your
+environment or secret manager:
+
+```text
+COPYPASTE_PERSISTENCE_BACKEND=redis
+UPSTASH_REDIS_REST_URL=https://your-database.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-provider-token
+```
+
+The adapter accepts an optional `COPYPASTE_REDIS_KEY_PREFIX` (default `paste:`), uses Redis TTLs for
+expiring records, and sends commands and serialized records in HTTPS JSON request bodies. It does
+not speak the native Redis protocol. Missing or invalid explicit Redis configuration stops startup.
+
+## Deploy to Fly.io
+
+Before the first deploy, store these values in an approved secret manager and import them into Fly:
+
+- `COPYPASTE_AUTH_TOKEN`: service write-admission token
+- `COPYPASTE_ADMIN_TOKEN`: retained bootstrap administrator token
+- `UPSTASH_REDIS_REST_URL`: clean Upstash HTTPS origin
+- `UPSTASH_REDIS_REST_TOKEN`: Upstash REST token
+
+Generate each static application token from at least 256 bits of randomness and encode it as 43 to
+128 base64url characters (`A-Z`, `a-z`, `0-9`, `_`, and `-`). A non-empty static token outside that
+format stops production startup.
+
+The checked-in `fly.toml` requires write authentication, Redis persistence, and strict verifier
+checks for supported algorithms. A missing persistence secret causes startup to fail. The `app` and
+`crypto-verifier` process groups run on separate VMs.
+
+```bash
 fly deploy
 fly logs
 ```
 
-The included `fly.toml` uses Fly.io process groups: the `app` process runs the Rocket backend and `crypto-verifier` runs the OCaml service on the same machine.
+The current Fly configuration does not set `COPYPASTE_SQLITE_PATH`. Dynamic API-key creation,
+listing, and revocation therefore return `503`; use the retained static admin token. To enable
+dynamic keys, configure an owner-controlled SQLite path. On Unix, its existing parent directory
+must belong to the service user and have mode `0700`; the database is created with mode `0600`. On
+other platforms, apply equivalent owner-only ACLs because startup does not verify Unix ownership or
+mode bits. On Fly, the path also needs durable storage tied to the single app instance.
 
-### Bare metal / VPS
+Do not scale the `app` process beyond one instance yet. The verifier remains a separate process
+group and does not affect this restriction.
 
-```bash
-cargo build --release
-./target/release/copypaste          # listens on 0.0.0.0:8000
+## Configure Tor ingress
 
-# Optional: point at a running OCaml verifier
-CRYPTO_VERIFIER_URL=http://127.0.0.1:8001 ./target/release/copypaste
+Tor-only access requires this exact pair:
+
+```text
+COPYPASTE_ONION_HOST=your-service-address.onion
+COPYPASTE_ONION_INGRESS_TOKEN=a-random-visible-ascii-secret-of-at-least-32-bytes
 ```
 
-Reverse-proxy with nginx or Caddy; TLS termination is strongly recommended for public instances.
+Startup fails if only one value is set, if the host is not accepted as a syntactically `.onion`
+hostname, or if the token is outside the accepted 32 to 512 visible-ASCII byte range. Independently
+verify that the configured value is the intended Tor v3 service address before deployment.
 
-### Environment variables
+The reverse proxy is part of the security boundary. Configure it to:
 
-| Variable | Default | Description |
+1. Remove every client-supplied `X-Copypaste-Onion-Ingress` header on every ingress.
+2. Preserve or overwrite `Host` with the exact configured onion hostname on the onion listener.
+3. Inject `X-Copypaste-Onion-Ingress` with the configured secret only on that listener.
+4. Never inject the header on the public listener.
+
+The application requires both the exact onion `Host` and a constant-time token match. `Host` alone
+does not prove Tor ingress, and `X-Forwarded-Host` is never trusted for this decision.
+
+## Main environment variables
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `ROCKET_ADDRESS` | `0.0.0.0` | Bind address |
-| `ROCKET_PORT` | `8000` | Bind port |
-| `CRYPTO_VERIFIER_URL` | `http://localhost:8001` | OCaml verifier endpoint |
-| `COPYPASTE_REDIS_URL` | _(none)_ | Enable Redis persistence |
-| `COPYPASTE_REDIS_KEY_PREFIX` | `paste:` | Redis key namespace |
-| `COPYPASTE_ONION_HOST` | _(none)_ | Tor `.onion` hostname |
-| `RUST_LOG` | `info` | Log verbosity |
+| `ROCKET_ADDRESS` | `0.0.0.0` | Backend bind address |
+| `ROCKET_PORT` | `8000` | Backend port |
+| `COPYPASTE_AUTH_TOKEN` | unset | Static service admission token; 43–128 base64url characters in production |
+| `COPYPASTE_ADMIN_TOKEN` | unset | Static admin token; 43–128 base64url characters in production |
+| `COPYPASTE_REQUIRE_WRITE_AUTH` | `false` | Reject writes without service admission; `true` in `fly.toml` |
+| `COPYPASTE_ALLOW_SESSION_WRITES` | `false` | Compatibility policy; keep `false` on closed deployments |
+| `COPYPASTE_SQLITE_PATH` | unset | Secure file for dynamic API-key hashes; unset disables dynamic key management |
+| `COPYPASTE_PERSISTENCE_BACKEND` | `memory` | Supported values: `memory` or `redis` |
+| `UPSTASH_REDIS_REST_URL` | unset | Upstash REST origin required by the Redis backend |
+| `UPSTASH_REDIS_REST_TOKEN` | unset | Upstash REST bearer token required by the Redis backend |
+| `COPYPASTE_REDIS_KEY_PREFIX` | `paste:` | Upstash key namespace |
+| `COPYPASTE_BLOCKED_PASTE_IDS` | unset | Complete comma-separated quarantine set; invalid IDs stop startup |
+| `COPYPASTE_MAX_PASTE_SIZE` | `1048576` | Maximum request content bytes, capped at 1 MiB |
+| `COPYPASTE_RATE_LIMIT_CREATES` | config default | Per-process create and mutation limit |
+| `COPYPASTE_RATE_LIMIT_READS` | config default | Per-process read limit |
+| `COPYPASTE_ALLOWED_ORIGINS` | deployment-specific | Exact browser CORS allowlist |
+| `COPYPASTE_TRUSTED_IP_HEADER` | unset | Client-IP header trusted only when the edge overwrites it |
+| `CRYPTO_VERIFIER_URL` | `http://localhost:8001` | Clean verifier origin; private HTTP or HTTPS only |
+| `COPYPASTE_REQUIRE_CRYPTO_VERIFICATION` | `false` | Fail supported encryption creation when verification fails; `true` in bundled deployments |
+| `COPYPASTE_ONION_HOST` | unset | Exact onion hostname; must be paired with the ingress token |
+| `COPYPASTE_ONION_INGRESS_TOKEN` | unset | Secret injected only by the trusted onion ingress |
+| `ANCHOR_RELAY_ENDPOINT` | unset | HTTPS anchor relayer endpoint; HTTP is loopback-only |
 
-### Clipboard integration (bash/zsh)
+All former feature-enabling `COPYPASTE_ALLOW_*` flags for webhooks, attestations, and steganography
+must remain unset or `false`. Enabling them is unsupported and stops startup. Bundles are also
+disabled and have no enable flag in the hardened build.
 
-Add this function to `~/.bashrc` or `~/.zshrc` to pipe anything from your clipboard straight to a running instance:
+## Write authentication
 
-```bash
-cpaste-clip() {
-  local host="${CPASTE_HOST:-http://127.0.0.1:8000}"
-  pbpaste 2>/dev/null || xclip -o 2>/dev/null || wl-paste 2>/dev/null \
-    | curl -s -X POST "$host/api/pastes" \
-        -H 'Content-Type: application/json' \
-        --data-raw "{\"content\": $(cat - | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'), \"format\": \"plain_text\"}" \
-    | python3 -c 'import sys,json; d=json.load(sys.stdin); print("'"$host"'" + d["shareableUrl"])'
-}
+On a closed deployment, `POST /api/pastes` and `POST /` require a static write token, the static
+admin token, or a dynamic write/admin API key. Current clients send that credential in:
+
+```http
+X-CopyPaste-Write-Token: service-admission-credential
 ```
 
-Usage: `cpaste-clip` — prints the paste URL. Override host with `CPASTE_HOST=https://copypaste.fyi cpaste-clip`.
+`Authorization: Bearer <session-token>` is optional on creation and supplies authenticated user
+identity for ownership and user/workspace listings. Keep identity separate from service admission.
+For live-paste update and finalization, `Authorization` carries the paste ownership token while
+`X-CopyPaste-Write-Token` still carries service admission.
 
-## REST API
+The create guard retains a compatibility fallback for legacy clients that put only the service
+credential in `Authorization`. Do not use that fallback in new integrations; it cannot carry user
+identity at the same time. Live mutations do not have this fallback.
 
-Interact with copypaste.fyi programmatically through the JSON API. All endpoints live under `/api` and accept/return UTF-8 JSON.
+Dynamic API keys are available only when `COPYPASTE_SQLITE_PATH` opens safely. An invalid explicit
+path stops startup rather than falling back. Static tokens are loaded once when the app starts and
+must be rotated through the deployment secret manager. In production, each configured static token
+must contain 43 to 128 base64url characters; malformed non-empty values stop startup.
+
+## API
+
+The primary routes are:
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/pastes` | Create a paste |
+| `GET` | `/api/pastes/{id}` | Fetch JSON; prefer `X-Paste-Key` for encrypted pastes |
+| `GET` | `/p/{id}` | Shareable HTML route returned by creation |
+| `GET` | `/raw/{id}` | Raw text route |
+| `PUT` | `/api/pastes/{id}` | Update a live paste |
+| `PATCH` | `/api/pastes/{id}/finalize` | Finalize a live paste |
+| `POST` | `/api/pastes/{id}/anchor` | Admin-only manifest anchoring |
+| `GET` | `/api/admin/pastes/{id}` | Admin-only metadata triage |
+| `DELETE` | `/api/admin/pastes/{id}` | Admin-only exact-ID deletion |
+| `GET` | `/health`, `/api/health` | Public liveness only |
+
+`/health` and `/api/health` do not probe Redis, the verifier, or the relayer. Monitor those
+dependencies separately.
 
 ### Create a paste
 
-`POST /api/pastes`
+This example shows the required admission header. Have the secret manager create an owner-only
+`write-admission-header` file containing `X-CopyPaste-Write-Token: <credential>`; do not type the
+credential into shell history or put it in curl's arguments.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/pastes \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "content": "Hello from the API",
-        "format": "plain_text",
-        "retention_minutes": 60,
-        "burn_after_reading": false,
-        "encryption": {
-          "algorithm": "aes256_gcm",
-          "key": "correct-horse-battery-staple"
-        }
-      }'
+chmod 600 ./write-admission-header
+curl --request POST https://your-instance.example/api/pastes \
+  --header 'Content-Type: application/json' \
+  --header @./write-admission-header \
+  --data '{"content":"Hello from the API","format":"plain_text","retention_minutes":60}'
 ```
 
-**Request body**
+The response uses the `/p/{id}` share route:
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `content` | `string` | ✅ | Paste body. |
-| `format` | `string` | ❌ | One of `plain_text`, `markdown`, `code`, `json`, `go`, `cpp`, `kotlin`, `java`. Defaults to `plain_text`. |
-| `retention_minutes` | `number` | ❌ | Minutes before automatic deletion. Omit for no expiry. |
-| `burn_after_reading` | `boolean` | ❌ | Delete paste after first successful view. |
-| `encryption.algorithm` | `string` | ❌ | `aes256_gcm`, `chacha20_poly1305`, `xchacha20_poly1305`, or `kyber_hybrid_aes256_gcm`. |
-| `encryption.key` | `string` | ⚠️ | Required when `encryption.algorithm` is provided. Never stored server-side. |
-
-**Response**
-
-```jsonc
+```json
 {
-  "id": "AbCdEf12",
-  "shareableUrl": "/p/AbCdEf12",
-  "burnAfterReading": false
+  "id": "AbCdEf12GhJkLmNpQrStUvWx",
+  "path": "/p/AbCdEf12GhJkLmNpQrStUvWx",
+  "shareableUrl": "/p/AbCdEf12GhJkLmNpQrStUvWx",
+  "isLive": false
 }
 ```
 
-The `shareableUrl` is relative to the server origin. For encrypted pastes, append `?key=<secret>` to the share link before sharing.
+Encryption requests include an `encryption` object with `algorithm` and `key`. Require TLS to the
+trusted edge, and treat every edge-to-app hop as part of the plaintext boundary. Read
+[Encryption guide](docs/encryption.md) before using this mode.
 
-### Fetch a paste
-
-`GET /api/pastes/{id}`
-
-```bash
-curl http://127.0.0.1:8000/api/pastes/AbCdEf12
-
-# Encrypted paste
-curl "http://127.0.0.1:8000/api/pastes/AbCdEf12?key=correct-horse-battery-staple"
-```
-
-**Response**
-
-```jsonc
-{
-  "id": "AbCdEf12",
-  "content": "Hello from the API",
-  "format": "plain_text",
-  "createdAt": 1730518840,
-  "expiresAt": null,
-  "burnAfterReading": false,
-  "encryption": {
-    "requiresKey": true,
-    "algorithm": "aes256_gcm"
-  },
-  "timeLock": null,
-  "persistence": {
-    "kind": "memory"
-  }
-}
-```
-
-A `401 Unauthorized` response indicates a missing or invalid key for an encrypted paste. A `404` means the paste never existed or was already burned/time-locked.
-
-### Raw paste view
-
-`GET /p/{id}/raw`
-
-Returns plain text (no JSON envelope) for shell-friendly consumption.
+### Read a paste
 
 ```bash
-curl http://127.0.0.1:8000/p/AbCdEf12/raw
+curl https://your-instance.example/api/pastes/AbCdEf12GhJkLmNpQrStUvWx
+
+chmod 600 ./paste-key-header
+curl --header @./paste-key-header \
+  https://your-instance.example/api/pastes/AbCdEf12GhJkLmNpQrStUvWx
 ```
 
-Encrypted pastes require the key query parameter: `/p/{id}/raw?key=<secret>`.
+Have the secret manager create `paste-key-header` with `X-Paste-Key: <key>`; never put the key in a
+command or URL. Delete the file through the approved secret-file process when it is no longer
+needed.
 
-> 💡 Looking for CLI automation? See [CLI Usage (`copypaste send`)](#cli-usage-copypaste-send) for examples that wrap these endpoints.
+The JSON API returns these relevant statuses:
 
-### Formatting options
+- `401` when an encryption key is missing
+- `403` when a key is invalid or the access channel is forbidden
+- `404` when an ID is absent, burned, or quarantined
+- `410` when an expired record remains observable; `404` after cache or Redis TTL removal
+- `423` while outside a configured time-lock window
+- `503` when durable storage cannot be read
 
-- Plain text / Markdown / generic code block
-- Language-specific code blocks: Go, C++, Kotlin, Java
-- JSON pretty-print (parses and auto-indents or shows raw fallback)
+The legacy query-string key remains for compatibility. New API clients must use `X-Paste-Key` to
+keep keys out of URLs, histories, referrers, and common access logs.
 
-**Encryption options**
-
-- `None` – store plaintext (default)
-- `AES-256-GCM` – deterministic 12-byte nonce per paste, client-supplied passphrase
-- `ChaCha20-Poly1305` – compact 96-bit nonce cipher for performance-oriented clients
-- `XChaCha20-Poly1305` – 24-byte nonce variant suited for longer keys and high-entropy secrets
-- `Kyber Hybrid AES-256-GCM` – post-quantum key exchange with classical symmetric encryption
-
-**Security Features**
-
-- **Dual Cryptographic Verification**: Each encryption operation is independently verified by both the primary Rust implementation and a secondary OCaml service using `mirage-crypto` library for defense-in-depth security assurance.
-- **Client-Side Encryption**: Keys are never stored server-side and encryption happens in memory before transmission.
-- **Zero-Trust Architecture**: Encrypted pastes require explicit key sharing out-of-band.
-- **Post-Quantum Ready**: Kyber hybrid encryption provides quantum-resistant key exchange with AES-256-GCM symmetric encryption.
-- **Privacy Journey Tracker**: Real-time visualization of privacy measures protecting your connection (HTTPS/TLS, Tor network, VPN/proxy detection, Do Not Track, private browsing mode, and client-side encryption status).
-
-### Privacy Journey
-
-The **Privacy Journey** indicator appears in the bottom-left corner of the web interface, showing a real-time privacy score based on detected security measures:
-
-- 🔒 **Encrypted Connection** - HTTPS/TLS active
-- 🌐 **Tor Network** - Accessing via .onion service
-- 🛡️ **VPN/Proxy** - Heuristic detection of privacy proxies
-- 👁️ **Do Not Track** - Browser DNT header enabled
-- ⚡ **Private Browsing** - Incognito/private mode detection
-- 🖥️ **Client-Side Encryption** - Keys never leave your device
-
-Inspired by [how-did-i-get-here.net](https://how-did-i-get-here.net/), this feature educates users about the privacy layers safeguarding their data without being intrusive. Click the indicator to see detailed information about each detected measure.
-
-### Kyber Hybrid Encryption
-
-copypaste.fyi implements **Kyber hybrid encryption** - a post-quantum key encapsulation mechanism (KEM) combined with classical symmetric encryption for optimal security and performance.
-
-**How it works:**
-1. **PQ Key Generation**: Creates Kyber public/private key pair (simulated in current implementation)
-2. **Key Encapsulation**: Derives shared secret from private key + nonce entropy
-3. **Symmetric Encryption**: Uses SHA256(shared_secret + user_key) to derive AES-256-GCM key
-4. **Storage Format**: Combines PQ components with encrypted payload: `PQ_ciphertext|PQ_public_key|aes_ciphertext|aes_nonce|PQ_private_key`
-
-**Benefits:**
-- **Quantum Resistance**: Kyber KEM protects against quantum attacks on key exchange
-- **Performance**: AES-256-GCM provides fast symmetric encryption for large data
-- **Future-Proof**: Easy migration path to real Kyber implementation
-- **Compatibility**: Works alongside existing AES/ChaCha algorithms
-
-**Current Status**: Hybrid simulation using SHA256 for KEM operations. Ready for production use with fallback to real Kyber implementation.
-
-The web UI includes multiple passphrase helpers (**Geek**, **Emoji combo**, **Diceware blend**) and a live key-strength meter. Keys stay visible (or toggle to hidden) so you can share them out-of-band—the server never stores them. A share panel provides easy copy, email, Slack, X/Twitter, QR, and native share shortcuts.
-
-**Extras**
-
-- Burn after reading: toggle in the composer (or pass `--burn-after-reading` via CLI) to delete the paste after the first successful view.
-- Raw view: append `/raw/<id>` (plus `?key=<passphrase>` when encrypted) to retrieve plaintext without HTML chrome.
-
-➡️ Dive deeper in the [Encryption guide](docs/encryption.md) for algorithm notes, key derivation details, and operational advice.
-
-### CLI Usage (`copypaste send`)
-
-Build the binary and point it at any copypaste.fyi instance.
+### Read raw text
 
 ```bash
-# Build the binary
-cargo build --bin copypaste --release
+curl https://your-instance.example/raw/AbCdEf12GhJkLmNpQrStUvWx
 
-# Send text directly (defaults to http://127.0.0.1:8000)
-./target/release/copypaste send "Hello from CLI"
-
-# Switch hosts as needed
-./target/release/copypaste send --host https://copypaste.fyi "notes"
-
-# Stream from stdin
-echo "log output" | ./target/release/copypaste send --stdin
+curl --header @./paste-key-header \
+  https://your-instance.example/raw/AbCdEf12GhJkLmNpQrStUvWx
 ```
 
-**Flags & arguments**
+The JSON, HTML, and raw read routes accept `X-Paste-Key`, which takes precedence over the legacy
+query parameter. Use the header for sensitive automation.
 
-| Option | Description |
-| ------ | ----------- |
-| `--host <URL>` | Base URL of the copypaste server. Defaults to `http://127.0.0.1:8000`. |
-| `--stdin` | Read the paste content from standard input instead of the command line argument. |
-| `--format <plain_text|markdown|code|json|go|cpp|kotlin|java>` | Rendering mode for the paste. Defaults to `plain_text`. |
-| `--encryption <none|aes256_gcm|chacha20_poly1305|xchacha20_poly1305|kyber_hybrid_aes256_gcm>` | Client-side encryption algorithm. When not `none`, pass `--key`. |
-| `--key <string>` | Encryption key / passphrase (required for encrypted pastes). |
-| `--burn-after-reading` | Delete the paste immediately after the first successful view (one-time link). |
-| positional text | When `--stdin` is not provided, supply the text to paste as a positional argument. |
+### Moderate a reported paste
 
-`copypaste send --help` displays the full command reference.
+The moderation API accepts one exact ID and returns bounded metadata. It never returns paste text,
+ciphertext, encryption material, raw workspace labels, attestation secrets, or webhook targets.
+There is no bulk content browser or master decryption key. Moderation audit events contain only the
+administrator key ID, action, and outcome. They contain no paste identifier, derived target, or
+access count.
 
-### Shell function (`~/.bashrc` / `~/.zshrc`)
+Quarantine a report with the authoritative full `COPYPASTE_BLOCKED_PASTE_IDS` set and roll every app
+instance before deletion. A successful delete confirms only the handling instance and its
+configured backing-store operation; it cannot prove that another instance has no stale copy or
+in-flight save. Follow the [abuse-response runbook](docs/abuse-response.md).
 
-Drop this into your shell profile to pipe any content to a running instance:
+### Anchor a manifest
+
+Anchoring requires admin authentication and a configured relayer. A plaintext paste produces a
+content-free metadata manifest; it does not create a public commitment to the plaintext. An
+encrypted paste adds a domain-separated commitment to its randomized encrypted storage fields
+(ciphertext, nonce, and salt). Neither form publishes an encryption key or a deterministic hash of
+short plaintext.
+
+## CLI
+
+The single `copypaste` binary provides `serve`, `send`, and `config init` subcommands:
 
 ```bash
-function paste() {
-  jq -Rs '{"content": .}' | \
-    curl -s -XPOST https://your-instance/api/pastes \
-      -H 'Content-Type: application/json' --data @- | jq -r '.shareableUrl'
-}
-# Usage: cat file.txt | paste
-#        echo "note" | paste
+# Start the server
+ROCKET_ADDRESS=127.0.0.1 copypaste serve
+ROCKET_ADDRESS=127.0.0.1 copypaste serve --config /etc/copypaste/server.toml
+
+# Send plaintext
+copypaste send --host https://your-instance.example "notes"
+echo "log output" | copypaste send --host https://your-instance.example --stdin
+
+# Generate an example config
+copypaste config init
 ```
 
-`jq -Rs` reads stdin as a raw string and builds the JSON payload safely, preventing corruption from quotes, backslashes, or `$` in the pasted content.
+Closed deployments need a write token from an owner-only file or the client environment:
 
-### Packaging CLI for Releases
-
-The repository includes a helper to bundle the CLI binary for GitHub releases.
-
-```
-# Build and package version 0.2.0 under dist/
-./scripts/package_cli.sh 0.2.0
-
-# Artifacts created:
-# - dist/copypaste-0.2.0.tar.gz
-# - dist/copypaste-0.2.0.tar.gz.sha256
-
-# Suggested workflow:
-# 1. git tag -a v0.2.0 -m "Release v0.2.0"
-# 2. git push origin v0.2.0
-# 3. Draft a GitHub release and upload the tarball + checksum
+```bash
+chmod 600 ./write-token
+copypaste send --auth-token-file ./write-token "notes"
 ```
 
-A GitHub Actions workflow (`.github/workflows/release.yml`) automates steps 2–4 whenever a tag matching `v*` is pushed: it runs the packaging script and publishes the generated artifacts as release assets.
+An isolated supervisor or secret manager may instead inject `COPYPASTE_AUTH_TOKEN` into the client
+process environment without exposing its value in a command.
 
-## Project Structure
+Encrypted sends use `--encryption-mode` plus a key file or `COPYPASTE_ENCRYPTION_KEY`:
 
+```bash
+chmod 600 ./paste-key
+copypaste send \
+  --encryption-mode chacha20_poly1305 \
+  --encryption-key-file ./paste-key \
+  "sensitive notes"
 ```
+
+The CLI never accepts an encryption key or authentication token as an argument. It rejects
+redirects, requires HTTPS for non-loopback hosts, bounds response sizes, and prints a key-free
+same-origin paste URL returned by the server.
+
+Common `send` options:
+
+| Option | Purpose |
+|---|---|
+| `--host <url>` | Server origin; remote origins must use HTTPS |
+| `--auth-token-file <path>` | Owner-only service admission token file |
+| `--stdin` | Read content from standard input |
+| `--format <format>` | `plain_text`, `markdown`, `code`, `json`, `go`, `cpp`, `kotlin`, or `java` |
+| `--ttl <duration>` | Retention such as `5m`, `2h`, `7d`, or `1w` |
+| `--retention <minutes>` | Numeric retention alternative |
+| `--encryption-mode <mode>` | `none`, `aes256_gcm`, `chacha20_poly1305`, or `xchacha20_poly1305` |
+| `--encryption-key-file <path>` | Owner-only encryption-key file |
+| `--burn-after-reading` | Request best-effort deletion after a successful read |
+
+Run `copypaste send --help` for the generated command reference.
+
+## Operational limitations
+
+- Run one app instance. Sessions and challenges disappear on restart and are not accepted by other
+  instances. User/workspace listings and statistics scan only the local cache, not all Redis keys.
+- Burn-after-reading can be consumed by link previews and can race across instances.
+- A stale instance can save an old live-paste version after another instance deletes it. There is
+  no distributed version or tombstone. Quarantine and roll every app instance before an incident
+  deletion, and keep the ID quarantined afterward.
+- An admin delete cannot prove cross-instance absence. It reports `503` when its own durable delete
+  cannot be confirmed.
+- Per-IP rate limits are process-local. Public deployments still need shared edge quotas, request
+  limits, bot controls, and a monitored abuse channel.
+- The experimental ML-KEM envelope has not received independent review or FIPS validation.
+- The public health endpoints are liveness signals, not storage or verifier readiness checks.
+
+## Test and contribute
+
+Run the same primary checks as CI:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo nextest run --workspace --all-features
+cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75
+
+cd frontend
+npm run lint
+npm test -- --run
+```
+
+Keep changes focused, add regression tests for changed behavior, and install the pre-commit hook
+with `./scripts/setup_git_hooks.sh`.
+
+## Project structure
+
+```text
 copypaste.fyi/
-├── Cargo.toml          # Rust workspace and dependencies
-├── Dockerfile.backend  # Multi-stage build for production (Rust + OCaml)
-├── docker-compose.yml  # Local orchestration
-├── fly.toml           # Fly.io deployment configuration
-├── ocaml-crypto-verifier/    # OCaml cryptographic verification service
-│   ├── dune-project
-│   ├── lib/
-│   │   └── crypto_verifier.ml
-│   ├── bin/
-│   │   └── server.ml
-│   ├── test/
-│   └── Dockerfile
-├── src/
-│   ├── lib.rs          # PasteStore trait + memory implementation
-│   └── bin/
-│       └── copypaste.rs  # Unified binary: serve, send, config
-├── static/
-│   └── index.html      # Frontend interface
-└── .github/workflows/  # CI/CD pipelines
+├── src/lib.rs                    # Store types, cache, and persistence boundary
+├── src/bin/copypaste.rs          # serve, send, and config subcommands
+├── src/server/                   # Rocket handlers and security modules
+├── frontend/                     # React and Vite application
+├── ocaml-crypto-verifier/        # Independent supported-algorithm verifier
+├── blockchain/                   # Optional Solidity anchor contract
+├── docs/                         # Operator and encryption guides
+├── tests/                        # Rust integration tests
+├── docker-compose.yml            # Local containers
+└── fly.toml                      # Separate Fly process groups
 ```
-
-## Development Notes
-
-- Pastes are kept in-process; production deployments should consider persistent storage.
-- Use `cargo fmt` and `cargo clippy` before committing.
-- The Docker image is built with Rust 1.82 slim base and serves the compiled binary on Debian bookworm.
-- Async code steers clear of the futurelock pattern described in [RFD 609](https://rfd.shared.oxide.computer/rfd/0609); when adding concurrent flows, prefer spawning owned futures or a `JoinSet` instead of holding borrowed futures across `await` points.
-
-## Contributing
-
-Pull requests are welcome! Please:
-
-1. Install the tooling and git hooks described in [Repository setup](#repository-setup).
-2. Ensure formatting, linting, and tests pass locally: `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace --all-features`.
-3. (Optional but encouraged) Verify coverage meets CI expectations: `cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75`.
-4. Keep changes focused and add tests when extending functionality.
-
-## About
-
-Visit `/about.txt` for a plain text overview of the service and its security features.
 
 ## License
 
-Licensed under the terms of the [Apache License 2.0](LICENSE).
-
-
+Licensed under the [Apache License 2.0](LICENSE).

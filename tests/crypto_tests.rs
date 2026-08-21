@@ -426,11 +426,50 @@ async fn kyber_same_passphrase_produces_different_kem_ciphertext() {
     );
 }
 
-// OCaml verification behaviour tests
-// Each test runs in its own process under nextest, so env var mutations are safe.
+// OCaml verification behaviour tests. `cargo test` runs this integration-test
+// binary's cases concurrently, so serialize and restore the two process-global
+// variables instead of relying on nextest's process isolation.
+static OCAML_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct CryptoVerifierEnvRestore {
+    verifier_url: Option<String>,
+    require_verification: Option<String>,
+}
+
+impl CryptoVerifierEnvRestore {
+    fn capture() -> Self {
+        Self {
+            verifier_url: std::env::var("CRYPTO_VERIFIER_URL").ok(),
+            require_verification: std::env::var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION").ok(),
+        }
+    }
+}
+
+impl Drop for CryptoVerifierEnvRestore {
+    fn drop(&mut self) {
+        match self.verifier_url.take() {
+            Some(value) => std::env::set_var("CRYPTO_VERIFIER_URL", value),
+            None => std::env::remove_var("CRYPTO_VERIFIER_URL"),
+        }
+        match self.require_verification.take() {
+            Some(value) => std::env::set_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION", value),
+            None => std::env::remove_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION"),
+        }
+    }
+}
+
+async fn lock_crypto_verifier_env() -> (
+    tokio::sync::MutexGuard<'static, ()>,
+    CryptoVerifierEnvRestore,
+) {
+    let guard = OCAML_ENV_LOCK.lock().await;
+    let restore = CryptoVerifierEnvRestore::capture();
+    (guard, restore)
+}
 
 #[tokio::test]
 async fn ocaml_service_unavailable_does_not_block_by_default() {
+    let (_lock, _restore) = lock_crypto_verifier_env().await;
     // Default mode: COPYPASTE_REQUIRE_CRYPTO_VERIFICATION unset → verifier failures are
     // logged but must NOT prevent encryption from succeeding.
     std::env::remove_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION");
@@ -453,6 +492,8 @@ async fn ocaml_service_unavailable_does_not_block_by_default() {
 #[tokio::test]
 async fn ocaml_valid_false_blocks_when_strict_mode_enabled() {
     use httpmock::prelude::*;
+
+    let (_lock, _restore) = lock_crypto_verifier_env().await;
 
     let server = MockServer::start();
     server.mock(|when, then| {
@@ -480,6 +521,7 @@ async fn ocaml_valid_false_blocks_when_strict_mode_enabled() {
 
 #[tokio::test]
 async fn ocaml_service_unavailable_blocks_when_strict_mode_enabled() {
+    let (_lock, _restore) = lock_crypto_verifier_env().await;
     // Strict mode: COPYPASTE_REQUIRE_CRYPTO_VERIFICATION=true → unreachable verifier is an error.
     std::env::set_var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION", "true");
     std::env::set_var("CRYPTO_VERIFIER_URL", "http://127.0.0.1:1");
@@ -500,6 +542,8 @@ async fn ocaml_service_unavailable_blocks_when_strict_mode_enabled() {
 #[tokio::test]
 async fn ocaml_valid_true_allows_encryption_in_strict_mode() {
     use httpmock::prelude::*;
+
+    let (_lock, _restore) = lock_crypto_verifier_env().await;
 
     let server = MockServer::start();
     server.mock(|when, then| {

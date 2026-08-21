@@ -36,26 +36,11 @@ export interface CreatePastePayload {
     algorithm: Exclude<EncryptionAlgorithm, "none">;
     key: string;
   };
-  stego?: StegoRequest;
   burn_after_reading?: boolean;
-  bundle?: {
-    children: Array<{
-      content: string;
-      format?: PasteFormat;
-      label?: string;
-    }>;
-  };
   time_lock?: {
     not_before?: string;
     not_after?: string;
   };
-  webhook?: {
-    url: string;
-    provider?: "slack" | "teams" | "generic";
-    view_template?: string;
-    burn_template?: string;
-  };
-  owner_pubkey_hash?: string;
 }
 
 export interface CreatePasteResponse {
@@ -66,10 +51,6 @@ export interface CreatePasteResponse {
   token?: string;
   isLive: boolean;
 }
-
-export type StegoRequest =
-  | { mode: "builtin"; carrier: string }
-  | { mode: "uploaded"; data_uri: string };
 
 export interface AuthChallengeResponse {
   challenge: string;
@@ -88,7 +69,6 @@ export interface UserPasteListItem {
   retentionMinutes?: number | null;
   burnAfterReading: boolean;
   format: string;
-  accessCount: number;
 }
 
 export interface UserPasteListResponse {

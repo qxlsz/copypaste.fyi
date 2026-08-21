@@ -31,6 +31,10 @@ export default defineConfig(({ mode }) => {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
         },
+        "/raw": {
+          target: "http://127.0.0.1:8000",
+          changeOrigin: true,
+        },
       },
     };
   }

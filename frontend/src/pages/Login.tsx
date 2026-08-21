@@ -21,7 +21,7 @@ export const LoginPage = () => {
       setPrivkey(keys.privkey);
       setUseExisting(true);
       toast.success("Keys generated successfully!", {
-        description: `Public key: ${keys.pubkey.slice(0, 20)}...\n\nSave your private key securely - it's shown below and stored locally.`,
+        description: `Public key: ${keys.pubkey.slice(0, 20)}...\n\nSave your private key now. It exists only in this tab's memory and is cleared on reload or close.`,
         duration: 8000,
       });
     } catch {
@@ -63,7 +63,8 @@ export const LoginPage = () => {
             Sign in
           </h1>
           <p className="text-sm text-muted-foreground">
-            Privacy-first authentication with ed25519 keys
+            Ed25519 identity for your dashboard; posting may also require an
+            operator-issued write credential
           </p>
         </div>
 
@@ -140,9 +141,21 @@ export const LoginPage = () => {
                   rows={3}
                   value={privkey}
                   onChange={(e) => setPrivkey(e.target.value)}
+                  aria-describedby="privkey-memory-warning"
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   className="block w-full appearance-none rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   placeholder="Enter your base64-encoded private key…"
                 />
+                <p
+                  id="privkey-memory-warning"
+                  className="text-xs text-muted-foreground"
+                >
+                  Kept only in this tab&apos;s memory and cleared on reload.
+                  Save a secure copy before signing in.
+                </p>
               </div>
             )}
 

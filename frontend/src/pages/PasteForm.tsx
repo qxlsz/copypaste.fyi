@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -19,10 +19,14 @@ import type {
   CreatePastePayload,
   EncryptionAlgorithm,
   PasteFormat,
-  StegoRequest,
 } from "../api/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
 import { useHotkeys } from "../hooks/useHotkeys";
+import {
+  buildPasteShareUrl,
+  generateEncryptionKey,
+  validateEncryptionKey,
+} from "../lib/pasteSecurity";
 import { useAuth } from "../stores/auth";
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -79,79 +83,6 @@ const retentionOptions: Array<{ label: string; value: number }> = [
   { label: "30d", value: 43200 },
 ];
 
-const BUILTIN_STEGO_CARRIERS: Array<{
-  id: string;
-  name: string;
-  description: string;
-}> = [
-  {
-    id: "aurora",
-    name: "Aurora",
-    description: "Cool gradients with soft lighting.",
-  },
-  {
-    id: "horizon",
-    name: "Horizon",
-    description: "Sunset-inspired blues and ambers.",
-  },
-  { id: "prism", name: "Prism", description: "Abstract neon waves (default)." },
-  {
-    id: "nebula",
-    name: "Nebula",
-    description: "Cosmic purples flecked with speckled stardust.",
-  },
-  {
-    id: "solstice",
-    name: "Solstice",
-    description: "Warm sunrise oranges fading into sky blues.",
-  },
-  {
-    id: "midnight",
-    name: "Midnight",
-    description: "City-lights palette with cool blues and amber sparks.",
-  },
-  {
-    id: "cinder",
-    name: "Cinder",
-    description: "Charcoal base with ember highlights for high contrast.",
-  },
-];
-
-const PASS_ADJECTIVES = [
-  "stellar",
-  "quantum",
-  "radiant",
-  "luminous",
-  "hyper",
-  "galactic",
-  "neon",
-  "cosmic",
-  "orbital",
-  "sonic",
-];
-const PASS_NOUNS = [
-  "otter",
-  "phoenix",
-  "nebula",
-  "flux",
-  "cipher",
-  "tachyon",
-  "comet",
-  "formula",
-  "byte",
-  "matrix",
-];
-const PASS_SUFFIXES = [
-  "42",
-  "9000",
-  "1337",
-  "7g",
-  "mk2",
-  "ix",
-  "hyperlane",
-  "vortex",
-];
-
 const fieldLabelClasses = "block text-xs font-medium text-muted-foreground";
 
 const inputClasses =
@@ -168,7 +99,7 @@ const isPasteFormat = (value: unknown): value is PasteFormat =>
   formatOptions.some((option) => option.value === value);
 
 export const PasteFormPage = () => {
-  const { user } = useAuth();
+  const { token } = useAuth();
   const location = useLocation();
   // Seed the editor from router state (fork flow) on mount only; the lazy
   // initializers never re-run, so later navigation state changes can't loop.
@@ -183,6 +114,7 @@ export const PasteFormPage = () => {
   const [retentionMinutes, setRetentionMinutes] = useState<number>(0);
   const [encryption, setEncryption] = useState<EncryptionAlgorithm>("none");
   const [encryptionKey, setEncryptionKey] = useState("");
+  const [writeCredential, setWriteCredential] = useState("");
   const [burnAfterReading, setBurnAfterReading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
@@ -191,47 +123,8 @@ export const PasteFormPage = () => {
   const [pasteEncryption, setPasteEncryption] =
     useState<EncryptionAlgorithm>("none");
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState("");
-  const [useStego, setUseStego] = useState(false);
-  const [stegoMode, setStegoMode] = useState<"builtin" | "uploaded">("builtin");
-  const [stegoCarrierId, setStegoCarrierId] = useState("prism");
-  const [stegoUploadName, setStegoUploadName] = useState<string | null>(null);
-  const [stegoUploadData, setStegoUploadData] = useState<string | null>(null);
-  const [stegoError, setStegoError] = useState<string | null>(null);
   const [isEncryptionOpen, setEncryptionOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-
-  const handleStegoFileUpload = async (
-    event: ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setStegoUploadData(null);
-      setStegoUploadName(null);
-      return;
-    }
-    if (!file.type.startsWith("image/")) {
-      setStegoError("Please choose an image file for carrier embedding.");
-      setStegoUploadData(null);
-      setStegoUploadName(null);
-      return;
-    }
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      const base64 = btoa(String.fromCharCode(...bytes));
-      const dataUri = `data:${file.type};base64,${base64}`;
-      setStegoUploadData(dataUri);
-      setStegoUploadName(file.name);
-      setStegoError(null);
-    } catch (error) {
-      console.error(error);
-      setStegoError(
-        "Failed to read file. Please try again or pick a different image.",
-      );
-      setStegoUploadData(null);
-      setStegoUploadName(null);
-    }
-  };
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -242,7 +135,6 @@ export const PasteFormPage = () => {
           ? Number(retentionMinutes)
           : undefined,
         burn_after_reading: burnAfterReading || undefined,
-        owner_pubkey_hash: user?.pubkeyHash,
       };
 
       if (encryption !== "none") {
@@ -252,20 +144,10 @@ export const PasteFormPage = () => {
         };
       }
 
-      if (useStego && encryption !== "none") {
-        let stegoPayload: StegoRequest | undefined;
-        if (stegoMode === "builtin") {
-          stegoPayload = { mode: "builtin", carrier: stegoCarrierId };
-        } else if (stegoMode === "uploaded" && stegoUploadData) {
-          stegoPayload = { mode: "uploaded", data_uri: stegoUploadData };
-        }
-
-        if (stegoPayload) {
-          payload.stego = stegoPayload;
-        }
-      }
-
-      return createPaste(payload);
+      return createPaste(payload, {
+        sessionToken: token,
+        writeCredential: writeCredential.trim() || undefined,
+      });
     },
     onSuccess: (result) => {
       const usedEncryption = encryption;
@@ -293,6 +175,22 @@ export const PasteFormPage = () => {
       toast.error("Content is required");
       return;
     }
+    if (encryption !== "none") {
+      const encryptionKeyError = validateEncryptionKey(encryptionKey);
+      if (encryptionKeyError) {
+        toast.error("Invalid encryption key", {
+          description: encryptionKeyError,
+        });
+        setEncryptionOpen(true);
+        return;
+      }
+    }
+    if (new TextEncoder().encode(writeCredential).byteLength > 4096) {
+      toast.error("Invalid write credential", {
+        description: "Write credentials must be 4096 bytes or smaller.",
+      });
+      return;
+    }
     setShareUrl(null);
     mutation.mutate();
   };
@@ -307,25 +205,25 @@ export const PasteFormPage = () => {
 
   const requiresKey = encryption !== "none";
 
-  useEffect(() => {
-    if (!requiresKey) {
-      setUseStego(false);
+  const createSecureEncryptionKey = () => {
+    try {
+      return generateEncryptionKey();
+    } catch {
+      toast.error("Unable to generate a secure encryption key");
+      return null;
     }
-  }, [requiresKey]);
-
-  const buildRandomPassphrase = () => {
-    const randomElement = <T,>(items: T[]) =>
-      items[Math.floor(Math.random() * items.length)];
-    return `${randomElement(PASS_ADJECTIVES)}-${randomElement(PASS_NOUNS)}-${randomElement(PASS_SUFFIXES)}`;
   };
 
-  const generatePassphrase = () => {
-    const phrase = buildRandomPassphrase();
-    setEncryptionKey(phrase);
+  const handleGenerateEncryptionKey = () => {
+    const key = createSecureEncryptionKey();
+    if (!key) return;
+    setEncryptionKey(key);
     if (encryption === "none") {
       setEncryption("aes256_gcm");
     }
-    toast.message("Geeky passphrase generated", { description: phrase });
+    toast.message("Secure 256-bit encryption key generated", {
+      description: "The key was added to the encryption field.",
+    });
   };
 
   const shareLink = useMemo(() => {
@@ -334,24 +232,18 @@ export const PasteFormPage = () => {
     }
 
     try {
-      const path = `/p${shareUrl}`;
-      const url = new URL(path, window.location.origin);
-      if (retentionMinutes && retentionMinutes > 0) {
-        url.searchParams.set("ttl", retentionMinutes.toString());
-      }
-      // Keep the key in the URL fragment so it never reaches server logs,
-      // browser history sync, or Referer headers.
-      if (pasteEncryption !== "none" && pasteEncryptionKey.trim()) {
-        url.hash = `key=${encodeURIComponent(pasteEncryptionKey)}`;
-      }
-      return url.toString();
+      return buildPasteShareUrl(
+        shareUrl,
+        pasteEncryption !== "none" ? pasteEncryptionKey : "",
+        window.location.origin,
+      );
     } catch {
-      return `/p${shareUrl}`;
+      return null;
     }
-  }, [shareUrl, pasteEncryption, pasteEncryptionKey, retentionMinutes]);
+  }, [shareUrl, pasteEncryption, pasteEncryptionKey]);
 
   const handleCopyShareUrl = async () => {
-    const urlToCopy = shareLink || shareUrl;
+    const urlToCopy = shareLink;
     if (!urlToCopy) return;
     try {
       setIsCopying(true);
@@ -366,7 +258,7 @@ export const PasteFormPage = () => {
   };
 
   const handleShareLink = async () => {
-    const urlToShare = shareLink || shareUrl;
+    const urlToShare = shareLink;
     if (!urlToShare) return;
     if (typeof navigator.share === "function") {
       try {
@@ -506,6 +398,32 @@ export const PasteFormPage = () => {
         </section>
       )}
 
+      <section className="rounded-lg border border-border bg-surface p-3">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,20rem)_1fr] sm:items-center">
+          <div className="space-y-1">
+            <label className={fieldLabelClasses} htmlFor="write-credential">
+              write access credential
+            </label>
+            <input
+              id="write-credential"
+              type="password"
+              value={writeCredential}
+              onChange={(event) => setWriteCredential(event.target.value)}
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="Operator-issued token (when required)"
+              className={`${inputClasses} font-mono`}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Public deployments are closed by default. This credential stays
+            only in this tab&apos;s memory and is never saved by the browser app.
+          </p>
+        </div>
+      </section>
+
       <section className="overflow-visible rounded-lg border border-border bg-surface">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2">
@@ -562,7 +480,7 @@ export const PasteFormPage = () => {
             onClick={() => setBurnAfterReading(!burnAfterReading)}
             title={
               burnAfterReading
-                ? "Burn after reading: paste disappears after first view"
+                ? "Burn after reading: best-effort deletion after a successful read; concurrent deployments can race"
                 : "Burn after reading is off"
             }
             className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
@@ -610,7 +528,8 @@ export const PasteFormPage = () => {
                     className="absolute right-0 top-full z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] space-y-4 rounded-lg border border-border bg-surface p-4"
                   >
                     <p className="text-xs text-muted-foreground">
-                      Keys stay client-side — share them out of band.
+                      Encryption runs on the server. Keys transit over TLS, are
+                      used in memory, and are not stored.
                     </p>
                     <div className="space-y-1.5">
                       <label className={fieldLabelClasses} htmlFor="encryption">
@@ -660,7 +579,7 @@ export const PasteFormPage = () => {
                         />
                         <button
                           type="button"
-                          onClick={generatePassphrase}
+                          onClick={handleGenerateEncryptionKey}
                           className="inline-flex flex-shrink-0 items-center rounded-md border border-border px-2.5 text-xs font-medium text-text transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                         >
                           Generate
@@ -668,141 +587,6 @@ export const PasteFormPage = () => {
                       </div>
                     </div>
 
-                    <div className="space-y-2 border-t border-border pt-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-medium text-text">
-                            Steganographic cover
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Hide ciphertext inside a carrier image.
-                          </p>
-                        </div>
-                        <label
-                          className={`inline-flex items-center gap-1.5 text-xs text-text ${!requiresKey ? "opacity-60" : ""}`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5 rounded border-border bg-surface text-accent focus:ring-accent"
-                            checked={useStego}
-                            onChange={(event) => {
-                              const checked = event.target.checked;
-                              if (checked) {
-                                if (encryption === "none") {
-                                  const phrase = buildRandomPassphrase();
-                                  setEncryption("aes256_gcm");
-                                  setEncryptionKey(phrase);
-                                  toast.message(
-                                    "Encryption enabled for steganography",
-                                    {
-                                      description: phrase,
-                                    },
-                                  );
-                                } else if (!encryptionKey.trim()) {
-                                  const phrase = buildRandomPassphrase();
-                                  setEncryptionKey(phrase);
-                                  toast.message(
-                                    "Encryption key generated for steganography",
-                                    {
-                                      description: phrase,
-                                    },
-                                  );
-                                }
-                              }
-                              setUseStego(checked);
-                            }}
-                          />
-                          Enable
-                        </label>
-                      </div>
-
-                      {useStego ? (
-                        <div className="space-y-3">
-                          <fieldset className="space-y-1.5">
-                            <legend className={fieldLabelClasses}>
-                              carrier source
-                            </legend>
-                            <label className="flex items-center gap-2 text-xs text-text">
-                              <input
-                                type="radio"
-                                name="stego-mode"
-                                value="builtin"
-                                checked={stegoMode === "builtin"}
-                                onChange={() => setStegoMode("builtin")}
-                                className="h-3.5 w-3.5 border-border text-accent focus:ring-accent"
-                              />
-                              Bundled artwork
-                            </label>
-                            <label className="flex items-center gap-2 text-xs text-text">
-                              <input
-                                type="radio"
-                                name="stego-mode"
-                                value="uploaded"
-                                checked={stegoMode === "uploaded"}
-                                onChange={() => setStegoMode("uploaded")}
-                                className="h-3.5 w-3.5 border-border text-accent focus:ring-accent"
-                              />
-                              Upload my own image
-                            </label>
-                          </fieldset>
-
-                          {stegoMode === "builtin" ? (
-                            <div className="space-y-1.5">
-                              <label
-                                className={fieldLabelClasses}
-                                htmlFor="builtinCarrier"
-                              >
-                                select carrier
-                              </label>
-                              <select
-                                id="builtinCarrier"
-                                value={stegoCarrierId}
-                                onChange={(event) =>
-                                  setStegoCarrierId(event.target.value)
-                                }
-                                className={inputClasses}
-                              >
-                                {BUILTIN_STEGO_CARRIERS.map((carrier) => (
-                                  <option key={carrier.id} value={carrier.id}>
-                                    {carrier.name} — {carrier.description}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          ) : (
-                            <div className="space-y-1.5">
-                              <label
-                                className={fieldLabelClasses}
-                                htmlFor="stegoUpload"
-                              >
-                                upload carrier image (png recommended)
-                              </label>
-                              <input
-                                id="stegoUpload"
-                                type="file"
-                                accept="image/png,image/bmp"
-                                onChange={handleStegoFileUpload}
-                                className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border file:border-solid file:border-border file:bg-surface file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-text hover:file:bg-muted"
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                {stegoUploadName
-                                  ? `Selected: ${stegoUploadName}`
-                                  : "Lossless formats yield better hiding capacity. 1 MB max."}
-                              </p>
-                            </div>
-                          )}
-                          {stegoError ? (
-                            <p className="text-xs text-danger">{stegoError}</p>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          {requiresKey
-                            ? "Enable steganography to embed the encrypted payload inside a carrier image."
-                            : "Turn on encryption to unlock steganographic embedding."}
-                        </p>
-                      )}
-                    </div>
                   </div>
                 </>
               )}

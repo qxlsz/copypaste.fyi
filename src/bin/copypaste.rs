@@ -1,8 +1,9 @@
 use std::io::{self, IsTerminal, Read};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
-use urlencoding::encode;
 
 #[derive(Parser)]
 #[command(name = "copypaste", about = "Open-source paste sharing service")]
@@ -53,6 +54,11 @@ struct SendArgs {
     #[arg(long, default_value = "http://127.0.0.1:8000")]
     host: String,
 
+    /// Read the write bearer token from an owner-only file. If omitted,
+    /// COPYPASTE_AUTH_TOKEN is used when set. Tokens are never accepted in argv.
+    #[arg(long, value_name = "PATH")]
+    auth_token_file: Option<PathBuf>,
+
     /// Output rendering format.
     #[arg(long, value_enum, default_value_t = CliFormat::PlainText)]
     format: CliFormat,
@@ -69,11 +75,12 @@ struct SendArgs {
     #[arg(long, value_enum, default_value_t = CliEncryption::None)]
     encryption_mode: CliEncryption,
 
-    /// Encryption key (required when encryption is not "none").
-    #[arg(long = "key")]
-    encryption_key: Option<String>,
+    /// Read the encryption key from an owner-only file. If omitted,
+    /// COPYPASTE_ENCRYPTION_KEY is used. Keys are never accepted in argv.
+    #[arg(long, value_name = "PATH")]
+    encryption_key_file: Option<PathBuf>,
 
-    /// Delete the paste immediately after the first successful view.
+    /// Request best-effort deletion after a successful view.
     #[arg(long, alias = "burn")]
     burn_after_reading: bool,
 }
@@ -193,12 +200,124 @@ fn parse_ttl(s: &str) -> io::Result<u64> {
             format!("Invalid TTL '{s}'. Use e.g. 5m, 2h, 7d, 1w or a raw number of minutes."),
         ));
     };
-    value.trim().parse::<u64>().map(|n| n * mult).map_err(|_| {
-        io::Error::new(
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .and_then(|n| n.checked_mul(mult))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Invalid TTL '{s}'. Use e.g. 5m, 2h, 7d, 1w or a raw number of minutes."),
+            )
+        })
+}
+
+fn load_secret(
+    path: Option<&Path>,
+    environment_name: &str,
+    label: &str,
+    maximum_bytes: usize,
+) -> io::Result<Option<String>> {
+    let token = if let Some(path) = path {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        // Open exactly once, refusing symlinks on Unix, then validate and read
+        // through the same descriptor to avoid path replacement races.
+        let file = options.open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{label} path must be a regular file."),
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "{label} file must not be accessible by group or other users (mode 0600)."
+                    ),
+                ));
+            }
+        }
+        if metadata.len() > maximum_bytes as u64 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{label} file is too large."),
+            ));
+        }
+        let mut value = String::new();
+        file.take(maximum_bytes as u64 + 1)
+            .read_to_string(&mut value)?;
+        if value.len() > maximum_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{label} file is too large."),
+            ));
+        }
+        Some(value)
+    } else {
+        std::env::var(environment_name).ok()
+    };
+
+    token
+        .map(|value| {
+            let value = value.trim().to_owned();
+            if value.is_empty()
+                || value.len() > maximum_bytes
+                || value.bytes().any(|byte| matches!(byte, b'\r' | b'\n'))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "{label} must be a single non-empty value no larger than {maximum_bytes} bytes."
+                    ),
+                ));
+            }
+            Ok(value)
+        })
+        .transpose()
+}
+
+fn validated_base_url(host: &str) -> io::Result<reqwest::Url> {
+    let mut url = reqwest::Url::parse(host.trim())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "--host must be a valid URL"))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("Invalid TTL '{s}'. Use e.g. 5m, 2h, 7d, 1w or a raw number of minutes."),
-        )
-    })
+            "--host must be an http(s) origin without credentials, query, or fragment",
+        ));
+    }
+    let loopback = match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        None => false,
+    };
+    if url.scheme() == "http" && !loopback {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Remote --host URLs must use HTTPS; plain HTTP is allowed only for loopback development.",
+        ));
+    }
+    let normalized_path = url.path().trim_end_matches('/').to_owned();
+    url.set_path(&normalized_path);
+    Ok(url)
 }
 
 fn execute_send(args: SendArgs) -> io::Result<String> {
@@ -206,11 +325,12 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
         text,
         stdin,
         host,
+        auth_token_file,
         format,
         ttl,
         retention,
         encryption_mode,
-        encryption_key,
+        encryption_key_file,
         burn_after_reading,
     } = args;
 
@@ -247,7 +367,13 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
         Some(retention)
     };
 
-    let key_ref = encryption_key.as_deref().filter(|k| !k.trim().is_empty());
+    let encryption_key = load_secret(
+        encryption_key_file.as_deref(),
+        "COPYPASTE_ENCRYPTION_KEY",
+        "Encryption key",
+        1024,
+    )?;
+    let key_ref = encryption_key.as_deref();
     let encryption = match encryption_mode {
         CliEncryption::None => None,
         CliEncryption::Aes256Gcm => Some(EncryptionPayload {
@@ -255,7 +381,7 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
             key: key_ref.ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "--key must be supplied when using --encryption-mode aes256_gcm",
+                    "--encryption-key-file or COPYPASTE_ENCRYPTION_KEY must be supplied when using --encryption-mode aes256_gcm",
                 )
             })?,
         }),
@@ -264,7 +390,7 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
             key: key_ref.ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "--key must be supplied when using --encryption-mode chacha20_poly1305",
+                    "--encryption-key-file or COPYPASTE_ENCRYPTION_KEY must be supplied when using --encryption-mode chacha20_poly1305",
                 )
             })?,
         }),
@@ -273,13 +399,11 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
             key: key_ref.ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "--key must be supplied when using --encryption-mode xchacha20_poly1305",
+                    "--encryption-key-file or COPYPASTE_ENCRYPTION_KEY must be supplied when using --encryption-mode xchacha20_poly1305",
                 )
             })?,
         }),
     };
-
-    let has_encryption = encryption.is_some();
 
     let payload = PastePayload {
         content: &content,
@@ -298,16 +422,27 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
         burn_after_reading: if burn_after_reading { Some(true) } else { None },
     };
 
-    let base_url = host.trim_end_matches('/').to_owned();
+    let base_url = validated_base_url(&host)?;
+    let auth_token = load_secret(
+        auth_token_file.as_deref(),
+        "COPYPASTE_AUTH_TOKEN",
+        "Auth token",
+        4096,
+    )?;
     let client = reqwest::blocking::Client::builder()
+        // Paste bodies and write credentials must never be replayed to a
+        // redirect target. Operators must configure the final HTTPS origin.
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
         .build()
         .map_err(io::Error::other)?;
 
-    let response = client
-        .post(&base_url)
-        .json(&payload)
-        .send()
-        .map_err(io::Error::other)?;
+    let mut request = client.post(base_url.clone()).json(&payload);
+    if let Some(token) = auth_token.as_deref() {
+        request = request.header("X-CopyPaste-Write-Token", token);
+    }
+    let response = request.send().map_err(io::Error::other)?;
 
     if !response.status().is_success() {
         return Err(io::Error::other(format!(
@@ -316,11 +451,22 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
         )));
     }
 
-    let path = response
-        .text()
-        .map_err(io::Error::other)?
-        .trim()
-        .to_string();
+    const MAX_RESPONSE_BYTES: u64 = 4096;
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE_BYTES)
+    {
+        return Err(io::Error::other("Server response is too large."));
+    }
+    let mut path = String::new();
+    response
+        .take(MAX_RESPONSE_BYTES + 1)
+        .read_to_string(&mut path)
+        .map_err(io::Error::other)?;
+    if path.len() as u64 > MAX_RESPONSE_BYTES {
+        return Err(io::Error::other("Server response is too large."));
+    }
+    let path = path.trim();
 
     if path.is_empty() {
         return Err(io::Error::new(
@@ -329,20 +475,19 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
         ));
     }
 
-    let mut full_url = if path.starts_with("http://") || path.starts_with("https://") {
-        path
-    } else {
-        format!("{}{}", base_url, path)
-    };
-
-    if has_encryption {
-        if let Some(key) = encryption_key.as_deref() {
-            let separator = if full_url.contains('?') { '&' } else { '?' };
-            full_url.push(separator);
-            full_url.push_str("key=");
-            full_url.push_str(&encode(key));
-        }
+    let returned = base_url
+        .join(path)
+        .map_err(|_| io::Error::other("Server returned an invalid paste URL."))?;
+    if !matches!(returned.scheme(), "http" | "https")
+        || !returned.username().is_empty()
+        || returned.password().is_some()
+        || returned.origin() != base_url.origin()
+    {
+        return Err(io::Error::other(
+            "Server returned a paste URL on an unexpected origin.",
+        ));
     }
+    let full_url = returned.to_string();
 
     Ok(full_url)
 }
@@ -352,12 +497,28 @@ mod tests {
     use super::*;
     use httpmock::prelude::*;
     use serde_json::json;
+    use std::io::Write;
+
+    fn write_owner_only_secret_file(token: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("copypaste-token-{}", nanoid::nanoid!()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        let mut file = options.open(&path).expect("create token file");
+        file.write_all(token.as_bytes()).expect("write token file");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("restrict token file");
+        }
+        path
+    }
 
     #[test]
     fn send_submits_plain_text_and_returns_url() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
-            when.method(POST).path("/").json_body_partial(
+            when.method(POST).path("/").json_body_includes(
                 json!({ "content": "hello", "format": "plain_text" }).to_string(),
             );
             then.status(200).body("/paste/abc123");
@@ -371,16 +532,78 @@ mod tests {
     }
 
     #[test]
-    fn send_appends_encryption_key() {
+    fn send_reads_auth_token_from_owner_only_file() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
-            when.method(POST).path("/").json_body_partial(
+            when.method(POST)
+                .path("/")
+                .header("x-copypaste-write-token", "operator-issued-token");
+            then.status(200).body("/paste/authorized");
+        });
+        let token_file = write_owner_only_secret_file("operator-issued-token\n");
+
+        let base = server.base_url();
+        let args = SendArgs::parse_from([
+            "copypaste-send",
+            "hello",
+            "--host",
+            base.as_str(),
+            "--auth-token-file",
+            token_file.to_str().expect("utf-8 token path"),
+        ]);
+        let url = execute_send(args).expect("authorized send");
+        std::fs::remove_file(token_file).expect("remove token file");
+
+        assert_eq!(url, format!("{base}/paste/authorized"));
+        assert!(!url.contains("operator-issued-token"));
+        mock.assert();
+    }
+
+    #[test]
+    fn send_does_not_follow_redirects_with_paste_or_token() {
+        let server = MockServer::start();
+        let base = server.base_url();
+        let redirected_url = format!("{base}/capture");
+        let redirect = server.mock(|when, then| {
+            when.method(POST)
+                .path("/")
+                .header("x-copypaste-write-token", "no-redirect-token");
+            then.status(307).header("Location", redirected_url.as_str());
+        });
+        let capture = server.mock(|when, then| {
+            when.method(POST).path("/capture");
+            then.status(200).body("/paste/leaked");
+        });
+        let token_file = write_owner_only_secret_file("no-redirect-token");
+
+        let args = SendArgs::parse_from([
+            "copypaste-send",
+            "sensitive body",
+            "--host",
+            base.as_str(),
+            "--auth-token-file",
+            token_file.to_str().expect("utf-8 token path"),
+        ]);
+        let error = execute_send(args).expect_err("redirect must not be followed");
+        std::fs::remove_file(token_file).expect("remove token file");
+
+        assert!(error.to_string().contains("307"));
+        redirect.assert();
+        assert_eq!(capture.calls(), 0);
+    }
+
+    #[test]
+    fn send_keeps_encryption_key_out_of_url() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/").json_body_includes(
                 json!({ "encryption": { "algorithm": "aes256_gcm" } }).to_string(),
             );
             then.status(200).body("/secret");
         });
 
         let base = server.base_url();
+        let key_file = write_owner_only_secret_file("super key");
         let args = SendArgs::parse_from([
             "copypaste-send",
             "payload",
@@ -388,11 +611,13 @@ mod tests {
             base.as_str(),
             "--encryption-mode",
             "aes256_gcm",
-            "--key",
-            "super key",
+            "--encryption-key-file",
+            key_file.to_str().expect("utf-8 key path"),
         ]);
         let url = execute_send(args).expect("url");
-        assert_eq!(url, format!("{}/secret?key=super%20key", base));
+        std::fs::remove_file(key_file).expect("remove key file");
+        assert_eq!(url, format!("{}/secret", base));
+        assert!(!url.contains("super"));
         mock.assert();
     }
 
@@ -408,7 +633,51 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
         assert!(err
             .to_string()
-            .contains("--key must be supplied when using --encryption-mode"));
+            .contains("--encryption-key-file or COPYPASTE_ENCRYPTION_KEY"));
+    }
+
+    #[test]
+    fn send_rejects_remote_plain_http() {
+        let args =
+            SendArgs::parse_from(["copypaste-send", "payload", "--host", "http://example.com"]);
+        let error = execute_send(args).expect_err("remote HTTP must fail before sending");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("must use HTTPS"));
+    }
+
+    #[test]
+    fn send_rejects_network_path_response_on_another_origin() {
+        let server = MockServer::start();
+        let response = server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200).body("//evil.example/paste");
+        });
+        let base = server.base_url();
+        let args = SendArgs::parse_from(["copypaste-send", "payload", "--host", base.as_str()]);
+
+        let error = execute_send(args).expect_err("cross-origin result must fail");
+        assert!(error.to_string().contains("unexpected origin"));
+        response.assert();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secret_file_symlinks_are_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let target = write_owner_only_secret_file("secret-token");
+        let link = std::env::temp_dir().join(format!("copypaste-token-link-{}", nanoid::nanoid!()));
+        symlink(&target, &link).expect("create token symlink");
+
+        let error =
+            load_secret(Some(&link), "UNUSED", "Auth token", 4096).expect_err("symlink must fail");
+        std::fs::remove_file(link).expect("remove link");
+        std::fs::remove_file(target).expect("remove target");
+
+        assert!(matches!(
+            error.raw_os_error(),
+            Some(code) if code == libc::ELOOP
+        ));
     }
 
     #[test]
@@ -469,6 +738,7 @@ mod tests {
         assert!(parse_ttl("5x").is_err());
         assert!(parse_ttl("abc").is_err());
         assert!(parse_ttl("").is_err());
+        assert!(parse_ttl("18446744073709551615w").is_err());
     }
 
     #[test]
@@ -477,7 +747,7 @@ mod tests {
         let mock = server.mock(|when, then| {
             when.method(POST)
                 .path("/")
-                .json_body_partial(json!({ "retention_minutes": 120 }).to_string());
+                .json_body_includes(json!({ "retention_minutes": 120 }).to_string());
             then.status(200).body("/paste/timed");
         });
 
@@ -501,7 +771,7 @@ mod tests {
         let mock = server.mock(|when, then| {
             when.method(POST)
                 .path("/")
-                .json_body_partial(json!({ "burn_after_reading": true }).to_string());
+                .json_body_includes(json!({ "burn_after_reading": true }).to_string());
             then.status(200).body("/paste/burned");
         });
 

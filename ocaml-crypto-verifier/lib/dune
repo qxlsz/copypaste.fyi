@@ -6,6 +6,7 @@
    mirage-crypto
    mirage-crypto-ec
    mirage-crypto-rng
+   digestif
    base64
    cstruct
    yojson)

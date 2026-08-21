@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Shield, Lock, Eye, Globe, Server, Zap, X } from "lucide-react";
+import { Shield, Lock, Eye, Globe, Zap, X } from "lucide-react";
 
 interface JourneyStep {
   icon: React.ComponentType<{ className?: string }>;
@@ -8,32 +8,9 @@ interface JourneyStep {
   detected: boolean;
 }
 
-type VpnStatus = "unknown" | "checking" | "detected" | "not_detected";
-
 export const PrivacyJourney = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [steps, setSteps] = useState<JourneyStep[]>([]);
-  const [vpnStatus, setVpnStatus] = useState<VpnStatus>("unknown");
-
-  // Opt-in only: contacting a third-party IP API is itself a privacy leak,
-  // so it never runs automatically — only when the user clicks "Check".
-  const checkVpn = async () => {
-    setVpnStatus("checking");
-    let isVpnLikely = false;
-    try {
-      const response = await fetch("https://ipapi.co/json/", {
-        signal: AbortSignal.timeout(3000),
-      });
-      const data = await response.json();
-      isVpnLikely =
-        data.org?.toLowerCase().includes("vpn") ||
-        data.org?.toLowerCase().includes("proxy") ||
-        data.asn?.toString().includes("VPN");
-      setVpnStatus(isVpnLikely ? "detected" : "not_detected");
-    } catch {
-      setVpnStatus("not_detected");
-    }
-  };
 
   useEffect(() => {
     const detectPrivacyFeatures = async () => {
@@ -91,33 +68,14 @@ export const PrivacyJourney = () => {
         detected: isPrivateMode,
       });
 
-      // Client-side encryption
-      journeySteps.push({
-        icon: Server,
-        label: "Client-Side Encryption",
-        detail: "Keys never leave your device",
-        detected: true, // Always true for this app
-      });
-
       setSteps(journeySteps);
     };
 
     detectPrivacyFeatures();
   }, []);
 
-  const vpnDetected = vpnStatus === "detected";
-  const vpnDetail =
-    vpnStatus === "unknown"
-      ? "Unknown — click Check (queries ipapi.co)"
-      : vpnStatus === "checking"
-        ? "Checking…"
-        : vpnDetected
-          ? "Possible VPN/proxy detected"
-          : "Direct IP connection";
-
-  const privacyScore =
-    steps.filter((s) => s.detected).length + (vpnDetected ? 1 : 0);
-  const totalSteps = steps.length + 1;
+  const privacyScore = steps.filter((s) => s.detected).length;
+  const totalSteps = steps.length;
 
   return (
     <div className="fixed bottom-4 left-4 z-50 sm:bottom-6 sm:left-6">
@@ -184,40 +142,23 @@ export const PrivacyJourney = () => {
             })}
 
             <div className="flex items-start gap-3 rounded-md p-2">
-              <Shield
-                className={`mt-0.5 h-4 w-4 flex-shrink-0 ${
-                  vpnDetected ? "text-success" : "text-muted-foreground"
-                }`}
-              />
+              <Shield className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
-                <p
-                  className={`text-xs font-medium ${
-                    vpnDetected ? "text-text" : "text-muted-foreground"
-                  }`}
-                >
+                <p className="text-xs font-medium text-muted-foreground">
                   VPN/Proxy
                 </p>
-                <p className="text-xs text-muted-foreground">{vpnDetail}</p>
+                <p className="text-xs text-muted-foreground">
+                  Not assessed — no IP intelligence service is contacted
+                </p>
               </div>
-              {vpnDetected ? (
-                <span className="font-mono text-xs text-success">✓</span>
-              ) : (
-                <button
-                  onClick={checkVpn}
-                  disabled={vpnStatus === "checking"}
-                  className="rounded border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
-                >
-                  {vpnStatus === "checking" ? "…" : "Check"}
-                </button>
-              )}
             </div>
           </div>
 
           <div className="mt-3 rounded-md border border-border p-3 text-xs text-muted-foreground">
             <p className="font-medium text-text">Privacy first</p>
             <p className="mt-1">
-              All encryption happens in your browser. Your keys never touch our
-              servers.
+              Paste encryption runs on the server. Keys transit over TLS, are
+              used in memory, and are not stored.
             </p>
           </div>
 

@@ -12,6 +12,8 @@ use std::convert::TryInto;
 use std::sync::Once;
 use zeroize::Zeroizing;
 
+const MAX_VERIFIER_RESPONSE_BYTES: usize = 16 * 1024;
+
 use hkdf::Hkdf;
 use ml_kem::kem::{Decapsulate, Encapsulate};
 use ml_kem::{Ciphertext, KemCore, MlKem768, B32};
@@ -145,15 +147,6 @@ fn encrypt_content_sync(
             let nonce_b64 = general_purpose::STANDARD.encode(nonce_bytes);
             let salt_b64 = general_purpose::STANDARD.encode(salt);
 
-            let verify = OcamlVerifyArgs {
-                algorithm,
-                plaintext: text.to_owned(),
-                ciphertext: ciphertext_b64.clone(),
-                key: key.to_owned(),
-                nonce: Some(nonce_b64.clone()),
-                salt: Some(salt_b64.clone()),
-            };
-
             Ok((
                 StoredContent::Encrypted {
                     algorithm,
@@ -161,7 +154,11 @@ fn encrypt_content_sync(
                     nonce: nonce_b64,
                     salt: salt_b64,
                 },
-                Some(verify),
+                // The OCaml verifier does not implement XChaCha20/HChaCha20.
+                // Returning no verifier payload is an explicit capability
+                // decision; strict mode still fails closed for algorithms the
+                // verifier claims to support.
+                None,
             ))
         }
         EncryptionAlgorithm::KyberHybridAes256Gcm => {
@@ -502,6 +499,60 @@ struct SignatureVerificationRequest {
     public_key: String,
 }
 
+fn verifier_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_secs(5))
+        // Verification bodies contain plaintext and raw encryption keys.
+        // Never replay them to a redirect target, even when the verifier is
+        // compromised or its URL is misconfigured.
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+}
+
+pub(super) fn validate_verifier_base_url(raw: &str) -> Result<reqwest::Url, String> {
+    let mut url = reqwest::Url::parse(raw.trim())
+        .map_err(|_| "CRYPTO_VERIFIER_URL must be a valid URL".to_string())?;
+    let loopback_or_private_ingress = match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(domain)) => {
+            domain.eq_ignore_ascii_case("localhost")
+                || domain.to_ascii_lowercase().ends_with(".internal")
+        }
+        None => false,
+    };
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !url.path().trim_matches('/').is_empty()
+        || !(url.scheme() == "https" || (url.scheme() == "http" && loopback_or_private_ingress))
+    {
+        return Err(
+            "CRYPTO_VERIFIER_URL must be clean HTTPS or HTTP on loopback/Fly private ingress"
+                .to_string(),
+        );
+    }
+    url.set_path("/");
+    Ok(url)
+}
+
+fn strict_verification_from_env() -> Result<bool, String> {
+    match std::env::var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION") {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Ok(true),
+            "0" | "false" | "no" | "off" => Ok(false),
+            _ => Err("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION must be true or false".to_string()),
+        },
+        Err(std::env::VarError::NotPresent) => Ok(false),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION must contain valid UTF-8".to_string())
+        }
+    }
+}
+
 /// Optional/configurable verification using OCaml crypto verifier service.
 ///
 /// By default this is defense-in-depth only: all failure paths are logged but do NOT block
@@ -515,82 +566,79 @@ async fn verify_with_ocaml_crypto_service(
 ) -> Result<(), String> {
     let verifier_url = std::env::var("CRYPTO_VERIFIER_URL")
         .unwrap_or_else(|_| "http://localhost:8001".to_string());
+    let verifier_url = validate_verifier_base_url(&verifier_url)?;
+    let require_verification = strict_verification_from_env()?;
 
-    let require_verification = std::env::var("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(false);
-
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-    {
+    let client = match verifier_http_client() {
         Ok(client) => client,
-        Err(e) => {
-            log::warn!(
-                "Failed to create HTTP client for crypto verification: {}",
-                e
-            );
+        Err(_) => {
+            log::warn!("Failed to create HTTP client for crypto verification");
             if require_verification {
-                return Err(format!(
-                    "Crypto verification unavailable (client build failed): {}",
-                    e
-                ));
+                return Err("Crypto verification unavailable (client build failed)".to_string());
             }
             return Ok(());
         }
     };
 
-    let url = format!("{}/verify/{}", verifier_url, verification_type);
+    let endpoint = verifier_url
+        .join(&format!("verify/{verification_type}"))
+        .map_err(|_| "Invalid crypto verifier endpoint".to_string())?;
 
     match client
-        .post(&url)
+        .post(endpoint)
         .header("Content-Type", "application/json")
         .body(request_body)
         .send()
         .await
     {
-        Ok(response) => {
+        Ok(mut response) => {
             let status = response.status();
             if status.is_success() {
-                match response.json::<serde_json::Value>().await {
+                let mut body = Vec::new();
+                loop {
+                    let chunk = match response.chunk().await {
+                        Ok(Some(chunk)) => chunk,
+                        Ok(None) => break,
+                        Err(_) if require_verification => {
+                            return Err(
+                                "Crypto verification response could not be read".to_string()
+                            );
+                        }
+                        Err(_) => {
+                            log::warn!("OCaml crypto verification response could not be read");
+                            return Ok(());
+                        }
+                    };
+                    if body.len().saturating_add(chunk.len()) > MAX_VERIFIER_RESPONSE_BYTES {
+                        if require_verification {
+                            return Err("Crypto verification response was too large".to_string());
+                        }
+                        log::warn!("OCaml crypto verification response exceeded limit");
+                        return Ok(());
+                    }
+                    body.extend_from_slice(&chunk);
+                }
+                match serde_json::from_slice::<serde_json::Value>(&body) {
                     Ok(json) => {
                         if json.get("valid").and_then(|v| v.as_bool()).unwrap_or(false) {
                             log::info!("Cryptographic verification successful via OCaml service");
                             Ok(())
                         } else {
-                            let details = json
-                                .get("details")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("Unknown verification error");
-                            // Log at warn level for expected gaps (algorithm not supported),
-                            // error level for actual verification failures.
-                            if details.contains("not yet implemented")
-                                || details.contains("not supported")
-                                || details.contains("Unsupported")
-                            {
-                                log::warn!(
-                                    "OCaml crypto verifier: algorithm not supported for {}: {}",
-                                    verification_type,
-                                    details
-                                );
-                            } else {
-                                log::error!(
-                                    "OCaml crypto verifier returned valid=false for {}: {}",
-                                    verification_type,
-                                    details
-                                );
-                            }
+                            log::error!(
+                                "OCaml crypto verifier returned valid=false for {}",
+                                verification_type
+                            );
                             if require_verification {
-                                Err(format!("Crypto verification failed: {}", details))
+                                Err("Crypto verification failed".to_string())
                             } else {
                                 Ok(())
                             }
                         }
                     }
-                    Err(e) => {
-                        log::warn!("Failed to parse OCaml verification response: {}", e);
+                    Err(_) => {
+                        log::warn!("Failed to parse OCaml verification response");
                         if require_verification {
-                            Err(format!("Crypto verification response parse failed: {}", e))
+                            Err("Crypto verification response parse failed".to_string())
                         } else {
                             Ok(())
                         }
@@ -612,10 +660,10 @@ async fn verify_with_ocaml_crypto_service(
                 }
             }
         }
-        Err(e) => {
-            log::warn!("OCaml crypto verification service unavailable: {}", e);
+        Err(_) => {
+            log::warn!("OCaml crypto verification service unavailable");
             if require_verification {
-                Err(format!("Crypto verification service unreachable: {}", e))
+                Err("Crypto verification service unreachable".to_string())
             } else {
                 Ok(()) // Don't fail the main operation
             }
@@ -678,6 +726,7 @@ pub async fn verify_signature_with_ocaml(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::prelude::*;
 
     /// The dual-verification gap warning must be callable repeatedly for any
     /// algorithm without panicking (it fires at most once per process).
@@ -689,5 +738,72 @@ mod tests {
         // Algorithms with OCaml coverage never trigger the warning path.
         warn_dual_verification_gap(EncryptionAlgorithm::Aes256Gcm);
         warn_dual_verification_gap(EncryptionAlgorithm::None);
+    }
+
+    #[test]
+    fn verifier_payloads_exist_only_for_supported_algorithms() {
+        for algorithm in [
+            EncryptionAlgorithm::Aes256Gcm,
+            EncryptionAlgorithm::ChaCha20Poly1305,
+        ] {
+            let (_, verification) = encrypt_content_sync("payload", "strong-test-key", algorithm)
+                .expect("supported encryption");
+            assert!(
+                verification.is_some(),
+                "{algorithm:?} must fail closed through OCaml"
+            );
+        }
+
+        for algorithm in [
+            EncryptionAlgorithm::XChaCha20Poly1305,
+            EncryptionAlgorithm::KyberHybridAes256Gcm,
+        ] {
+            let (_, verification) = encrypt_content_sync("payload", "strong-test-key", algorithm)
+                .expect("unsupported-verifier encryption");
+            assert!(
+                verification.is_none(),
+                "{algorithm:?} must bypass an unsupported verifier capability"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn verifier_client_never_replays_secrets_through_redirects() {
+        let server = MockServer::start();
+        let base = server.base_url();
+        let redirected_url = format!("{base}/captured");
+        let redirect = server.mock(|when, then| {
+            when.method(POST).path("/verify/encryption");
+            then.status(307).header("Location", redirected_url.as_str());
+        });
+        let captured = server.mock(|when, then| {
+            when.method(POST).path("/captured");
+            then.status(200).body(r#"{"valid":true}"#);
+        });
+
+        let response = verifier_http_client()
+            .expect("verifier client")
+            .post(format!("{base}/verify/encryption"))
+            .body(r#"{"plaintext":"secret","key":"raw-key"}"#)
+            .send()
+            .await
+            .expect("redirect response");
+
+        assert_eq!(response.status(), reqwest::StatusCode::TEMPORARY_REDIRECT);
+        redirect.assert();
+        assert_eq!(captured.calls(), 0);
+    }
+
+    #[test]
+    fn verifier_url_rejects_untrusted_plaintext_and_credentialed_origins() {
+        assert!(validate_verifier_base_url("http://example.com:8001").is_err());
+        assert!(validate_verifier_base_url("https://user:pass@example.com").is_err());
+        assert!(validate_verifier_base_url("https://example.com?token=x").is_err());
+        assert!(validate_verifier_base_url("http://localhost:8001").is_ok());
+        assert!(
+            validate_verifier_base_url("http://crypto-verifier.process.example.internal:8001")
+                .is_ok()
+        );
+        assert!(validate_verifier_base_url("https://verifier.example.com").is_ok());
     }
 }

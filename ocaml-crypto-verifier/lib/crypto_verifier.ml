@@ -26,9 +26,10 @@ exception Verification_error of string
 let now () = Unix.gettimeofday ()
 
 (* KDF: SHA-256(salt || passphrase) -> 32 bytes, matching Rust derive_key_material *)
-let derive_key ~salt_cs ~passphrase =
-  Mirage_crypto.Hash.SHA256.digest
-    (Cstruct.concat [salt_cs; Cstruct.of_string passphrase])
+let derive_key ~salt ~passphrase =
+  salt ^ passphrase
+  |> Digestif.SHA256.digest_string
+  |> Digestif.SHA256.to_raw_string
 
 let verify_aes_gcm ev =
   match ev.nonce, ev.salt with
@@ -39,16 +40,11 @@ let verify_aes_gcm ev =
       let ct_bytes = Base64.decode_exn ev.ciphertext in
       let nonce_bytes = Base64.decode_exn nonce_b64 in
       let salt_bytes = Base64.decode_exn salt_b64 in
-      let key_material = derive_key
-        ~salt_cs:(Cstruct.of_string salt_bytes)
-        ~passphrase:ev.key in
-      let key = Mirage_crypto.Cipher_block.AES.GCM.of_secret key_material in
-      let nonce_cs = Cstruct.of_string nonce_bytes in
-      let ct_cs = Cstruct.of_string ct_bytes in
-      (match Mirage_crypto.Cipher_block.AES.GCM.authenticate_decrypt
-        ~key ~nonce:nonce_cs ~adata:Cstruct.empty ct_cs with
-      | Some pt_cs ->
-        let decrypted = Cstruct.to_string pt_cs in
+      let key_material = derive_key ~salt:salt_bytes ~passphrase:ev.key in
+      let key = Mirage_crypto.AES.GCM.of_secret key_material in
+      (match Mirage_crypto.AES.GCM.authenticate_decrypt
+        ~key ~nonce:nonce_bytes ~adata:"" ct_bytes with
+      | Some decrypted ->
         if decrypted = ev.plaintext then
           { valid = true; details = "AES-GCM verification passed"; timestamp = now () }
         else
@@ -67,16 +63,11 @@ let verify_chacha20_poly1305 ev =
       let ct_bytes = Base64.decode_exn ev.ciphertext in
       let nonce_bytes = Base64.decode_exn nonce_b64 in
       let salt_bytes = Base64.decode_exn salt_b64 in
-      let key_material = derive_key
-        ~salt_cs:(Cstruct.of_string salt_bytes)
-        ~passphrase:ev.key in
-      let nonce_cs = Cstruct.of_string nonce_bytes in
-      let ct_cs = Cstruct.of_string ct_bytes in
+      let key_material = derive_key ~salt:salt_bytes ~passphrase:ev.key in
       (match Mirage_crypto.Chacha20.authenticate_decrypt
         ~key:(Mirage_crypto.Chacha20.of_secret key_material)
-        ~nonce:nonce_cs ct_cs with
-      | Some pt_cs ->
-        let decrypted = Cstruct.to_string pt_cs in
+        ~nonce:nonce_bytes ct_bytes with
+      | Some decrypted ->
         if decrypted = ev.plaintext then
           { valid = true; details = "ChaCha20-Poly1305 verification passed"; timestamp = now () }
         else
@@ -90,14 +81,11 @@ let verify_ed25519 sv =
   try
     let sig_bytes = Base64.decode_exn sv.signature in
     let pk_bytes = Base64.decode_exn sv.public_key in
-    let pk_cs = Cstruct.of_string pk_bytes in
-    let sig_cs = Cstruct.of_string sig_bytes in
-    let msg_cs = Cstruct.of_string sv.message in
-    match Mirage_crypto_ec.Ed25519.pub_of_cstruct pk_cs with
+    match Mirage_crypto_ec.Ed25519.pub_of_octets pk_bytes with
     | Error _ ->
         { valid = false; details = "Invalid Ed25519 public key"; timestamp = now () }
     | Ok pub ->
-        if Mirage_crypto_ec.Ed25519.verify ~key:pub sig_cs ~msg:msg_cs then
+        if Mirage_crypto_ec.Ed25519.verify ~key:pub sig_bytes ~msg:sv.message then
           { valid = true; details = "Ed25519 signature verified"; timestamp = now () }
         else
           { valid = false; details = "Ed25519 signature invalid"; timestamp = now () }

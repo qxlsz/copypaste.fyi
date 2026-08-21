@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use rocket::{
@@ -17,8 +17,9 @@ use rocket::{
 use subtle::ConstantTimeEq;
 
 use crate::{
-    create_paste_store, AttestationRequirement, EncryptionAlgorithm, PasteError, PasteFormat,
-    PasteMetadata, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste, WebhookConfig,
+    create_paste_store, EncryptionAlgorithm, PasteError, PasteFormat, PasteMetadata,
+    PasteMutationError, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste,
+    WebhookConfig,
 };
 use sha2::{Digest, Sha256};
 
@@ -26,25 +27,26 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rand::Rng;
 
 use super::api_keys::{
-    RateLimiter, RequireAdminAuth, SharedApiKeyStore, SharedRateLimiter, SqliteApiKeyStore,
+    ApiKeyStoreOpenError, OwnerBearerToken, RateLimiter, RequireAdminAuth,
+    RequireMutationWriteAuth, RequireWriteAuth, SharedApiKeyStore, SharedRateLimiter,
+    SqliteApiKeyStore, StaticAuthTokens, WritePrincipal,
 };
 use super::attestation::{self, AttestationVerdict};
 use super::blockchain::{
     default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
     AnchorManifest, AnchorPayload, SharedAnchorRelayer,
 };
-use super::bundles::build_bundle_overview;
 use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
-    AnchorRequest, AnchorResponse, ApiError, ApiKeyInfo, AuthChallengeResponse, AuthLoginRequest,
-    AuthLoginResponse, AuthLogoutResponse, CreateApiKeyRequest, CreateApiKeyResponse,
-    CreatePasteRequest, CreatePasteResponse, FinalizePasteRequest, FinalizePasteResponse,
-    ListApiKeysResponse, PasteAttestationInfo, PasteEncryptionInfo, PastePersistenceInfo,
-    PasteStegoInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse, PasteWebhookInfo,
-    PersistenceRequest, RevokeApiKeyResponse, StatsSummaryResponse, StegoRequest, TimeLockRequest,
-    UpdatePasteRequest, UpdatePasteResponse, UserPasteCountResponse, UserPasteListItem,
-    UserPasteListResponse, WebhookRequest, WorkspacePasteItem, WorkspacePasteListResponse,
+    AdminDeletePasteResponse, AdminPasteMetadataResponse, AnchorRequest, AnchorResponse, ApiError,
+    ApiKeyInfo, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse, AuthLogoutResponse,
+    CreateApiKeyRequest, CreateApiKeyResponse, CreatePasteApiSchema, CreatePasteRequest,
+    CreatePasteResponse, FinalizePasteRequest, FinalizePasteResponse, ListApiKeysResponse,
+    PasteEncryptionInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse, PersistenceRequest,
+    RevokeApiKeyResponse, StatsSummaryResponse, StegoRequest, TimeLockRequest, UpdatePasteRequest,
+    UpdatePasteResponse, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
+    WebhookRequest, WorkspacePasteItem, WorkspacePasteListResponse,
 };
 use super::rate_limit::{CreateRateLimit, PasteRateLimiter, ReadRateLimit};
 use super::render::{
@@ -58,82 +60,234 @@ use super::tor::{OnionAccess, TorConfig};
 use super::webhook::{trigger_webhook, validate_webhook_url, WebhookClient, WebhookEvent};
 use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
-use utoipa_scalar::{Scalar, Servable};
+
+#[derive(Default)]
+struct BlockedPasteIds(HashSet<String>);
+
+impl BlockedPasteIds {
+    fn from_env() -> Self {
+        let Some(value) = std::env::var("COPYPASTE_BLOCKED_PASTE_IDS")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return Self::default();
+        };
+        Self::from_csv(&value).unwrap_or_else(|()| {
+            panic!("COPYPASTE_BLOCKED_PASTE_IDS contains an invalid paste identifier")
+        })
+    }
+
+    fn from_csv(value: &str) -> Result<Self, ()> {
+        let mut ids = HashSet::new();
+        for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+            if !is_valid_paste_id(id) {
+                return Err(());
+            }
+            ids.insert(id.to_string());
+        }
+        Ok(Self(ids))
+    }
+
+    fn contains(&self, id: &str) -> bool {
+        self.0.contains(id)
+    }
+}
+
+#[derive(Default)]
+struct FeaturePolicy {
+    allow_webhooks: bool,
+    allow_uploaded_stego: bool,
+    allow_attestations: bool,
+    allow_stego: bool,
+}
+
+impl FeaturePolicy {
+    fn from_env() -> Self {
+        for disabled_flag in [
+            "COPYPASTE_ALLOW_WEBHOOKS",
+            "COPYPASTE_ALLOW_ATTESTATIONS",
+            "COPYPASTE_ALLOW_UPLOADED_STEGO",
+            "COPYPASTE_ALLOW_STEGO",
+        ] {
+            if boolean_env(disabled_flag) {
+                panic!("{disabled_flag} is unsupported in the hardened server build");
+            }
+        }
+        Self::default()
+    }
+
+    #[cfg(test)]
+    fn new(allow_webhooks: bool, allow_uploaded_stego: bool) -> Self {
+        Self {
+            allow_webhooks,
+            allow_uploaded_stego,
+            allow_attestations: false,
+            allow_stego: allow_uploaded_stego,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_attestations(mut self, allow_attestations: bool) -> Self {
+        self.allow_attestations = allow_attestations;
+        self
+    }
+
+    #[cfg(test)]
+    fn with_stego(mut self, allow_stego: bool) -> Self {
+        self.allow_stego = allow_stego;
+        self
+    }
+}
+
+fn boolean_env(name: &str) -> bool {
+    let Ok(value) = std::env::var(name) else {
+        return false;
+    };
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "0" | "false" | "no" | "off" => false,
+        "1" | "true" | "yes" | "on" => true,
+        _ => panic!("{name} must be true or false"),
+    }
+}
+
+fn is_valid_paste_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
 
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
+    let api_key_store = api_key_store_from_env()
+        .unwrap_or_else(|error| panic!("failed to initialise configured API key store: {error}"));
+    build_rocket_with_defaults(store, api_key_store)
+}
+
+fn api_key_store_from_env() -> Result<SharedApiKeyStore, ApiKeyStoreOpenError> {
+    let store = match std::env::var_os("COPYPASTE_SQLITE_PATH") {
+        // An explicitly configured path must open safely; never fall back.
+        Some(_) => SqliteApiKeyStore::open_configured()?,
+        // Without a durable path, static auth tokens continue to work while
+        // dynamic API-key verification/management remains unavailable.
+        None => SqliteApiKeyStore::disabled(),
+    };
+    Ok(std::sync::Arc::new(store))
+}
+
+fn build_rocket_with_defaults(
+    store: SharedPasteStore,
+    api_key_store: SharedApiKeyStore,
+) -> Rocket<Build> {
+    build_rocket_with_components(
+        store,
+        api_key_store,
+        PasteRateLimiter::from_env(),
+        StaticAuthTokens::from_env(),
+        FeaturePolicy::from_env(),
+        BlockedPasteIds::from_env(),
+        std::env::var("COPYPASTE_TRUSTED_IP_HEADER")
+            .ok()
+            .filter(|header| !header.is_empty()),
+    )
+}
+
+fn build_rocket_with_components(
+    store: SharedPasteStore,
+    api_key_store: SharedApiKeyStore,
+    paste_rate_limiter: PasteRateLimiter,
+    static_auth_tokens: StaticAuthTokens,
+    feature_policy: FeaturePolicy,
+    blocked_paste_ids: BlockedPasteIds,
+    trusted_ip_header: Option<String>,
+) -> Rocket<Build> {
     let tor_config = TorConfig::from_env();
-    let api_key_store: SharedApiKeyStore = std::sync::Arc::new(
-        SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"),
-    );
     let rate_limiter: SharedRateLimiter = std::sync::Arc::new(RateLimiter::new());
     let webhook_client = WebhookClient::new();
     let session_store: SharedSessionStore = std::sync::Arc::new(SessionStore::new());
-    let paste_rate_limiter = PasteRateLimiter::from_env();
 
     // Merge onto Rocket's standard figment so ROCKET_ADDRESS / ROCKET_PORT /
     // Rocket.toml still apply — `.configure(Config { ..Default::default() })`
     // would silently discard them (Default binds 127.0.0.1, which broke Fly).
-    rocket::custom(
-        rocket::Config::figment()
-            .merge(("limits", Limits::default().limit("json", 11u64.mebibytes()))),
-    )
-    .manage(store)
-    .manage(default_anchor_relayer())
-    .manage(tor_config)
-    .manage(api_key_store)
-    .manage(rate_limiter)
-    .manage(webhook_client)
-    .manage(session_store)
-    .manage(paste_rate_limiter)
-    .attach(Cors)
-    .mount(
-        "/",
-        routes![
-            api_preflight,
-            index,
-            about,
-            create,
-            create_api,
-            update_api,
-            finalize_api,
-            anchor_api,
-            show_api,
-            show,
-            show_raw,
-            stats_summary_api,
-            auth_challenge_api,
-            auth_login_api,
-            auth_logout_api,
-            user_paste_count_api,
-            user_paste_list_api,
-            workspace_pastes_api,
-            health_api,
-            health_detailed_api,
-            admin_create_key_api,
-            admin_list_keys_api,
-            admin_delete_key_api,
-            openapi_json,
-            spa_fallback
-        ],
-    )
-    .mount("/", Scalar::with_url("/api/docs", ApiDoc::openapi()))
-    .mount("/static", FileServer::from("static"))
+    let figment = rocket::Config::figment()
+        .merge(("limits", Limits::default().limit("json", 2u64.mebibytes())));
+    // Rocket otherwise trusts X-Real-IP by default. Forwarded client-IP
+    // headers are only safe when an explicitly trusted edge proxy overwrites
+    // them (Fly deployments should configure `Fly-Client-IP`).
+    let figment = match trusted_ip_header {
+        Some(header) => figment.merge(("ip_header", header)),
+        None => figment.merge(("ip_header", false)),
+    };
+
+    rocket::custom(figment)
+        .manage(store)
+        .manage(default_anchor_relayer())
+        .manage(tor_config)
+        .manage(api_key_store)
+        .manage(static_auth_tokens)
+        .manage(feature_policy)
+        .manage(blocked_paste_ids)
+        .manage(rate_limiter)
+        .manage(webhook_client)
+        .manage(session_store)
+        .manage(paste_rate_limiter)
+        .attach(Cors)
+        .mount(
+            "/",
+            routes![
+                api_preflight,
+                index,
+                about,
+                create,
+                create_api,
+                update_api,
+                finalize_api,
+                anchor_api,
+                show_api,
+                show_share,
+                show,
+                show_raw,
+                stats_summary_api,
+                auth_challenge_api,
+                auth_login_api,
+                auth_logout_api,
+                user_paste_count_api,
+                user_paste_list_api,
+                workspace_pastes_api,
+                health_api,
+                health_detailed_api,
+                admin_create_key_api,
+                admin_list_keys_api,
+                admin_delete_key_api,
+                admin_get_paste_api,
+                admin_delete_paste_api,
+                openapi_json,
+                spa_fallback
+            ],
+        )
+        .mount("/static", FileServer::from("static"))
 }
 
 pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
-    let store = create_paste_store();
-    build_rocket(store).launch().await?;
+    let store = create_paste_store()?;
+    // Dynamic API keys are enabled only when a secure durable path is
+    // configured. A bad explicit path aborts startup; an absent path uses
+    // static tokens and leaves dynamic key management disabled.
+    let api_key_store = api_key_store_from_env()?;
+    build_rocket_with_defaults(store, api_key_store)
+        .launch()
+        .await?;
     Ok(())
 }
 
 /// OpenAPI document aggregating all `#[utoipa::path]`-annotated handlers.
-/// Rendered interactively by Scalar at `/api/docs`; the raw JSON document is
-/// served at `/api/openapi.json`.
+/// Served as JSON at `/api/openapi.json` so the API reference does not require
+/// a third-party interactive-doc runtime on the secrets origin.
 #[derive(OpenApi)]
 #[openapi(
     info(
         title = "copypaste.fyi API",
-        description = "Paste sharing with encryption, burn-after-reading, time locks, attestation, webhooks, and blockchain anchoring."
+        description = "Paste sharing with encryption, burn-after-reading, time locks, and administrative moderation."
     ),
     paths(
         create,
@@ -141,7 +295,7 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         update_api,
         finalize_api,
         show_api,
-        show,
+        show_share,
         anchor_api,
         stats_summary_api,
         auth_challenge_api,
@@ -151,9 +305,11 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         user_paste_list_api,
         workspace_pastes_api,
         health_detailed_api,
+        admin_get_paste_api,
+        admin_delete_paste_api,
     ),
     components(schemas(
-        CreatePasteRequest,
+        CreatePasteApiSchema,
         CreatePasteResponse,
         UpdatePasteRequest,
         UpdatePasteResponse,
@@ -162,10 +318,6 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         PasteViewResponse,
         PasteEncryptionInfo,
         PasteTimeLockInfo,
-        PasteAttestationInfo,
-        PastePersistenceInfo,
-        PasteWebhookInfo,
-        PasteStegoInfo,
         AnchorRequest,
         AnchorResponse,
         StatsSummaryResponse,
@@ -178,25 +330,13 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         UserPasteListResponse,
         WorkspacePasteItem,
         WorkspacePasteListResponse,
+        AdminPasteMetadataResponse,
+        AdminDeletePasteResponse,
         TimeLockRequest,
-        PersistenceRequest,
-        WebhookRequest,
-        StegoRequest,
         ApiError,
         super::models::EncryptionRequest,
-        super::models::CreateBundleRequest,
-        super::models::CreateBundleChildRequest,
-        super::attestation::AttestationRequest,
         crate::PasteFormat,
         crate::EncryptionAlgorithm,
-        crate::BundleMetadata,
-        crate::BundlePointer,
-        crate::WebhookProvider,
-        crate::StoredContent,
-        crate::PasteMetadata,
-        crate::AttestationRequirement,
-        crate::PersistenceLocator,
-        crate::WebhookConfig,
         super::models::FormatUsageResponse,
         super::models::EncryptionUsageResponse,
         super::models::DailyCountResponse,
@@ -225,124 +365,46 @@ struct HealthResponse {
     commit: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
-struct DetailedHealthResponse {
-    status: String,
-    timestamp: i64,
-    version: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    commit: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    commit_message: Option<String>,
-    services: ServiceHealth,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ServiceHealth {
-    backend: ServiceStatus,
-    crypto_verifier: ServiceStatus,
-    storage: ServiceStatus,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ServiceStatus {
-    status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-}
-
 #[get("/health")]
 async fn health_api() -> Json<HealthResponse> {
-    Json(HealthResponse {
+    Json(public_health_response())
+}
+
+fn public_health_response() -> HealthResponse {
+    HealthResponse {
         status: "ok".to_string(),
         timestamp: current_timestamp(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         commit: option_env!("GIT_COMMIT").map(String::from),
-    })
+    }
 }
 
 #[utoipa::path(
     get,
     path = "/api/health",
-    responses((status = 200, description = "Detailed health", body = DetailedHealthResponse))
+    responses((status = 200, description = "Minimal public liveness", body = HealthResponse))
 )]
 #[get("/api/health")]
-async fn health_detailed_api(store: &State<SharedPasteStore>) -> Json<DetailedHealthResponse> {
-    // Check storage
-    let stats = store.stats().await;
-    let storage_status = ServiceStatus {
-        status: "ok".to_string(),
-        message: Some(format!("Total pastes: {}", stats.total_pastes)),
-    };
-
-    // Check crypto verifier
-    let crypto_verifier_url = std::env::var("CRYPTO_VERIFIER_URL")
-        .unwrap_or_else(|_| "http://localhost:8001".to_string());
-
-    let crypto_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
-        .build()
-        .unwrap_or_default();
-    let crypto_status = match crypto_client
-        .get(format!("{}/health", crypto_verifier_url))
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => ServiceStatus {
-            status: "ok".to_string(),
-            message: Some("Crypto verifier responding".to_string()),
-        },
-        Ok(resp) => ServiceStatus {
-            status: "degraded".to_string(),
-            message: Some(format!("HTTP {}", resp.status())),
-        },
-        Err(e) => ServiceStatus {
-            status: "unavailable".to_string(),
-            message: Some(format!("Connection failed: {}", e)),
-        },
-    };
-
-    let overall_status = if storage_status.status == "ok" && crypto_status.status == "ok" {
-        "ok"
-    } else if storage_status.status == "unavailable" || crypto_status.status == "unavailable" {
-        "unavailable"
-    } else {
-        "degraded"
-    };
-
-    Json(DetailedHealthResponse {
-        status: overall_status.to_string(),
-        timestamp: current_timestamp(),
-        version: option_env!("COPYPASTE_VERSION")
-            .map(String::from)
-            .or_else(|| std::env::var("COPYPASTE_VERSION").ok())
-            .unwrap_or_else(|| "unknown".to_string()),
-        commit: option_env!("GIT_COMMIT").map(String::from),
-        commit_message: option_env!("GIT_COMMIT_MESSAGE").map(String::from),
-        services: ServiceHealth {
-            backend: ServiceStatus {
-                status: "ok".to_string(),
-                message: Some("Backend operational".to_string()),
-            },
-            crypto_verifier: crypto_status,
-            storage: storage_status,
-        },
-    })
+async fn health_detailed_api() -> Json<HealthResponse> {
+    // Public health checks are deliberately liveness-only. Dependency status,
+    // paste counts, internal URLs, and upstream errors belong in protected
+    // telemetry rather than an unauthenticated response.
+    Json(public_health_response())
 }
 
 #[utoipa::path(
     get,
     path = "/api/stats/summary",
-    responses((status = 200, description = "Stats summary", body = StatsSummaryResponse))
+    responses(
+        (status = 200, description = "Stats summary", body = StatsSummaryResponse),
+        (status = 429, description = "Read rate limit exceeded"),
+    )
 )]
 #[get("/api/stats/summary")]
 async fn stats_summary_api(
+    _rate: ReadRateLimit,
     store: &State<SharedPasteStore>,
-    onion: OnionAccess,
 ) -> Json<StatsSummaryResponse> {
-    if onion.suppress_logs() {
-        rocket::info!("stats_summary accessed via onion host");
-    }
     let stats = store.stats().await;
     Json(stats.into())
 }
@@ -350,17 +412,23 @@ async fn stats_summary_api(
 #[utoipa::path(
     get,
     path = "/api/auth/challenge",
-    responses((status = 200, description = "Auth challenge", body = AuthChallengeResponse))
+    responses(
+        (status = 200, description = "Auth challenge", body = AuthChallengeResponse),
+        (status = 429, description = "Rate limit exceeded"),
+    )
 )]
 #[get("/api/auth/challenge")]
-async fn auth_challenge_api() -> Json<AuthChallengeResponse> {
-    let challenge = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect::<String>();
+async fn auth_challenge_api(
+    _rate: CreateRateLimit,
+    sessions: &State<SharedSessionStore>,
+) -> Json<AuthChallengeResponse> {
+    let challenge = sessions.issue_challenge();
     Json(AuthChallengeResponse { challenge })
 }
+
+const MAX_AUTH_CHALLENGE_LEN: usize = 128;
+const MAX_AUTH_PUBKEY_B64_LEN: usize = 64;
+const MAX_AUTH_SIGNATURE_B64_LEN: usize = 128;
 
 #[utoipa::path(
     post,
@@ -370,14 +438,26 @@ async fn auth_challenge_api() -> Json<AuthChallengeResponse> {
         (status = 200, description = "Auth login response", body = AuthLoginResponse),
         (status = 400, description = "Invalid request"),
         (status = 401, description = "Unauthorized"),
+        (status = 429, description = "Rate limit exceeded"),
     )
 )]
 #[post("/api/auth/login", data = "<body>")]
 async fn auth_login_api(
+    _rate: CreateRateLimit,
     sessions: &State<SharedSessionStore>,
     body: Json<AuthLoginRequest>,
 ) -> Result<Json<AuthLoginResponse>, (Status, String)> {
     let body = body.into_inner();
+
+    if body.challenge.is_empty() || body.challenge.len() > MAX_AUTH_CHALLENGE_LEN {
+        return Err((Status::BadRequest, "Invalid challenge length".to_string()));
+    }
+    if body.pubkey.is_empty() || body.pubkey.len() > MAX_AUTH_PUBKEY_B64_LEN {
+        return Err((Status::BadRequest, "Invalid pubkey length".to_string()));
+    }
+    if body.signature.is_empty() || body.signature.len() > MAX_AUTH_SIGNATURE_B64_LEN {
+        return Err((Status::BadRequest, "Invalid signature length".to_string()));
+    }
 
     // Decode pubkey and signature
     let pubkey_bytes: [u8; 32] = BASE64_STANDARD
@@ -404,6 +484,16 @@ async fn auth_login_api(
                 "Signature verification failed".to_string(),
             )
         })?;
+
+    // Issuance is checked only after signature verification. Successful
+    // consumption is atomic, making replayed or arbitrary signed challenges
+    // unusable while allowing a client to retry after a malformed signature.
+    if !sessions.consume_challenge(&body.challenge) {
+        return Err((
+            Status::Unauthorized,
+            "Challenge is unknown, expired, or already used".to_string(),
+        ));
+    }
 
     // Compute pubkey hash
     let mut hasher = Sha256::new();
@@ -469,18 +559,18 @@ fn check_pubkey_hash_param(
         (status = 200, description = "User paste count response", body = UserPasteCountResponse),
         (status = 401, description = "Missing or invalid session token"),
         (status = 403, description = "pubkey_hash does not match the session", body = ApiError),
+        (status = 429, description = "Read rate limit exceeded"),
+        (status = 503, description = "Paste storage unavailable", body = ApiError),
     )
 )]
 #[get("/api/user/paste-count?<pubkey_hash>")]
 async fn user_paste_count_api(
+    _rate: ReadRateLimit,
     store: &State<SharedPasteStore>,
+    blocked: &State<BlockedPasteIds>,
     session: RequireUserSession,
     pubkey_hash: Option<String>,
-    onion: OnionAccess,
 ) -> Result<Json<UserPasteCountResponse>, (Status, Json<ApiError>)> {
-    if onion.suppress_logs() {
-        rocket::info!("user paste count accessed via onion host");
-    }
     check_pubkey_hash_param(&session, pubkey_hash.as_deref())?;
 
     // Count pastes owned by the authenticated user only.
@@ -488,9 +578,22 @@ async fn user_paste_count_api(
     let mut count = 0;
 
     for id in all_pastes {
-        if let Ok(paste) = store.get_paste(&id).await {
-            if paste.metadata.owner_pubkey_hash.as_deref() == Some(session.pubkey_hash.as_str()) {
-                count += 1;
+        if blocked.contains(&id) {
+            continue;
+        }
+        match store.get_paste(&id).await {
+            Ok(paste) => {
+                if paste.metadata.owner_pubkey_hash.as_deref() == Some(session.pubkey_hash.as_str())
+                {
+                    count += 1;
+                }
+            }
+            Err(PasteError::NotFound(_) | PasteError::Expired(_)) => {}
+            Err(PasteError::Persistence(_)) => {
+                return Err(to_api_err(
+                    Status::ServiceUnavailable,
+                    "Paste storage is temporarily unavailable".to_string(),
+                ));
             }
         }
     }
@@ -506,18 +609,18 @@ async fn user_paste_count_api(
         (status = 200, description = "User paste list response", body = UserPasteListResponse),
         (status = 401, description = "Missing or invalid session token"),
         (status = 403, description = "pubkey_hash does not match the session", body = ApiError),
+        (status = 429, description = "Read rate limit exceeded"),
+        (status = 503, description = "Paste storage unavailable", body = ApiError),
     )
 )]
 #[get("/api/user/pastes?<pubkey_hash>")]
 async fn user_paste_list_api(
+    _rate: ReadRateLimit,
     store: &State<SharedPasteStore>,
+    blocked: &State<BlockedPasteIds>,
     session: RequireUserSession,
     pubkey_hash: Option<String>,
-    onion: OnionAccess,
 ) -> Result<Json<UserPasteListResponse>, (Status, Json<ApiError>)> {
-    if onion.suppress_logs() {
-        rocket::info!("user paste list accessed via onion host");
-    }
     check_pubkey_hash_param(&session, pubkey_hash.as_deref())?;
 
     // List pastes owned by the authenticated user only.
@@ -525,8 +628,14 @@ async fn user_paste_list_api(
     let mut user_pastes = Vec::new();
 
     for id in all_pastes {
-        if let Ok(paste) = store.get_paste(&id).await {
-            if paste.metadata.owner_pubkey_hash.as_deref() == Some(session.pubkey_hash.as_str()) {
+        if blocked.contains(&id) {
+            continue;
+        }
+        match store.get_paste(&id).await {
+            Ok(paste)
+                if paste.metadata.owner_pubkey_hash.as_deref()
+                    == Some(session.pubkey_hash.as_str()) =>
+            {
                 let retention_minutes = paste.expires_at.map(|exp| {
                     let now = current_timestamp();
                     if exp > now {
@@ -538,15 +647,21 @@ async fn user_paste_list_api(
 
                 user_pastes.push(UserPasteListItem {
                     id: id.clone(),
-                    url: format!("/{}", id),
+                    url: format!("/p/{}", id),
                     created_at: paste.created_at,
                     expires_at: paste.expires_at,
                     retention_minutes,
                     burn_after_reading: paste.burn_after_reading,
                     format: format!("{:?}", paste.format).to_lowercase(),
-                    access_count: paste.metadata.access_count,
                     workspace: paste.metadata.workspace.clone(),
                 });
+            }
+            Ok(_) | Err(PasteError::NotFound(_) | PasteError::Expired(_)) => {}
+            Err(PasteError::Persistence(_)) => {
+                return Err(to_api_err(
+                    Status::ServiceUnavailable,
+                    "Paste storage is temporarily unavailable".to_string(),
+                ));
             }
         }
     }
@@ -566,36 +681,52 @@ async fn user_paste_list_api(
     responses(
         (status = 200, description = "Workspace paste list", body = WorkspacePasteListResponse),
         (status = 401, description = "Missing or invalid session token"),
+        (status = 429, description = "Read rate limit exceeded"),
+        (status = 503, description = "Paste storage unavailable", body = ApiError),
     )
 )]
 #[get("/api/workspaces/<name>/pastes")]
 async fn workspace_pastes_api(
+    _rate: ReadRateLimit,
     store: &State<SharedPasteStore>,
+    blocked: &State<BlockedPasteIds>,
     session: RequireUserSession,
     name: String,
-) -> Json<WorkspacePasteListResponse> {
+) -> Result<Json<WorkspacePasteListResponse>, (Status, Json<ApiError>)> {
     // Only the caller's own pastes within the workspace are listed.
     let all_pastes = store.get_all_paste_ids().await;
     let mut pastes = Vec::new();
 
     for id in all_pastes {
-        if let Ok(paste) = store.get_paste(&id).await {
-            if paste.metadata.workspace.as_deref() == Some(name.as_str())
-                && paste.metadata.owner_pubkey_hash.as_deref() == Some(session.pubkey_hash.as_str())
+        if blocked.contains(&id) {
+            continue;
+        }
+        match store.get_paste(&id).await {
+            Ok(paste)
+                if paste.metadata.workspace.as_deref() == Some(name.as_str())
+                    && paste.metadata.owner_pubkey_hash.as_deref()
+                        == Some(session.pubkey_hash.as_str()) =>
             {
                 pastes.push(WorkspacePasteItem {
                     id: id.clone(),
-                    url: format!("/{}", id),
+                    url: format!("/p/{}", id),
                     workspace: paste.metadata.workspace.clone(),
                     created_at: paste.created_at,
                 });
+            }
+            Ok(_) | Err(PasteError::NotFound(_) | PasteError::Expired(_)) => {}
+            Err(PasteError::Persistence(_)) => {
+                return Err(to_api_err(
+                    Status::ServiceUnavailable,
+                    "Paste storage is temporarily unavailable".to_string(),
+                ));
             }
         }
     }
 
     pastes.sort_by_key(|p| std::cmp::Reverse(p.created_at));
 
-    Json(WorkspacePasteListResponse { pastes })
+    Ok(Json(WorkspacePasteListResponse { pastes }))
 }
 
 #[utoipa::path(
@@ -608,22 +739,36 @@ async fn workspace_pastes_api(
         (status = 400, description = "Invalid request"),
         (status = 404, description = "Paste not found"),
         (status = 410, description = "Paste expired"),
+        (status = 503, description = "Paste storage unavailable"),
     )
 )]
 #[post("/api/pastes/<id>/anchor", data = "<body>")]
+#[allow(clippy::too_many_arguments)] // Rocket request guards are handler parameters.
 async fn anchor_api(
     store: &State<SharedPasteStore>,
     relayer: &State<SharedAnchorRelayer>,
+    blocked: &State<BlockedPasteIds>,
     id: String,
     body: Option<Json<AnchorRequest>>,
     onion: OnionAccess,
+    _auth: RequireAdminAuth,
+    _rate: CreateRateLimit,
 ) -> Result<Json<AnchorResponse>, (Status, String)> {
+    if blocked.contains(&id) {
+        return Err((Status::NotFound, "Paste not found".into()));
+    }
     let request = body.map(|json| json.into_inner()).unwrap_or_default();
 
     let paste = match store.get_paste(&id).await {
         Ok(paste) => paste,
         Err(PasteError::NotFound(_)) => return Err((Status::NotFound, "Paste not found".into())),
         Err(PasteError::Expired(_)) => return Err((Status::Gone, "Paste expired".into())),
+        Err(PasteError::Persistence(_)) => {
+            return Err((
+                Status::ServiceUnavailable,
+                "Paste storage is temporarily unavailable".into(),
+            ));
+        }
     };
 
     if paste.metadata.tor_access_only && !onion.is_onion() {
@@ -687,6 +832,7 @@ fn status_to_code(status: Status) -> &'static str {
         429 => "too_many_requests",
         500 => "internal_error",
         502 => "bad_gateway",
+        503 => "service_unavailable",
         _ => "error",
     }
 }
@@ -733,27 +879,33 @@ impl<'r> FromRequest<'r> for PasteKeyHeader {
         (status = 401, description = "Key required", body = ApiError),
         (status = 403, description = "Invalid key", body = ApiError),
         (status = 404, description = "Paste not found", body = ApiError),
+        (status = 410, description = "Paste expired", body = ApiError),
+        (status = 503, description = "Paste storage unavailable", body = ApiError),
     )
 )]
 #[get("/api/pastes/<id>?<query..>", rank = 1)]
+#[allow(clippy::too_many_arguments)] // Rocket request guards are handler parameters.
 async fn show_api(
     store: &State<SharedPasteStore>,
     http: &State<WebhookClient>,
+    features: &State<FeaturePolicy>,
+    blocked: &State<BlockedPasteIds>,
     id: String,
     query: PasteViewQuery,
     key_header: PasteKeyHeader,
     onion: OnionAccess,
     _rate: ReadRateLimit,
 ) -> Result<Json<PasteViewResponse>, (Status, Json<ApiError>)> {
-    rocket::info!("show_api called with id: {}", id);
+    if blocked.contains(&id) {
+        return Err(to_api_err(Status::NotFound, "Paste not found".to_string()));
+    }
 
     // Header key wins over the query-string key (see handler docs above).
     let key = key_header.0.or_else(|| query.key.clone());
 
     let paste = match store.get_paste(&id).await {
         Ok(paste) => paste,
-        Err(e) => {
-            rocket::error!("Paste not found for id: {}, error: {:?}", id, e);
+        Err(PasteError::NotFound(_)) => {
             return Err((
                 Status::NotFound,
                 Json(ApiError::new(
@@ -762,9 +914,16 @@ async fn show_api(
                 )),
             ));
         }
+        Err(PasteError::Expired(_)) => {
+            return Err(to_api_err(Status::Gone, "Paste expired".to_string()));
+        }
+        Err(PasteError::Persistence(_)) => {
+            return Err(to_api_err(
+                Status::ServiceUnavailable,
+                "Paste storage is temporarily unavailable".to_string(),
+            ));
+        }
     };
-
-    rocket::info!("Paste found for id: {}", id);
 
     // Mirror the access controls enforced by the HTML `show` route — the API
     // is the SPA's primary read path and must not bypass them.
@@ -775,6 +934,18 @@ async fn show_api(
                 "tor_only",
                 "This paste is only accessible via its Tor onion address",
             )),
+        ));
+    }
+    if paste.metadata.attestation.is_some() && !features.allow_attestations {
+        return Err(to_api_err(
+            Status::ServiceUnavailable,
+            "This paste uses a feature disabled on this deployment".to_string(),
+        ));
+    }
+    if matches!(&paste.content, StoredContent::Stego { .. }) && !features.allow_stego {
+        return Err(to_api_err(
+            Status::ServiceUnavailable,
+            "This paste uses a feature disabled on this deployment".to_string(),
         ));
     }
 
@@ -810,16 +981,8 @@ async fn show_api(
     }
 
     let text = match decrypt_content(&paste.content, key.as_deref()) {
-        Ok(text) => {
-            rocket::info!(
-                "Decryption successful for id: {}, content length: {}",
-                id,
-                text.len()
-            );
-            text
-        }
+        Ok(text) => text,
         Err(DecryptError::MissingKey) => {
-            rocket::info!("Missing key for encrypted paste: {}", id);
             return Err((
                 Status::Unauthorized,
                 Json(ApiError::new(
@@ -829,7 +992,6 @@ async fn show_api(
             ));
         }
         Err(DecryptError::InvalidKey) => {
-            rocket::error!("Invalid key for paste: {}", id);
             return Err((
                 Status::Forbidden,
                 Json(ApiError::new(
@@ -840,18 +1002,42 @@ async fn show_api(
         }
     };
 
-    // Burn-after-reading: a successful API read is a consumption, exactly like
-    // the HTML route. Fire Viewed first, then Consumed only if the delete won
-    // (avoids false Consumed events when concurrent reads race).
+    // Burn-after-reading is serialized within this process. A durable deletion
+    // failure is fail-closed; cross-instance reads still require an atomic
+    // shared-store consume primitive to provide an exactly-once guarantee.
     if paste.burn_after_reading {
-        let webhook_config = paste.metadata.webhook.clone();
+        let webhook_config = features
+            .allow_webhooks
+            .then(|| paste.metadata.webhook.clone())
+            .flatten();
         let mut events_to_fire = Vec::new();
-        if let Some(config) = webhook_config.clone() {
-            events_to_fire.push((config, WebhookEvent::Viewed));
-        }
-        if store.delete_paste(&id).await {
-            if let Some(config) = webhook_config {
-                events_to_fire.push((config, WebhookEvent::Consumed));
+        match store.delete_paste(&id).await {
+            Ok(true) => {
+                if let Some(config) = webhook_config.clone() {
+                    events_to_fire.push((config, WebhookEvent::Viewed));
+                }
+                if let Some(config) = webhook_config {
+                    events_to_fire.push((config, WebhookEvent::Consumed));
+                }
+            }
+            Ok(false) => {
+                return Err((
+                    Status::Gone,
+                    Json(ApiError::new(
+                        "paste_consumed",
+                        "This paste was already consumed",
+                    )),
+                ));
+            }
+            Err(_) => {
+                rocket::error!("burn_delete_failed");
+                return Err((
+                    Status::ServiceUnavailable,
+                    Json(ApiError::new(
+                        "delete_failed",
+                        "The paste could not be consumed safely; try again later",
+                    )),
+                ));
             }
         }
         for (config, event) in events_to_fire {
@@ -878,20 +1064,6 @@ async fn show_api(
         }
     };
 
-    let stego = match &paste.content {
-        StoredContent::Stego {
-            carrier_mime,
-            carrier_image,
-            payload_digest,
-            ..
-        } => Some(PasteStegoInfo {
-            carrier_mime: carrier_mime.clone(),
-            carrier_image: carrier_image.clone(),
-            payload_digest: payload_digest.clone(),
-        }),
-        _ => None,
-    };
-
     let time_lock = match (paste.not_before, paste.not_after) {
         (None, None) => None,
         (not_before, not_after) => Some(PasteTimeLockInfo {
@@ -900,36 +1072,6 @@ async fn show_api(
         }),
     };
 
-    let attestation = paste.metadata.attestation.as_ref().map(|req| match req {
-        AttestationRequirement::Totp { issuer, .. } => PasteAttestationInfo {
-            kind: "totp".to_string(),
-            issuer: issuer.clone(),
-        },
-        AttestationRequirement::SharedSecret { .. } => PasteAttestationInfo {
-            kind: "shared_secret".to_string(),
-            issuer: None,
-        },
-    });
-
-    let persistence = paste.metadata.persistence.as_ref().map(|loc| match loc {
-        PersistenceLocator::Memory => PastePersistenceInfo {
-            kind: "memory".to_string(),
-            detail: None,
-        },
-        PersistenceLocator::Vault { key_path } => PastePersistenceInfo {
-            kind: "vault".to_string(),
-            detail: Some(key_path.clone()),
-        },
-        PersistenceLocator::S3 { bucket, .. } => PastePersistenceInfo {
-            kind: "s3".to_string(),
-            detail: Some(bucket.clone()),
-        },
-    });
-
-    let webhook = paste.metadata.webhook.as_ref().map(|w| PasteWebhookInfo {
-        provider: w.provider.clone(),
-    });
-
     Ok(Json(PasteViewResponse {
         id,
         format: paste.format,
@@ -937,25 +1079,18 @@ async fn show_api(
         created_at: paste.created_at,
         expires_at: paste.expires_at,
         burn_after_reading: paste.burn_after_reading,
-        // `paste` is owned here; move the bundle instead of cloning it.
-        bundle: paste.bundle,
         encryption,
         tor_access_only: paste.metadata.tor_access_only,
-        access_count: paste.metadata.access_count,
         is_live: paste.is_live,
         time_lock,
-        attestation,
-        persistence,
-        webhook,
-        stego,
-        workspace: paste.metadata.workspace,
     }))
 }
 
 #[utoipa::path(
     post,
     path = "/",
-    request_body = CreatePasteRequest,
+    request_body = CreatePasteApiSchema,
+    params(("X-CopyPaste-Write-Token" = Option<String>, Header, description = "Service admission credential; Authorization may carry optional user-session identity")),
     responses(
         (status = 200, description = "Paste created", body = String),
         (status = 400, description = "Invalid paste request"),
@@ -965,20 +1100,26 @@ async fn show_api(
 )]
 #[post("/", data = "<body>")]
 async fn create(
+    _rate: CreateRateLimit,
+    auth: RequireWriteAuth,
     store: &State<SharedPasteStore>,
+    features: &State<FeaturePolicy>,
     body: Json<CreatePasteRequest>,
     onion: OnionAccess,
-    _rate: CreateRateLimit,
 ) -> Result<String, (Status, String)> {
-    let body = body.into_inner();
-    let created = create_paste_internal(store.inner(), body, &onion).await?;
-    Ok(created.path)
+    let mut body = body.into_inner();
+    body.owner_pubkey_hash = authenticated_owner(&auth);
+    let created = create_paste_internal(store.inner(), body, &onion, features.inner()).await?;
+    // Preserve the legacy server-rendered route for non-API clients. The JSON
+    // API returns the React share route (`/p/{id}`).
+    Ok(format!("/{}", created.id))
 }
 
 #[utoipa::path(
     post,
     path = "/api/pastes",
-    request_body = CreatePasteRequest,
+    request_body = CreatePasteApiSchema,
+    params(("X-CopyPaste-Write-Token" = Option<String>, Header, description = "Service admission credential; Authorization may carry optional user-session identity")),
     responses(
         (status = 200, description = "Paste created", body = CreatePasteResponse),
         (status = 400, description = "Invalid request", body = ApiError),
@@ -989,70 +1130,113 @@ async fn create(
 )]
 #[post("/api/pastes", data = "<body>")]
 async fn create_api(
+    _rate: CreateRateLimit,
+    auth: RequireWriteAuth,
     store: &State<SharedPasteStore>,
+    features: &State<FeaturePolicy>,
     body: Result<Json<CreatePasteRequest>, rocket::serde::json::Error<'_>>,
     onion: OnionAccess,
-    _rate: CreateRateLimit,
 ) -> Result<Json<CreatePasteResponse>, (Status, Json<ApiError>)> {
     let body = match body {
-        Ok(json) => {
-            rocket::info!("Successfully deserialized JSON request");
-            json
-        }
-        Err(e) => {
-            rocket::error!("JSON deserialization failed: {:?}", e);
+        Ok(json) => json,
+        Err(_) => {
             return Err((
                 Status::BadRequest,
-                Json(ApiError::new(
-                    "invalid_request",
-                    format!("Invalid JSON: {e}"),
-                )),
+                Json(ApiError::new("invalid_request", "Invalid JSON request")),
             ));
         }
     };
 
-    rocket::info!("Received create paste request");
+    let mut body = body.into_inner();
+    // Ownership is derived exclusively from a validated login session. Client
+    // claims are ignored for anonymous, static-token, and API-key principals.
+    body.owner_pubkey_hash = authenticated_owner(&auth);
 
-    let body = body.into_inner();
-    rocket::info!(
-        "Processing paste creation: content length={}, format={:?}, encryption={:?}",
-        body.content.len(),
-        body.format,
-        body.encryption
-            .as_ref()
-            .map(|e| format!("{:?}", e.algorithm))
-    );
-
-    let created = create_paste_internal(store.inner(), body, &onion)
+    let created = create_paste_internal(store.inner(), body, &onion, features.inner())
         .await
         .map_err(|(s, msg)| to_api_err(s, msg))?;
     Ok(Json(created))
 }
 
+fn authenticated_owner(auth: &RequireWriteAuth) -> Option<String> {
+    match &auth.0 {
+        WritePrincipal::UserSession { pubkey_hash } => Some(pubkey_hash.clone()),
+        WritePrincipal::Anonymous | WritePrincipal::StaticToken | WritePrincipal::ApiKey(_) => None,
+    }
+}
+
 #[utoipa::path(
     get,
-    path = "/{id}",
-    params(("id" = String, description = "Paste identifier")),
+    path = "/p/{id}",
+    params(
+        ("id" = String, description = "Paste identifier"),
+        ("X-Paste-Key" = Option<String>, Header, description = "Decryption key (takes precedence over ?key=)"),
+    ),
     responses(
         (status = 200, description = "Paste rendered as HTML", content_type = "text/html"),
         (status = 401, description = "Key required"),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Paste not found"),
+        (status = 503, description = "Paste storage or required feature unavailable"),
     )
 )]
-#[get("/<id>?<query..>")]
-async fn show(
+#[get("/p/<id>?<query..>")]
+#[allow(clippy::too_many_arguments)] // Rocket request guards are handler parameters.
+async fn show_share(
     store: &State<SharedPasteStore>,
     http: &State<WebhookClient>,
+    features: &State<FeaturePolicy>,
+    blocked: &State<BlockedPasteIds>,
     id: String,
     query: PasteViewQuery,
+    key_header: PasteKeyHeader,
     onion: OnionAccess,
     _rate: ReadRateLimit,
 ) -> Result<content::RawHtml<String>, Status> {
+    show_html_core(store, http, features, blocked, id, query, key_header, onion).await
+}
+
+/// Legacy server-rendered path retained for existing links and CLI clients.
+#[get("/<id>?<query..>")]
+#[allow(clippy::too_many_arguments)] // Rocket request guards are handler parameters.
+async fn show(
+    store: &State<SharedPasteStore>,
+    http: &State<WebhookClient>,
+    features: &State<FeaturePolicy>,
+    blocked: &State<BlockedPasteIds>,
+    id: String,
+    query: PasteViewQuery,
+    key_header: PasteKeyHeader,
+    onion: OnionAccess,
+    _rate: ReadRateLimit,
+) -> Result<content::RawHtml<String>, Status> {
+    show_html_core(store, http, features, blocked, id, query, key_header, onion).await
+}
+
+#[allow(clippy::too_many_arguments)] // Shared policy core keeps both HTML routes identical.
+async fn show_html_core(
+    store: &State<SharedPasteStore>,
+    http: &State<WebhookClient>,
+    features: &State<FeaturePolicy>,
+    blocked: &State<BlockedPasteIds>,
+    id: String,
+    query: PasteViewQuery,
+    key_header: PasteKeyHeader,
+    onion: OnionAccess,
+) -> Result<content::RawHtml<String>, Status> {
+    if blocked.contains(&id) {
+        return Err(Status::NotFound);
+    }
     match store.get_paste(&id).await {
         Ok(paste) => {
             if paste.metadata.tor_access_only && !onion.is_onion() {
                 return Err(Status::Forbidden);
+            }
+            if paste.metadata.attestation.is_some() && !features.allow_attestations {
+                return Err(Status::ServiceUnavailable);
+            }
+            if matches!(&paste.content, StoredContent::Stego { .. }) && !features.allow_stego {
+                return Err(Status::ServiceUnavailable);
             }
 
             let now = current_timestamp();
@@ -1078,28 +1262,29 @@ async fn show(
                 }
             }
 
-            match decrypt_content(&paste.content, query.key.as_deref()) {
+            let decryption_key = key_header.0.as_deref().or(query.key.as_deref());
+            match decrypt_content(&paste.content, decryption_key) {
                 Ok(text) => {
-                    let bundle_html = if let Some(bundle) = paste.metadata.bundle.clone() {
-                        build_bundle_overview(store.inner().clone(), &bundle, &query).await
-                    } else {
-                        None
-                    };
-
-                    let webhook_config = paste.metadata.webhook.clone();
+                    let webhook_config = features
+                        .allow_webhooks
+                        .then(|| paste.metadata.webhook.clone())
+                        .flatten();
                     let mut events_to_fire = Vec::new();
 
                     if paste.burn_after_reading {
-                        if let Some(config) = webhook_config.clone() {
-                            events_to_fire.push((config.clone(), WebhookEvent::Viewed));
-                        }
-                    }
-
-                    if paste.burn_after_reading {
-                        let deleted = store.delete_paste(&id).await;
-                        if deleted {
-                            if let Some(config) = webhook_config.clone() {
-                                events_to_fire.push((config, WebhookEvent::Consumed));
+                        match store.delete_paste(&id).await {
+                            Ok(true) => {
+                                if let Some(config) = webhook_config.clone() {
+                                    events_to_fire.push((config.clone(), WebhookEvent::Viewed));
+                                }
+                                if let Some(config) = webhook_config.clone() {
+                                    events_to_fire.push((config, WebhookEvent::Consumed));
+                                }
+                            }
+                            Ok(false) => return Err(Status::Gone),
+                            Err(_) => {
+                                rocket::error!("burn_delete_failed");
+                                return Err(Status::ServiceUnavailable);
                             }
                         }
                     }
@@ -1114,21 +1299,27 @@ async fn show(
                         );
                     }
 
+                    // Existing bundle pointers are intentionally withheld. The
+                    // legacy implementation never created valid child records,
+                    // and rendering those IDs can bypass moderation filtering.
+                    let mut public_metadata = paste.metadata.clone();
+                    public_metadata.bundle = None;
+                    public_metadata.bundle_parent = None;
+                    public_metadata.bundle_label = None;
+                    public_metadata.persistence = None;
+                    if !features.allow_webhooks {
+                        public_metadata.webhook = None;
+                    }
                     let view = StoredPasteView {
                         content: &paste.content,
                         format: paste.format,
                         created_at: paste.created_at,
                         expires_at: paste.expires_at,
                         burn_after_reading: paste.burn_after_reading,
-                        metadata: &paste.metadata,
+                        metadata: &public_metadata,
                     };
 
-                    Ok(content::RawHtml(render_paste_view(
-                        &id,
-                        &view,
-                        &text,
-                        bundle_html,
-                    )))
+                    Ok(content::RawHtml(render_paste_view(&id, &view, &text, None)))
                 }
                 Err(DecryptError::MissingKey) => Ok(content::RawHtml(render_key_prompt(&id))),
                 Err(DecryptError::InvalidKey) => Ok(content::RawHtml(render_invalid_key(&id))),
@@ -1136,22 +1327,36 @@ async fn show(
         }
         Err(PasteError::NotFound(_)) => Err(Status::NotFound),
         Err(PasteError::Expired(_)) => Ok(content::RawHtml(render_expired(&id))),
+        Err(PasteError::Persistence(_)) => Err(Status::ServiceUnavailable),
     }
 }
 
 #[get("/raw/<id>?<query..>")]
+#[allow(clippy::too_many_arguments)] // Rocket request guards are handler parameters.
 async fn show_raw(
     store: &State<SharedPasteStore>,
     http: &State<WebhookClient>,
+    features: &State<FeaturePolicy>,
+    blocked: &State<BlockedPasteIds>,
     id: String,
     query: PasteViewQuery,
+    key_header: PasteKeyHeader,
     onion: OnionAccess,
     _rate: ReadRateLimit,
 ) -> Result<content::RawText<String>, Status> {
+    if blocked.contains(&id) {
+        return Err(Status::NotFound);
+    }
     match store.get_paste(&id).await {
         Ok(paste) => {
             if paste.metadata.tor_access_only && !onion.is_onion() {
                 return Err(Status::Forbidden);
+            }
+            if paste.metadata.attestation.is_some() && !features.allow_attestations {
+                return Err(Status::ServiceUnavailable);
+            }
+            if matches!(&paste.content, StoredContent::Stego { .. }) && !features.allow_stego {
+                return Err(Status::ServiceUnavailable);
             }
 
             let now = current_timestamp();
@@ -1173,29 +1378,39 @@ async fn show_raw(
                 }
             }
 
-            match decrypt_content(&paste.content, query.key.as_deref()) {
+            let decryption_key = key_header.0.as_deref().or(query.key.as_deref());
+            match decrypt_content(&paste.content, decryption_key) {
                 Ok(text) => {
                     if paste.burn_after_reading {
-                        let webhook_config = paste.metadata.webhook.clone();
-                        if let Some(config) = webhook_config.clone() {
-                            trigger_webhook(
-                                http.inner().0.clone(),
-                                config,
-                                WebhookEvent::Viewed,
-                                &id,
-                                paste.metadata.bundle_label.clone(),
-                            );
-                        }
-                        let deleted = store.delete_paste(&id).await;
-                        if deleted {
-                            if let Some(config) = webhook_config {
-                                trigger_webhook(
-                                    http.inner().0.clone(),
-                                    config,
-                                    WebhookEvent::Consumed,
-                                    &id,
-                                    paste.metadata.bundle_label.clone(),
-                                );
+                        let webhook_config = features
+                            .allow_webhooks
+                            .then(|| paste.metadata.webhook.clone())
+                            .flatten();
+                        match store.delete_paste(&id).await {
+                            Ok(true) => {
+                                if let Some(config) = webhook_config.clone() {
+                                    trigger_webhook(
+                                        http.inner().0.clone(),
+                                        config,
+                                        WebhookEvent::Viewed,
+                                        &id,
+                                        paste.metadata.bundle_label.clone(),
+                                    );
+                                }
+                                if let Some(config) = webhook_config {
+                                    trigger_webhook(
+                                        http.inner().0.clone(),
+                                        config,
+                                        WebhookEvent::Consumed,
+                                        &id,
+                                        paste.metadata.bundle_label.clone(),
+                                    );
+                                }
+                            }
+                            Ok(false) => return Err(Status::Gone),
+                            Err(_) => {
+                                rocket::error!("burn_delete_failed");
+                                return Err(Status::ServiceUnavailable);
                             }
                         }
                     }
@@ -1208,6 +1423,7 @@ async fn show_raw(
         }
         Err(PasteError::NotFound(_)) => Err(Status::NotFound),
         Err(PasteError::Expired(_)) => Err(Status::Gone),
+        Err(PasteError::Persistence(_)) => Err(Status::ServiceUnavailable),
     }
 }
 
@@ -1239,26 +1455,14 @@ fn apply_time_lock(
 fn persistence_locator_from_request(
     request: &PersistenceRequest,
 ) -> Result<PersistenceLocator, (Status, String)> {
-    Ok(match request {
-        PersistenceRequest::Memory => PersistenceLocator::Memory,
-        PersistenceRequest::Vault { key_path } => {
-            if key_path.trim().is_empty() {
-                return Err((Status::BadRequest, "Vault key_path cannot be empty".into()));
-            }
-            PersistenceLocator::Vault {
-                key_path: key_path.clone(),
-            }
-        }
-        PersistenceRequest::S3 { bucket, prefix } => {
-            if bucket.trim().is_empty() {
-                return Err((Status::BadRequest, "S3 bucket cannot be empty".into()));
-            }
-            PersistenceLocator::S3 {
-                bucket: bucket.clone(),
-                prefix: prefix.clone(),
-            }
-        }
-    })
+    match request {
+        PersistenceRequest::Memory => Ok(PersistenceLocator::Memory),
+        PersistenceRequest::Vault { .. } | PersistenceRequest::S3 { .. } => Err((
+            Status::BadRequest,
+            "Client-selected external persistence is disabled; storage is controlled by the deployment"
+                .into(),
+        )),
+    }
 }
 
 fn webhook_config_from_request(
@@ -1298,10 +1502,35 @@ fn webhook_config_from_request(
 ///
 /// Takes ownership of `text` so the plain-text path stores the buffer without
 /// copying it (paste content can be up to 10 MiB).
+const MAX_ENCRYPTION_KEY_BYTES: usize = 1024;
+
+fn validate_encryption_request(
+    encryption: Option<&super::models::EncryptionRequest>,
+) -> Result<(), (Status, String)> {
+    if let Some(enc) = encryption.filter(|enc| enc.algorithm != EncryptionAlgorithm::None) {
+        if enc.key.trim().is_empty() {
+            return Err((
+                Status::BadRequest,
+                "Encryption key cannot be empty".to_string(),
+            ));
+        }
+        if enc.key.len() > MAX_ENCRYPTION_KEY_BYTES {
+            return Err((
+                Status::PayloadTooLarge,
+                format!("Encryption key must not exceed {MAX_ENCRYPTION_KEY_BYTES} bytes"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 async fn resolve_content(
     text: String,
     encryption: Option<&super::models::EncryptionRequest>,
 ) -> Result<StoredContent, (Status, String)> {
+    // Validate attacker-controlled key material before entering Argon2/HKDF or
+    // any encryption implementation. This bounds both CPU and memory inputs.
+    validate_encryption_request(encryption)?;
     match encryption {
         Some(enc) if enc.algorithm != EncryptionAlgorithm::None => {
             encrypt_content(&text, &enc.key, enc.algorithm)
@@ -1317,10 +1546,49 @@ fn env_minutes(name: &str) -> Option<u64> {
     std::env::var(name).ok().and_then(|v| v.parse::<u64>().ok())
 }
 
+fn expiration_from_retention(
+    retention_minutes: Option<u64>,
+    max_retention_minutes: Option<u64>,
+    created_at: i64,
+) -> Result<Option<i64>, (Status, String)> {
+    let Some(minutes) = retention_minutes else {
+        return Ok(None);
+    };
+
+    if max_retention_minutes.is_some_and(|max| minutes > max) {
+        return Err((
+            Status::BadRequest,
+            "retention_minutes exceeds the configured maximum".to_string(),
+        ));
+    }
+
+    let minutes = i64::try_from(minutes).map_err(|_| {
+        (
+            Status::BadRequest,
+            "retention_minutes is outside the supported range".to_string(),
+        )
+    })?;
+    let seconds = minutes.checked_mul(60).ok_or_else(|| {
+        (
+            Status::BadRequest,
+            "retention_minutes is outside the supported range".to_string(),
+        )
+    })?;
+    let expires_at = created_at.checked_add(seconds).ok_or_else(|| {
+        (
+            Status::BadRequest,
+            "retention_minutes is outside the supported range".to_string(),
+        )
+    })?;
+
+    Ok(Some(expires_at))
+}
+
 async fn create_paste_internal(
     store: &SharedPasteStore,
     mut body: CreatePasteRequest,
     _onion: &OnionAccess,
+    features: &FeaturePolicy,
 ) -> Result<CreatePasteResponse, (Status, String)> {
     // Validate content
     if body.content.trim().is_empty() {
@@ -1329,11 +1597,44 @@ async fn create_paste_internal(
     let max_paste_size = std::env::var("COPYPASTE_MAX_PASTE_SIZE")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(10_485_760); // 10 MB
+        .unwrap_or(1_048_576); // 1 MiB
     if body.content.len() > max_paste_size {
         return Err((
             Status::PayloadTooLarge,
             "Content exceeds maximum paste size".into(),
+        ));
+    }
+
+    if body.webhook.is_some() && !features.allow_webhooks {
+        return Err((
+            Status::Forbidden,
+            "Webhooks are disabled on this deployment".into(),
+        ));
+    }
+    if body.attestation.is_some() && !features.allow_attestations {
+        return Err((
+            Status::Forbidden,
+            "Attestations are disabled on this deployment".into(),
+        ));
+    }
+    if body.bundle.is_some() {
+        return Err((
+            Status::Forbidden,
+            "Bundles are disabled on this deployment".into(),
+        ));
+    }
+    if body.stego.is_some() && !features.allow_stego {
+        return Err((
+            Status::Forbidden,
+            "Steganography is disabled on this deployment".into(),
+        ));
+    }
+    if matches!(body.stego.as_ref(), Some(StegoRequest::Uploaded { .. }))
+        && !features.allow_uploaded_stego
+    {
+        return Err((
+            Status::Forbidden,
+            "Uploaded steganography carriers are disabled on this deployment".into(),
         ));
     }
 
@@ -1346,6 +1647,13 @@ async fn create_paste_internal(
             ));
         }
     }
+
+    // Reject unsupported storage claims before any cryptographic work.
+    let requested_persistence = body
+        .persistence
+        .as_ref()
+        .map(persistence_locator_from_request)
+        .transpose()?;
 
     // Resolve content (handle encryption). Move the content buffer out of the
     // request so the plain-text path avoids cloning up to 10 MiB.
@@ -1368,9 +1676,7 @@ async fn create_paste_internal(
     }
 
     // Handle persistence
-    if let Some(ref persistence_req) = body.persistence {
-        metadata.persistence = Some(persistence_locator_from_request(persistence_req)?);
-    }
+    metadata.persistence = requested_persistence;
 
     // Handle webhook
     if let Some(ref webhook_req) = body.webhook {
@@ -1453,35 +1759,6 @@ async fn create_paste_internal(
         content
     };
 
-    // Handle bundle
-    if let Some(ref bundle_req) = body.bundle {
-        if bundle_req.children.len() > 50 {
-            return Err((
-                Status::BadRequest,
-                "Bundle exceeds maximum child count".into(),
-            ));
-        }
-        // Enforce encryption for bundles
-        if body.encryption.is_none() {
-            return Err((
-                Status::BadRequest,
-                "Bundles require an encryption key".to_string(),
-            ));
-        }
-
-        // Create bundle metadata
-        metadata.bundle = Some(crate::BundleMetadata {
-            children: bundle_req
-                .children
-                .iter()
-                .map(|child| crate::BundlePointer {
-                    id: "".to_string(), // Will be set when child pastes are created
-                    label: child.label.clone(),
-                })
-                .collect(),
-        });
-    }
-
     // Set tor access only
     metadata.tor_access_only = body.tor_access_only;
     metadata.owner_pubkey_hash = body.owner_pubkey_hash;
@@ -1493,18 +1770,12 @@ async fn create_paste_internal(
     let retention_minutes = body
         .retention_minutes
         .or_else(|| env_minutes("COPYPASTE_RETENTION_DEFAULT_MINUTES"));
-    if let (Some(requested), Some(max)) = (
+    let created_at = current_timestamp();
+    let expires_at = expiration_from_retention(
         retention_minutes,
         env_minutes("COPYPASTE_RETENTION_MAX_MINUTES"),
-    ) {
-        if requested > max {
-            return Err((
-                Status::BadRequest,
-                format!("retention_minutes {requested} exceeds the configured maximum of {max}"),
-            ));
-        }
-    }
-    let expires_at = retention_minutes.map(|minutes| current_timestamp() + (minutes as i64 * 60));
+        created_at,
+    )?;
 
     // Handle live paste ownership token
     let (is_live, owner_token_hash, plaintext_token) = if body.live {
@@ -1525,7 +1796,7 @@ async fn create_paste_internal(
     let paste = StoredPaste {
         content,
         format: body.format.unwrap_or(PasteFormat::PlainText),
-        created_at: current_timestamp(),
+        created_at,
         expires_at,
         burn_after_reading: body.burn_after_reading,
         bundle: metadata.bundle.clone(),
@@ -1541,8 +1812,13 @@ async fn create_paste_internal(
     };
 
     // Store the paste
-    let id = store.create_paste(paste).await;
-    let path = format!("/{}", id);
+    let id = store.create_paste(paste).await.map_err(|_| {
+        (
+            Status::ServiceUnavailable,
+            "Paste storage is temporarily unavailable".to_string(),
+        )
+    })?;
+    let path = format!("/p/{}", id);
 
     Ok(CreatePasteResponse {
         id: id.clone(),
@@ -1584,6 +1860,10 @@ async fn get_paste_for_mutation(
         Ok(paste) => Ok(paste),
         Err(PasteError::NotFound(_)) => Err((Status::NotFound, format!("Paste '{id}' not found"))),
         Err(PasteError::Expired(_)) => Err((Status::Gone, format!("Paste '{id}' expired"))),
+        Err(PasteError::Persistence(_)) => Err((
+            Status::ServiceUnavailable,
+            "Paste storage is temporarily unavailable".to_string(),
+        )),
     }
 }
 
@@ -1595,7 +1875,10 @@ async fn get_paste_for_mutation(
     put,
     path = "/api/pastes/{id}",
     request_body = UpdatePasteRequest,
-    params(("id" = String, Path, description = "Paste identifier")),
+    params(
+        ("id" = String, Path, description = "Paste identifier"),
+        ("X-CopyPaste-Write-Token" = Option<String>, Header, description = "Service write credential required on closed deployments; ownership token remains in Authorization"),
+    ),
     responses(
         (status = 200, description = "Paste updated", body = UpdatePasteResponse),
         (status = 401, description = "Ownership token required", body = ApiError),
@@ -1603,15 +1886,23 @@ async fn get_paste_for_mutation(
         (status = 404, description = "Paste not found", body = ApiError),
         (status = 409, description = "Paste is not live", body = ApiError),
         (status = 410, description = "Paste expired", body = ApiError),
+        (status = 429, description = "Mutation rate limit exceeded", body = ApiError),
+        (status = 503, description = "Durable mutation could not be confirmed", body = ApiError),
     )
 )]
 #[put("/api/pastes/<id>", data = "<body>")]
 async fn update_api(
+    _rate: CreateRateLimit,
+    _admission: RequireMutationWriteAuth,
     store: &State<SharedPasteStore>,
+    blocked: &State<BlockedPasteIds>,
     id: String,
     body: Json<UpdatePasteRequest>,
-    token: BearerToken,
+    token: OwnerBearerToken,
 ) -> Result<Json<UpdatePasteResponse>, (Status, Json<ApiError>)> {
+    if blocked.contains(&id) {
+        return Err(to_api_err(Status::NotFound, "Paste not found".to_string()));
+    }
     let body = body.into_inner();
 
     let paste = get_paste_for_mutation(store.inner(), &id)
@@ -1636,7 +1927,7 @@ async fn update_api(
     let max_paste_size = std::env::var("COPYPASTE_MAX_PASTE_SIZE")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(10_485_760);
+        .unwrap_or(1_048_576);
     if body.content.len() > max_paste_size {
         return Err(to_api_err(
             Status::PayloadTooLarge,
@@ -1652,10 +1943,20 @@ async fn update_api(
         .update_paste(&id, content)
         .await
         .map_err(|e| match e {
-            PasteError::NotFound(_) => {
+            PasteMutationError::NotFound(_) => {
                 to_api_err(Status::NotFound, format!("Paste '{id}' not found"))
             }
-            PasteError::Expired(_) => to_api_err(Status::Gone, format!("Paste '{id}' expired")),
+            PasteMutationError::Expired(_) => {
+                to_api_err(Status::Gone, format!("Paste '{id}' expired"))
+            }
+            PasteMutationError::Finalized(_) => to_api_err(
+                Status::Conflict,
+                "Paste has been finalized and can no longer be updated".to_string(),
+            ),
+            PasteMutationError::Persistence(_) => to_api_err(
+                Status::ServiceUnavailable,
+                "Durable paste update could not be confirmed".to_string(),
+            ),
         })?;
 
     Ok(Json(UpdatePasteResponse { id, is_live: true }))
@@ -1669,7 +1970,10 @@ async fn update_api(
     patch,
     path = "/api/pastes/{id}/finalize",
     request_body = FinalizePasteRequest,
-    params(("id" = String, Path, description = "Paste identifier")),
+    params(
+        ("id" = String, Path, description = "Paste identifier"),
+        ("X-CopyPaste-Write-Token" = Option<String>, Header, description = "Service write credential required on closed deployments; ownership token remains in Authorization"),
+    ),
     responses(
         (status = 200, description = "Paste finalized", body = FinalizePasteResponse),
         (status = 400, description = "Invalid request", body = ApiError),
@@ -1677,15 +1981,23 @@ async fn update_api(
         (status = 403, description = "Invalid ownership token", body = ApiError),
         (status = 404, description = "Paste not found", body = ApiError),
         (status = 410, description = "Paste expired", body = ApiError),
+        (status = 429, description = "Mutation rate limit exceeded"),
+        (status = 503, description = "Durable mutation could not be confirmed", body = ApiError),
     )
 )]
 #[patch("/api/pastes/<id>/finalize", data = "<body>")]
 async fn finalize_api(
+    _rate: CreateRateLimit,
+    _admission: RequireMutationWriteAuth,
     store: &State<SharedPasteStore>,
+    blocked: &State<BlockedPasteIds>,
     id: String,
     body: Option<Json<FinalizePasteRequest>>,
-    token: BearerToken,
+    token: OwnerBearerToken,
 ) -> Result<Json<FinalizePasteResponse>, (Status, Json<ApiError>)> {
+    if blocked.contains(&id) {
+        return Err(to_api_err(Status::NotFound, "Paste not found".to_string()));
+    }
     if let Some(ref body) = body {
         if body.live {
             return Err(to_api_err(
@@ -1703,10 +2015,19 @@ async fn finalize_api(
 
     if paste.is_live {
         store.finalize_paste(&id).await.map_err(|e| match e {
-            PasteError::NotFound(_) => {
+            PasteMutationError::NotFound(_) => {
                 to_api_err(Status::NotFound, format!("Paste '{id}' not found"))
             }
-            PasteError::Expired(_) => to_api_err(Status::Gone, format!("Paste '{id}' expired")),
+            PasteMutationError::Expired(_) => {
+                to_api_err(Status::Gone, format!("Paste '{id}' expired"))
+            }
+            PasteMutationError::Finalized(_) => {
+                to_api_err(Status::Conflict, "Paste is already finalized".to_string())
+            }
+            PasteMutationError::Persistence(_) => to_api_err(
+                Status::ServiceUnavailable,
+                "Durable paste finalization could not be confirmed".to_string(),
+            ),
         })?;
     }
 
@@ -1719,14 +2040,30 @@ async fn admin_create_key_api(
     body: Json<CreateApiKeyRequest>,
     _auth: RequireAdminAuth,
 ) -> Result<Json<CreateApiKeyResponse>, (Status, Json<ApiError>)> {
+    if !key_store.is_enabled() {
+        return Err(to_api_err(
+            Status::ServiceUnavailable,
+            "Dynamic API-key management is disabled on this deployment".to_string(),
+        ));
+    }
     let body = body.into_inner();
     let store = key_store.inner().clone();
     let (key_info, plaintext_key) = tokio::task::spawn_blocking(move || {
         store.create_key(&body.name, body.scope, body.expires_at)
     })
     .await
-    .map_err(|_| to_api_err(Status::InternalServerError, "Internal error".to_string()))?
-    .map_err(|e| to_api_err(Status::InternalServerError, e))?;
+    .map_err(|_| {
+        to_api_err(
+            Status::ServiceUnavailable,
+            "API-key store unavailable".to_string(),
+        )
+    })?
+    .map_err(|_| {
+        to_api_err(
+            Status::ServiceUnavailable,
+            "API-key store unavailable".to_string(),
+        )
+    })?;
 
     Ok(Json(CreateApiKeyResponse {
         id: key_info.id,
@@ -1742,11 +2079,27 @@ async fn admin_list_keys_api(
     key_store: &State<SharedApiKeyStore>,
     _auth: RequireAdminAuth,
 ) -> Result<Json<ListApiKeysResponse>, (Status, Json<ApiError>)> {
+    if !key_store.is_enabled() {
+        return Err(to_api_err(
+            Status::ServiceUnavailable,
+            "Dynamic API-key management is disabled on this deployment".to_string(),
+        ));
+    }
     let store = key_store.inner().clone();
     let keys = tokio::task::spawn_blocking(move || store.list_keys())
         .await
-        .map_err(|_| to_api_err(Status::InternalServerError, "Internal error".to_string()))?
-        .map_err(|e| to_api_err(Status::InternalServerError, e))?;
+        .map_err(|_| {
+            to_api_err(
+                Status::ServiceUnavailable,
+                "API-key store unavailable".to_string(),
+            )
+        })?
+        .map_err(|_| {
+            to_api_err(
+                Status::ServiceUnavailable,
+                "API-key store unavailable".to_string(),
+            )
+        })?;
 
     let key_infos = keys
         .into_iter()
@@ -1769,13 +2122,209 @@ async fn admin_delete_key_api(
     id: String,
     _auth: RequireAdminAuth,
 ) -> Result<Json<RevokeApiKeyResponse>, (Status, Json<ApiError>)> {
+    if !key_store.is_enabled() {
+        return Err(to_api_err(
+            Status::ServiceUnavailable,
+            "Dynamic API-key management is disabled on this deployment".to_string(),
+        ));
+    }
     let store = key_store.inner().clone();
     let revoked = tokio::task::spawn_blocking(move || store.revoke_key(&id))
         .await
-        .map_err(|_| to_api_err(Status::InternalServerError, "Internal error".to_string()))?
-        .map_err(|e| to_api_err(Status::InternalServerError, e))?;
+        .map_err(|_| {
+            to_api_err(
+                Status::ServiceUnavailable,
+                "API-key store unavailable".to_string(),
+            )
+        })?
+        .map_err(|_| {
+            to_api_err(
+                Status::ServiceUnavailable,
+                "API-key store unavailable".to_string(),
+            )
+        })?;
 
     Ok(Json(RevokeApiKeyResponse { revoked }))
+}
+
+fn validate_paste_id(id: &str) -> Result<(), (Status, Json<ApiError>)> {
+    if !is_valid_paste_id(id) {
+        return Err(to_api_err(
+            Status::BadRequest,
+            "Invalid paste identifier".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn moderation_content_summary(content: &StoredContent) -> (bool, EncryptionAlgorithm, usize) {
+    match content {
+        StoredContent::Plain { text } => (false, EncryptionAlgorithm::None, text.len()),
+        StoredContent::Encrypted {
+            algorithm,
+            ciphertext,
+            nonce,
+            salt,
+        } => (
+            true,
+            *algorithm,
+            ciphertext
+                .len()
+                .saturating_add(nonce.len())
+                .saturating_add(salt.len()),
+        ),
+        StoredContent::Stego {
+            algorithm,
+            ciphertext,
+            nonce,
+            salt,
+            carrier_mime,
+            carrier_image,
+            payload_digest,
+        } => (
+            true,
+            *algorithm,
+            ciphertext
+                .len()
+                .saturating_add(nonce.len())
+                .saturating_add(salt.len())
+                .saturating_add(carrier_mime.len())
+                .saturating_add(carrier_image.len())
+                .saturating_add(payload_digest.len()),
+        ),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/admin/pastes/{id}",
+    params(("id" = String, description = "Exact paste identifier")),
+    responses(
+        (status = 200, description = "Metadata-only moderation view", body = AdminPasteMetadataResponse),
+        (status = 400, description = "Invalid identifier", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Admin scope required", body = ApiError),
+        (status = 404, description = "Paste not found", body = ApiError),
+        (status = 410, description = "Paste expired", body = ApiError),
+        (status = 503, description = "Paste storage unavailable", body = ApiError),
+    )
+)]
+#[get("/api/admin/pastes/<id>")]
+async fn admin_get_paste_api(
+    store: &State<SharedPasteStore>,
+    id: String,
+    auth: RequireAdminAuth,
+) -> Result<Json<AdminPasteMetadataResponse>, (Status, Json<ApiError>)> {
+    if let Err(error) = validate_paste_id(&id) {
+        rocket::info!(
+            "admin_audit key_id={} action=inspect outcome=invalid_id",
+            auth.0.key_id
+        );
+        return Err(error);
+    }
+    let paste = match store.get_paste(&id).await {
+        Ok(paste) => paste,
+        Err(PasteError::NotFound(_)) => {
+            rocket::info!(
+                "admin_audit key_id={} action=inspect outcome=not_found",
+                auth.0.key_id
+            );
+            return Err(to_api_err(Status::NotFound, "Paste not found".to_string()));
+        }
+        Err(PasteError::Expired(_)) => {
+            rocket::info!(
+                "admin_audit key_id={} action=inspect outcome=expired",
+                auth.0.key_id
+            );
+            return Err(to_api_err(Status::Gone, "Paste expired".to_string()));
+        }
+        Err(PasteError::Persistence(_)) => {
+            rocket::error!(
+                "admin_audit key_id={} action=inspect outcome=storage_error",
+                auth.0.key_id
+            );
+            return Err(to_api_err(
+                Status::ServiceUnavailable,
+                "Paste storage is temporarily unavailable".to_string(),
+            ));
+        }
+    };
+
+    let (encrypted, encryption_algorithm, approximate_stored_bytes) =
+        moderation_content_summary(&paste.content);
+    let response = AdminPasteMetadataResponse {
+        id: id.clone(),
+        format: paste.format,
+        created_at: paste.created_at,
+        expires_at: paste.expires_at,
+        burn_after_reading: paste.burn_after_reading,
+        encrypted,
+        encryption_algorithm,
+        approximate_stored_bytes,
+        tor_access_only: paste.metadata.tor_access_only,
+        has_attestation: paste.metadata.attestation.is_some(),
+        has_webhook: paste.metadata.webhook.is_some(),
+        has_workspace: paste.metadata.workspace.is_some(),
+    };
+    rocket::info!(
+        "admin_audit key_id={} action=inspect outcome=found",
+        auth.0.key_id
+    );
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/admin/pastes/{id}",
+    params(("id" = String, description = "Exact paste identifier")),
+    responses(
+        (status = 200, description = "Deletion or absence acknowledged by this instance and its configured backing store", body = AdminDeletePasteResponse),
+        (status = 400, description = "Invalid identifier", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 403, description = "Admin scope required", body = ApiError),
+        (status = 503, description = "Deletion could not be confirmed by this instance", body = ApiError),
+    )
+)]
+#[delete("/api/admin/pastes/<id>")]
+async fn admin_delete_paste_api(
+    store: &State<SharedPasteStore>,
+    id: String,
+    auth: RequireAdminAuth,
+) -> Result<Json<AdminDeletePasteResponse>, (Status, Json<ApiError>)> {
+    if let Err(error) = validate_paste_id(&id) {
+        rocket::info!(
+            "admin_audit key_id={} action=delete outcome=invalid_id",
+            auth.0.key_id
+        );
+        return Err(error);
+    }
+
+    // Delete directly rather than loading the record first. This avoids
+    // bringing suspected content into an operator request path and ensures a
+    // persistence outage is reported as 503 instead of being misreported as
+    // "not found" by the cache/load compatibility layer.
+    match store.delete_paste(&id).await {
+        Ok(_) => {
+            rocket::info!(
+                "admin_audit key_id={} action=delete outcome=deleted_or_absent",
+                auth.0.key_id
+            );
+            Ok(Json(AdminDeletePasteResponse { id, deleted: true }))
+        }
+        Err(_) => {
+            rocket::error!(
+                "admin_audit key_id={} action=delete outcome=storage_error",
+                auth.0.key_id
+            );
+            Err((
+                Status::ServiceUnavailable,
+                Json(ApiError::new(
+                    "delete_failed",
+                    "Deletion could not be confirmed by this instance",
+                )),
+            ))
+        }
+    }
 }
 
 #[get("/")]
@@ -1809,7 +2358,17 @@ mod tests {
         let secret_bytes: [u8; 32] = [42u8; 32];
         let signing_key = SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
-        let challenge = "handler-test-challenge";
+        let challenge_response = client.get("/api/auth/challenge").dispatch();
+        assert_eq!(challenge_response.status(), Status::Ok);
+        let challenge_json: serde_json::Value = serde_json::from_str(
+            &challenge_response
+                .into_string()
+                .expect("challenge response body"),
+        )
+        .expect("challenge response JSON");
+        let challenge = challenge_json["challenge"]
+            .as_str()
+            .expect("challenge string");
         let signature = signing_key.sign(challenge.as_bytes());
 
         let resp = client
@@ -1834,6 +2393,30 @@ mod tests {
 
     fn bearer(token: &str) -> rocket::http::Header<'static> {
         rocket::http::Header::new("Authorization", format!("Bearer {token}"))
+    }
+
+    fn mutation_write_token(token: &str) -> rocket::http::Header<'static> {
+        rocket::http::Header::new(
+            super::super::api_keys::MUTATION_WRITE_TOKEN_HEADER,
+            token.to_string(),
+        )
+    }
+
+    fn build_rocket_with_features(
+        store: SharedPasteStore,
+        features: FeaturePolicy,
+    ) -> Rocket<Build> {
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::default(),
+            features,
+            BlockedPasteIds::default(),
+            None,
+        )
     }
 
     #[test]
@@ -1861,22 +2444,95 @@ mod tests {
     }
 
     #[test]
+    fn encrypted_content_requires_a_bounded_nonblank_key() {
+        let blank = super::super::models::EncryptionRequest {
+            algorithm: EncryptionAlgorithm::Aes256Gcm,
+            key: " \t\n".to_string(),
+        };
+        let blank_error = validate_encryption_request(Some(&blank)).unwrap_err();
+        assert_eq!(blank_error.0, Status::BadRequest);
+
+        // String::len() is a UTF-8 byte count. This is only 513 characters but
+        // 1,026 bytes and must be rejected before cryptographic processing.
+        let oversized = super::super::models::EncryptionRequest {
+            algorithm: EncryptionAlgorithm::Aes256Gcm,
+            key: "é".repeat(513),
+        };
+        assert_eq!(oversized.key.chars().count(), 513);
+        assert_eq!(oversized.key.len(), 1026);
+        let oversized_error = validate_encryption_request(Some(&oversized)).unwrap_err();
+        assert_eq!(oversized_error.0, Status::PayloadTooLarge);
+
+        let boundary = super::super::models::EncryptionRequest {
+            algorithm: EncryptionAlgorithm::Aes256Gcm,
+            key: "k".repeat(MAX_ENCRYPTION_KEY_BYTES),
+        };
+        assert!(validate_encryption_request(Some(&boundary)).is_ok());
+
+        let plaintext = super::super::models::EncryptionRequest {
+            algorithm: EncryptionAlgorithm::None,
+            key: String::new(),
+        };
+        assert!(validate_encryption_request(Some(&plaintext)).is_ok());
+    }
+
+    #[test]
+    fn create_api_rejects_invalid_encryption_keys_without_storing_a_paste() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(Arc::clone(&store))).expect("client");
+
+        let blank = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "secret",
+                    "encryption": {"algorithm": "aes256_gcm", "key": "  \n"}
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(blank.status(), Status::BadRequest);
+
+        let oversized = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "secret",
+                    "encryption": {
+                        "algorithm": "aes256_gcm",
+                        "key": "é".repeat(513)
+                    }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(oversized.status(), Status::PayloadTooLarge);
+
+        let ids = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(store.get_all_paste_ids());
+        assert!(ids.is_empty());
+    }
+
+    #[test]
     fn persistence_locator_validates_inputs() {
         let memory = persistence_locator_from_request(&PersistenceRequest::Memory).unwrap();
         matches!(memory, PersistenceLocator::Memory);
 
-        let err = persistence_locator_from_request(&PersistenceRequest::Vault {
-            key_path: "".into(),
+        let vault = persistence_locator_from_request(&PersistenceRequest::Vault {
+            key_path: "secret/path".into(),
         })
-        .expect_err("empty key path");
-        assert_eq!(err.0, Status::BadRequest);
+        .expect_err("client-selected Vault storage must be rejected");
+        assert_eq!(vault.0, Status::BadRequest);
 
-        let loc = persistence_locator_from_request(&PersistenceRequest::S3 {
+        let s3 = persistence_locator_from_request(&PersistenceRequest::S3 {
             bucket: "bucket".into(),
             prefix: Some("prefix".into()),
         })
-        .unwrap();
-        matches!(loc, PersistenceLocator::S3 { .. });
+        .expect_err("client-selected S3 storage must be rejected");
+        assert_eq!(s3.0, Status::BadRequest);
     }
 
     #[test]
@@ -1897,6 +2553,90 @@ mod tests {
     }
 
     #[test]
+    fn risky_optional_features_are_disabled_by_default() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket_with_features(store, FeaturePolicy::default()))
+            .expect("client");
+
+        let webhook = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "webhook",
+                    "webhook": {"url": "https://example.com/hook"}
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(webhook.status(), Status::Forbidden);
+
+        let uploaded_stego = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "uploaded",
+                    "stego": {
+                        "mode": "uploaded",
+                        "data_uri": "data:image/png;base64,AA=="
+                    }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(uploaded_stego.status(), Status::Forbidden);
+
+        let attestation = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "attested",
+                    "attestation": {"kind": "shared_secret", "secret": "secret"}
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(attestation.status(), Status::Forbidden);
+    }
+
+    #[test]
+    fn stored_attestation_pastes_fail_closed_when_feature_is_disabled() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let enabled = Client::tracked(build_rocket_with_features(
+            Arc::clone(&store),
+            FeaturePolicy::default().with_attestations(true),
+        ))
+        .expect("enabled client");
+        let response = enabled
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "legacy attested paste",
+                    "attestation": {"kind": "shared_secret", "secret": "secret"}
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+        drop(enabled);
+
+        let disabled = Client::tracked(build_rocket_with_features(store, FeaturePolicy::default()))
+            .expect("disabled client");
+        assert_eq!(
+            disabled
+                .get(format!("/api/pastes/{}", created.id))
+                .dispatch()
+                .status(),
+            Status::ServiceUnavailable
+        );
+    }
+
+    #[test]
     fn show_route_triggers_burn_after_reading_flow() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         let rocket = build_rocket(store);
@@ -1905,10 +2645,7 @@ mod tests {
         let payload = json!({
             "content": "payload",
             "format": "plain_text",
-            "burn_after_reading": true,
-            "webhook": {
-                "url": "https://example.com/webhook"
-            }
+            "burn_after_reading": true
         });
 
         let response = client
@@ -2003,7 +2740,8 @@ mod tests {
     #[test]
     fn show_api_enforces_time_lock_and_attestation() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket =
+            build_rocket_with_features(store, FeaturePolicy::default().with_attestations(true));
         let client = Client::tracked(rocket).expect("client");
 
         // Time-locked paste: not available yet via the API.
@@ -2065,12 +2803,49 @@ mod tests {
         assert_eq!(response.status(), Status::Ok);
         let body = response.into_string().expect("json body");
         let parsed: CreatePasteResponse = serde_json::from_str(&body).expect("parse");
-        assert!(parsed.path.starts_with('/'));
+        assert_eq!(parsed.path, format!("/p/{}", parsed.id));
         assert_eq!(parsed.path, parsed.shareable_url);
 
         // Fetch the paste to ensure it was stored.
         let get_response = client.get(&parsed.path).dispatch();
         assert_eq!(get_response.status(), Status::Ok);
+    }
+
+    #[test]
+    fn share_and_legacy_html_routes_use_the_same_access_policy() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(store)).expect("client");
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "same guarded content",
+                    "encryption": {"algorithm": "aes256_gcm", "key": "route-key"}
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+        let legacy_path = format!("/{}", created.id);
+        assert_eq!(created.path, format!("/p/{}", created.id));
+
+        for path in [&created.path, &legacy_path] {
+            let prompt = client.get(path).dispatch();
+            assert_eq!(prompt.status(), Status::Ok);
+            let prompt = prompt.into_string().expect("key prompt");
+            assert!(prompt.contains("Encryption key"));
+            assert!(!prompt.contains("same guarded content"));
+
+            let content = client.get(format!("{path}?key=route-key")).dispatch();
+            assert_eq!(content.status(), Status::Ok);
+            assert!(content
+                .into_string()
+                .expect("guarded content")
+                .contains("same guarded content"));
+        }
     }
 
     #[test]
@@ -2109,6 +2884,53 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_and_user_listing_routes_enforce_read_limits() {
+        fn limited_client() -> Client {
+            let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+            let api_key_store: SharedApiKeyStore = Arc::new(SqliteApiKeyStore::disabled());
+            Client::tracked(build_rocket_with_components(
+                store,
+                api_key_store,
+                PasteRateLimiter::new(None, Some(1)),
+                StaticAuthTokens::default(),
+                FeaturePolicy::default(),
+                BlockedPasteIds::default(),
+                None,
+            ))
+            .expect("client")
+        }
+
+        let stats_client = limited_client();
+        assert_eq!(
+            stats_client.get("/api/stats/summary").dispatch().status(),
+            Status::Ok
+        );
+        assert_eq!(
+            stats_client.get("/api/stats/summary").dispatch().status(),
+            Status::TooManyRequests
+        );
+
+        let user_client = limited_client();
+        let (session_token, _) = login(&user_client);
+        assert_eq!(
+            user_client
+                .get("/api/user/pastes")
+                .header(bearer(&session_token))
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+        assert_eq!(
+            user_client
+                .get("/api/user/pastes")
+                .header(bearer(&session_token))
+                .dispatch()
+                .status(),
+            Status::TooManyRequests
+        );
+    }
+
+    #[test]
     fn health_endpoint_returns_ok_status() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         let rocket = build_rocket(store);
@@ -2125,7 +2947,7 @@ mod tests {
     }
 
     #[test]
-    fn detailed_health_endpoint_checks_services() {
+    fn api_health_is_minimal_and_excludes_dependency_details() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         let rocket = build_rocket(store);
         let client = Client::tracked(rocket).expect("client");
@@ -2134,15 +2956,12 @@ mod tests {
         assert_eq!(response.status(), Status::Ok);
 
         let body = response.into_string().expect("body");
-        let health: DetailedHealthResponse =
-            serde_json::from_str(&body).expect("parse detailed health");
+        let health: serde_json::Value = serde_json::from_str(&body).expect("parse health");
 
-        assert!(!health.status.is_empty());
-        assert!(health.timestamp > 0);
-        assert_eq!(health.services.backend.status, "ok");
-        assert_eq!(health.services.storage.status, "ok");
-        // crypto_verifier status depends on whether service is running
-        assert!(!health.services.crypto_verifier.status.is_empty());
+        assert_eq!(health["status"], "ok");
+        assert!(health["timestamp"].as_i64().is_some_and(|value| value > 0));
+        assert!(health.get("services").is_none());
+        assert!(health.get("commit_message").is_none());
     }
 
     #[test]
@@ -2158,7 +2977,10 @@ mod tests {
             "internal_error"
         );
         assert_eq!(status_to_code(Status::BadGateway), "bad_gateway");
-        assert_eq!(status_to_code(Status::ServiceUnavailable), "error");
+        assert_eq!(
+            status_to_code(Status::ServiceUnavailable),
+            "service_unavailable"
+        );
     }
 
     #[test]
@@ -2240,7 +3062,23 @@ mod tests {
 
         let get = client.get(format!("/api/pastes/{}", created.id)).dispatch();
         assert_eq!(get.status(), Status::Ok);
-        let view: PasteViewResponse = serde_json::from_str(&get.into_string().unwrap()).unwrap();
+        let body = get.into_string().unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&body).unwrap();
+        for sensitive_or_disabled_field in [
+            "accessCount",
+            "bundle",
+            "persistence",
+            "workspace",
+            "attestation",
+            "webhook",
+            "stego",
+        ] {
+            assert!(
+                raw.get(sensitive_or_disabled_field).is_none(),
+                "public response unexpectedly exposed {sensitive_or_disabled_field}"
+            );
+        }
+        let view: PasteViewResponse = serde_json::from_str(&body).unwrap();
         assert_eq!(view.content, "hello");
         assert!(!view.encryption.requires_key);
         assert!(!view.burn_after_reading);
@@ -2257,6 +3095,72 @@ mod tests {
         let body = resp.into_string().unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(!parsed["challenge"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn auth_challenge_and_login_are_rate_limited() {
+        let challenge_store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let challenge_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let challenge_rocket = build_rocket_with_components(
+            challenge_store,
+            challenge_key_store,
+            PasteRateLimiter::new(Some(1), None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let challenge_client = Client::tracked(challenge_rocket).expect("client");
+
+        assert_eq!(
+            challenge_client
+                .get("/api/auth/challenge")
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+        assert_eq!(
+            challenge_client
+                .get("/api/auth/challenge")
+                .dispatch()
+                .status(),
+            Status::TooManyRequests
+        );
+
+        let login_store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let login_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let login_rocket = build_rocket_with_components(
+            login_store,
+            login_key_store,
+            PasteRateLimiter::new(Some(1), None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let login_client = Client::tracked(login_rocket).expect("client");
+        let malformed = json!({"pubkey": "", "signature": "", "challenge": ""}).to_string();
+
+        assert_eq!(
+            login_client
+                .post("/api/auth/login")
+                .header(ContentType::JSON)
+                .body(malformed.clone())
+                .dispatch()
+                .status(),
+            Status::BadRequest
+        );
+        assert_eq!(
+            login_client
+                .post("/api/auth/login")
+                .header(ContentType::JSON)
+                .body(malformed)
+                .dispatch()
+                .status(),
+            Status::TooManyRequests
+        );
     }
 
     #[test]
@@ -2336,6 +3240,7 @@ mod tests {
         let create_resp = client
             .post("/api/pastes")
             .header(ContentType::JSON)
+            .header(bearer(&token))
             .body(
                 json!({
                     "content": "mine",
@@ -2354,6 +3259,7 @@ mod tests {
         assert_eq!(resp.status(), Status::Ok);
         let parsed: serde_json::Value = serde_json::from_str(&resp.into_string().unwrap()).unwrap();
         assert_eq!(parsed["pastes"].as_array().unwrap().len(), 1);
+        assert!(parsed["pastes"][0].get("accessCount").is_none());
     }
 
     #[test]
@@ -2436,7 +3342,8 @@ mod tests {
     #[test]
     fn raw_route_enforces_attestation() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket =
+            build_rocket_with_features(store, FeaturePolicy::default().with_attestations(true));
         let client = Client::tracked(rocket).expect("client");
 
         let payload = json!({
@@ -2478,10 +3385,7 @@ mod tests {
         let payload = json!({
             "content": "burn after raw read",
             "format": "plain_text",
-            "burn_after_reading": true,
-            "webhook": {
-                "url": "https://example.com/webhook"
-            }
+            "burn_after_reading": true
         });
 
         let response = client
@@ -2504,9 +3408,9 @@ mod tests {
     }
 
     #[test]
-    fn stego_builtin_carrier_embeds_and_returns_carrier_image() {
+    fn stego_builtin_internal_policy_round_trips_content() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket = build_rocket_with_features(store, FeaturePolicy::default().with_stego(true));
         let client = Client::tracked(rocket).expect("client");
 
         let payload = json!({
@@ -2531,7 +3435,8 @@ mod tests {
         let created: CreatePasteResponse =
             serde_json::from_str(&create.into_string().unwrap()).unwrap();
 
-        // Fetch via API with key — response must include stego info
+        // The test-only policy exercises legacy decoding without advertising
+        // hidden-carrier metadata in the hardened public response.
         let get = client
             .get(format!("/api/pastes/{}?key=stegokey", created.id))
             .dispatch();
@@ -2539,16 +3444,12 @@ mod tests {
         let view: PasteViewResponse = serde_json::from_str(&get.into_string().unwrap()).unwrap();
         assert_eq!(view.content, "hidden message");
         assert!(view.encryption.requires_key);
-        let stego = view.stego.expect("stego info should be present");
-        assert_eq!(stego.carrier_mime, "image/png");
-        assert!(!stego.carrier_image.is_empty());
-        assert!(!stego.payload_digest.is_empty());
     }
 
     #[test]
     fn stego_without_encryption_returns_bad_request() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket = build_rocket_with_features(store, FeaturePolicy::default().with_stego(true));
         let client = Client::tracked(rocket).expect("client");
 
         let payload = json!({
@@ -2575,10 +3476,12 @@ mod tests {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         // Increase Rocket's JSON body limit so our 1 MB application check is exercised
         // (Rocket's default 1 MiB limit would reject the request before the handler runs)
-        let rocket = build_rocket(store).configure(rocket::Config {
-            limits: Limits::default().limit("json", 10.mebibytes()),
-            ..Default::default()
-        });
+        let rocket = build_rocket_with_features(store, FeaturePolicy::new(false, true)).configure(
+            rocket::Config {
+                limits: Limits::default().limit("json", 10.mebibytes()),
+                ..Default::default()
+            },
+        );
         let client = Client::tracked(rocket).expect("client");
 
         // Build a data URI whose decoded bytes exceed 1 MB
@@ -2614,7 +3517,10 @@ mod tests {
         use sha2::{Digest, Sha256};
 
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(Arc::clone(&store));
+        let rocket = build_rocket_with_features(
+            Arc::clone(&store),
+            FeaturePolicy::default().with_stego(true),
+        );
         let client = Client::tracked(rocket).expect("client");
 
         let payload = json!({
@@ -2663,10 +3569,18 @@ mod tests {
 
     #[test]
     fn admin_create_list_delete_keys_with_bootstrap_token() {
-        std::env::set_var("COPYPASTE_ADMIN_TOKEN", "test-admin-bootstrap");
-
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(None, Some("test-admin-bootstrap".to_string())),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
         let client = Client::tracked(rocket).expect("client");
 
         // Create a key
@@ -2711,6 +3625,32 @@ mod tests {
         let deleted: RevokeApiKeyResponse =
             serde_json::from_str(&delete_resp.into_string().unwrap()).unwrap();
         assert!(deleted.revoked);
+    }
+
+    #[test]
+    fn static_admin_starts_with_dynamic_key_management_disabled() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore = Arc::new(SqliteApiKeyStore::disabled());
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(None, Some("static-admin".to_string())),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client
+            .post("/api/admin/keys")
+            .header(ContentType::JSON)
+            .header(bearer("static-admin"))
+            .body(json!({"name": "must-not-be-ephemeral", "scope": "write"}).to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::ServiceUnavailable);
+        let body = response.into_string().expect("error response");
+        assert!(body.contains("Dynamic API-key management is disabled"));
     }
 
     // ── Auth system adversarial tests ─────────────────────────────────────────
@@ -2771,6 +3711,91 @@ mod tests {
             )
             .dispatch();
         assert_eq!(resp.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn auth_login_rejects_signed_but_unissued_challenge() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(store)).expect("client");
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let challenge = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let signature = signing_key.sign(challenge.as_bytes());
+
+        let response = client
+            .post("/api/auth/login")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "pubkey": BASE64_STANDARD.encode(signing_key.verifying_key().as_bytes()),
+                    "signature": BASE64_STANDARD.encode(signature.to_bytes()),
+                    "challenge": challenge
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(response.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn auth_login_challenge_cannot_be_replayed() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(store)).expect("client");
+        let challenge_response = client.get("/api/auth/challenge").dispatch();
+        let challenge_json: serde_json::Value = serde_json::from_str(
+            &challenge_response
+                .into_string()
+                .expect("challenge response body"),
+        )
+        .expect("challenge response JSON");
+        let challenge = challenge_json["challenge"]
+            .as_str()
+            .expect("challenge")
+            .to_string();
+        let signing_key = SigningKey::from_bytes(&[8u8; 32]);
+        let signature = signing_key.sign(challenge.as_bytes());
+        let body = json!({
+            "pubkey": BASE64_STANDARD.encode(signing_key.verifying_key().as_bytes()),
+            "signature": BASE64_STANDARD.encode(signature.to_bytes()),
+            "challenge": challenge
+        })
+        .to_string();
+
+        let first = client
+            .post("/api/auth/login")
+            .header(ContentType::JSON)
+            .body(body.clone())
+            .dispatch();
+        assert_eq!(first.status(), Status::Ok);
+
+        let replay = client
+            .post("/api/auth/login")
+            .header(ContentType::JSON)
+            .body(body)
+            .dispatch();
+        assert_eq!(replay.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn auth_login_rejects_oversized_challenge_before_verification() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(store)).expect("client");
+        let response = client
+            .post("/api/auth/login")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "pubkey": BASE64_STANDARD.encode([0u8; 32]),
+                    "signature": BASE64_STANDARD.encode([0u8; 64]),
+                    "challenge": "x".repeat(MAX_AUTH_CHALLENGE_LEN + 1)
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(response.status(), Status::BadRequest);
     }
 
     // ── Tor access control tests ──────────────────────────────────────────────
@@ -2834,10 +3859,18 @@ mod tests {
 
     #[test]
     fn admin_auth_with_no_env_var_rejects_arbitrary_bearer_token() {
-        std::env::remove_var("COPYPASTE_ADMIN_TOKEN");
-
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
         let client = Client::tracked(rocket).expect("client");
 
         // Send a non-empty bearer token; no env var and no key in DB → rejected
@@ -2850,6 +3883,493 @@ mod tests {
             .dispatch();
         // No admin key in DB and env var is unset → Unauthorized (no matching key)
         assert_eq!(resp.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn configured_write_auth_token_protects_both_create_routes() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(Some("private-write-token".to_string()), None),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let body = json!({"content": "protected", "format": "plain_text"}).to_string();
+
+        assert_eq!(
+            client
+                .post("/api/pastes")
+                .header(ContentType::JSON)
+                .body(body.clone())
+                .dispatch()
+                .status(),
+            Status::Unauthorized
+        );
+        assert_eq!(
+            client
+                .post("/")
+                .header(ContentType::JSON)
+                .body(body.clone())
+                .dispatch()
+                .status(),
+            Status::Unauthorized
+        );
+        assert_eq!(
+            client
+                .post("/api/pastes")
+                .header(ContentType::JSON)
+                .header(bearer("private-write-token"))
+                .body(body)
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+    }
+
+    #[test]
+    fn configured_write_auth_accepts_write_key_and_rejects_read_key() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let (_, write_key) = api_key_store
+            .create_key("writer", super::super::api_keys::ApiScope::Write, None)
+            .expect("write key");
+        let (_, read_key) = api_key_store
+            .create_key("reader", super::super::api_keys::ApiScope::Read, None)
+            .expect("read key");
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(Some("private-write-token".to_string()), None),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let body = json!({"content": "scoped", "format": "plain_text"}).to_string();
+
+        assert_eq!(
+            client
+                .post("/api/pastes")
+                .header(ContentType::JSON)
+                .header(bearer(&write_key))
+                .body(body.clone())
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+        assert_eq!(
+            client
+                .post("/api/pastes")
+                .header(ContentType::JSON)
+                .header(bearer(&read_key))
+                .body(body)
+                .dispatch()
+                .status(),
+            Status::Forbidden
+        );
+    }
+
+    #[test]
+    fn required_write_auth_accepts_static_admin_token() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(None, Some("private-admin-token".to_string()))
+                .with_required_write_auth(true),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+
+        assert_eq!(
+            client
+                .post("/api/pastes")
+                .header(ContentType::JSON)
+                .header(bearer("private-admin-token"))
+                .body(json!({"content": "admin-authorized"}).to_string())
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+    }
+
+    #[test]
+    fn required_write_auth_rejects_self_service_session_by_default() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::default().with_required_write_auth(true),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let (token, _) = login(&client);
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .header(bearer(&token))
+            .body(json!({"content": "not-authorized"}).to_string())
+            .dispatch();
+
+        assert_eq!(response.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn required_write_auth_accepts_session_only_with_explicit_opt_in() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            Arc::clone(&store),
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::default()
+                .with_required_write_auth(true)
+                .with_session_writes(true),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let body = json!({"content": "session-owned", "owner_pubkey_hash": "spoofed"}).to_string();
+        let anonymous = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(body.clone())
+            .dispatch();
+        assert_eq!(anonymous.status(), Status::Unauthorized);
+
+        let (token, pubkey_hash) = login(&client);
+        let created = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .header(bearer(&token))
+            .body(body)
+            .dispatch();
+        assert_eq!(created.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&created.into_string().unwrap()).unwrap();
+        let stored = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(store.get_paste(&created.id))
+            .expect("stored paste");
+        assert_eq!(
+            stored.metadata.owner_pubkey_hash.as_deref(),
+            Some(pubkey_hash.as_str())
+        );
+    }
+
+    #[test]
+    fn closed_create_combines_service_admission_with_session_ownership() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            Arc::clone(&store),
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(Some("service-write-token".to_string()), None),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let (session_token, pubkey_hash) = login(&client);
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .header(bearer(&session_token))
+            .header(mutation_write_token("service-write-token"))
+            .body(json!({"content": "owned and admitted"}).to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+        let stored = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(store.get_paste(&created.id))
+            .expect("stored paste");
+        assert_eq!(
+            stored.metadata.owner_pubkey_hash.as_deref(),
+            Some(pubkey_hash.as_str())
+        );
+    }
+
+    #[test]
+    fn duplicate_or_blank_write_credentials_fail_closed() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore = Arc::new(SqliteApiKeyStore::disabled());
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(Some("service-write-token".to_string()), None),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let body = json!({"content": "must not be admitted"}).to_string();
+
+        let blank = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .header(mutation_write_token("   "))
+            .body(body.clone())
+            .dispatch();
+        assert_eq!(blank.status(), Status::Unauthorized);
+
+        let mut duplicate_admission_request = client.post("/api/pastes");
+        duplicate_admission_request.add_header(ContentType::JSON);
+        duplicate_admission_request.add_header(mutation_write_token("service-write-token"));
+        duplicate_admission_request.add_header(mutation_write_token("service-write-token"));
+        let duplicate_admission = duplicate_admission_request.body(body.clone()).dispatch();
+        assert_eq!(duplicate_admission.status(), Status::Unauthorized);
+
+        let mut duplicate_authorization_request = client.post("/api/pastes");
+        duplicate_authorization_request.add_header(ContentType::JSON);
+        duplicate_authorization_request.add_header(bearer("service-write-token"));
+        duplicate_authorization_request.add_header(bearer("service-write-token"));
+        let duplicate_authorization = duplicate_authorization_request.body(body).dispatch();
+        assert_eq!(duplicate_authorization.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn anchor_route_requires_admin_auth_before_lookup() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(store)).expect("client");
+        let response = client
+            .post("/api/pastes/not-a-real-id/anchor")
+            .header(ContentType::JSON)
+            .body("{}")
+            .dispatch();
+        assert_eq!(response.status(), Status::Unauthorized);
+    }
+
+    #[test]
+    fn admin_moderation_is_metadata_only_and_can_delete_exact_id() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            Arc::clone(&store),
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(None, Some("moderator-token".to_string())),
+            FeaturePolicy::new(true, false).with_attestations(true),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let content_secret = "CONTENT_SHOULD_NEVER_BE_IN_MODERATION_JSON";
+        let attestation_secret = "ATTESTATION_SHOULD_NEVER_LEAK";
+        let webhook_secret = "https://hooks.example.com/private-webhook-token";
+        let created = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": content_secret,
+                    "format": "markdown",
+                    "attestation": {"kind": "totp", "secret": attestation_secret},
+                    "webhook": {"url": webhook_secret},
+                    "workspace": "trust-and-safety"
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(created.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&created.into_string().unwrap()).unwrap();
+
+        let unauthenticated = client
+            .get(format!("/api/admin/pastes/{}", created.id))
+            .dispatch();
+        assert_eq!(unauthenticated.status(), Status::Unauthorized);
+
+        let metadata_response = client
+            .get(format!("/api/admin/pastes/{}", created.id))
+            .header(bearer("moderator-token"))
+            .dispatch();
+        assert_eq!(metadata_response.status(), Status::Ok);
+        let metadata_body = metadata_response.into_string().expect("metadata body");
+        assert!(!metadata_body.contains(content_secret));
+        assert!(!metadata_body.contains(attestation_secret));
+        assert!(!metadata_body.contains(webhook_secret));
+        assert!(!metadata_body.contains("trust-and-safety"));
+        assert!(!metadata_body.contains("\"accessCount\""));
+        let metadata: AdminPasteMetadataResponse =
+            serde_json::from_str(&metadata_body).expect("moderation metadata JSON");
+        assert_eq!(metadata.id, created.id);
+        assert_eq!(metadata.approximate_stored_bytes, content_secret.len());
+        assert!(metadata.has_attestation);
+        assert!(metadata.has_webhook);
+        assert!(metadata.has_workspace);
+        assert!(!metadata.encrypted);
+
+        let delete_response = client
+            .delete(format!("/api/admin/pastes/{}", created.id))
+            .header(bearer("moderator-token"))
+            .dispatch();
+        assert_eq!(delete_response.status(), Status::Ok);
+        let deleted: AdminDeletePasteResponse =
+            serde_json::from_str(&delete_response.into_string().unwrap()).unwrap();
+        assert!(deleted.deleted);
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        assert!(matches!(
+            runtime.block_on(store.get_paste(&created.id)),
+            Err(PasteError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn blocked_paste_ids_are_hidden_from_public_routes_but_visible_to_admin() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let metadata = PasteMetadata::default();
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "quarantined".to_string(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: current_timestamp(),
+            expires_at: None,
+            burn_after_reading: false,
+            bundle: None,
+            bundle_parent: None,
+            bundle_label: None,
+            not_before: None,
+            not_after: None,
+            persistence: None,
+            webhook: None,
+            metadata,
+            is_live: true,
+            owner_token_hash: Some(hex::encode(Sha256::digest(b"owner-token"))),
+        };
+        let id = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(store.create_paste(paste))
+            .expect("create quarantined paste");
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(None, Some("moderator-token".to_string())),
+            FeaturePolicy::default(),
+            BlockedPasteIds::from_csv(&id).expect("valid blocked id"),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+
+        assert_eq!(
+            client.get(format!("/api/pastes/{id}")).dispatch().status(),
+            Status::NotFound
+        );
+        assert_eq!(
+            client.get(format!("/{id}")).dispatch().status(),
+            Status::NotFound
+        );
+        assert_eq!(
+            client.get(format!("/raw/{id}")).dispatch().status(),
+            Status::NotFound
+        );
+        assert_eq!(
+            client
+                .put(format!("/api/pastes/{id}"))
+                .header(ContentType::JSON)
+                .header(bearer("owner-token"))
+                .body(json!({"content": "tampered after quarantine"}).to_string())
+                .dispatch()
+                .status(),
+            Status::NotFound
+        );
+        assert_eq!(
+            client
+                .patch(format!("/api/pastes/{id}/finalize"))
+                .header(bearer("owner-token"))
+                .dispatch()
+                .status(),
+            Status::NotFound
+        );
+        assert_eq!(
+            client
+                .post(format!("/api/pastes/{id}/anchor"))
+                .header(ContentType::JSON)
+                .header(bearer("moderator-token"))
+                .body("{}")
+                .dispatch()
+                .status(),
+            Status::NotFound
+        );
+        assert_eq!(
+            client
+                .get(format!("/api/admin/pastes/{id}"))
+                .header(bearer("moderator-token"))
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+    }
+
+    #[test]
+    fn rocket_does_not_trust_forwarded_ip_headers_unless_configured() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let default_rocket = build_rocket_with_components(
+            Arc::clone(&store),
+            Arc::clone(&api_key_store),
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        assert!(default_rocket.figment().find_value("ip_header").is_ok());
+        let default_client = Client::tracked(default_rocket).expect("default client");
+        assert!(default_client.rocket().config().ip_header.is_none());
+
+        let fly_rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            Some("Fly-Client-IP".to_string()),
+        );
+        let fly_client = Client::tracked(fly_rocket).expect("fly client");
+        assert_eq!(
+            fly_client
+                .rocket()
+                .config()
+                .ip_header
+                .as_ref()
+                .map(|header| header.as_str()),
+            Some("Fly-Client-IP")
+        );
     }
 
     // ── Time lock HTTP enforcement ─────────────────────────────────────────────
@@ -2943,7 +4463,8 @@ mod tests {
     #[test]
     fn show_route_attestation_without_code_renders_prompt() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket =
+            build_rocket_with_features(store, FeaturePolicy::default().with_attestations(true));
         let client = Client::tracked(rocket).expect("client");
 
         let create_resp = client
@@ -2973,7 +4494,8 @@ mod tests {
     #[test]
     fn show_route_attestation_wrong_secret_renders_prompt() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket =
+            build_rocket_with_features(store, FeaturePolicy::default().with_attestations(true));
         let client = Client::tracked(rocket).expect("client");
 
         let create_resp = client
@@ -3007,7 +4529,8 @@ mod tests {
     #[test]
     fn show_route_attestation_correct_secret_shows_content() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket =
+            build_rocket_with_features(store, FeaturePolicy::default().with_attestations(true));
         let client = Client::tracked(rocket).expect("client");
 
         let create_resp = client
@@ -3096,6 +4619,54 @@ mod tests {
         assert!(parsed["pastes"].as_array().unwrap().is_empty());
     }
 
+    #[test]
+    fn paste_ownership_is_derived_from_session_not_client_input() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(Arc::clone(&store))).expect("client");
+
+        let anonymous = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "anonymous",
+                    "owner_pubkey_hash": "spoofed-victim-hash"
+                })
+                .to_string(),
+            )
+            .dispatch();
+        let anonymous: CreatePasteResponse =
+            serde_json::from_str(&anonymous.into_string().unwrap()).unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let anonymous_stored = runtime
+            .block_on(store.get_paste(&anonymous.id))
+            .expect("anonymous paste");
+        assert!(anonymous_stored.metadata.owner_pubkey_hash.is_none());
+
+        let (token, pubkey_hash) = login(&client);
+        let authenticated = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .header(bearer(&token))
+            .body(
+                json!({
+                    "content": "authenticated",
+                    "owner_pubkey_hash": "another-spoofed-hash"
+                })
+                .to_string(),
+            )
+            .dispatch();
+        let authenticated: CreatePasteResponse =
+            serde_json::from_str(&authenticated.into_string().unwrap()).unwrap();
+        let authenticated_stored = runtime
+            .block_on(store.get_paste(&authenticated.id))
+            .expect("authenticated paste");
+        assert_eq!(
+            authenticated_stored.metadata.owner_pubkey_hash.as_deref(),
+            Some(pubkey_hash.as_str())
+        );
+    }
+
     // ── Input validation tests ─────────────────────────────────────────────────
 
     #[test]
@@ -3104,7 +4675,7 @@ mod tests {
         let rocket = build_rocket(store);
         let client = Client::tracked(rocket).expect("client");
 
-        let content = "a".repeat(10_485_761);
+        let content = "a".repeat(1_048_577);
         let payload = json!({ "content": content, "format": "plain_text" });
 
         let resp = client
@@ -3121,7 +4692,7 @@ mod tests {
         let rocket = build_rocket(store);
         let client = Client::tracked(rocket).expect("client");
 
-        let content = "a".repeat(10_485_760);
+        let content = "a".repeat(1_048_576);
         let payload = json!({ "content": content, "format": "plain_text" });
 
         let resp = client
@@ -3168,19 +4739,16 @@ mod tests {
     }
 
     #[test]
-    fn create_api_rejects_bundle_exceeding_child_limit() {
+    fn create_api_rejects_all_bundle_requests() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         let rocket = build_rocket(store);
         let client = Client::tracked(rocket).expect("client");
 
-        let children: Vec<_> = (0..51)
-            .map(|i| json!({ "content": format!("child {}", i) }))
-            .collect();
         let payload = json!({
             "content": "bundle parent",
             "format": "plain_text",
             "encryption": { "algorithm": "aes256_gcm", "key": "bundlekey" },
-            "bundle": { "children": children }
+            "bundle": { "children": [{"content": "child"}] }
         });
 
         let resp = client
@@ -3188,13 +4756,69 @@ mod tests {
             .header(ContentType::JSON)
             .body(payload.to_string())
             .dispatch();
-        assert_eq!(resp.status(), Status::BadRequest);
+        assert_eq!(resp.status(), Status::Forbidden);
+    }
+
+    #[test]
+    fn legacy_bundle_child_pointers_are_not_exposed() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let metadata = PasteMetadata {
+            bundle: Some(crate::BundleMetadata {
+                children: vec![crate::BundlePointer {
+                    id: "blocked-child-sensitive-id".to_string(),
+                    label: Some("sensitive child".to_string()),
+                }],
+            }),
+            persistence: Some(PersistenceLocator::Vault {
+                key_path: "secret/legacy/paste-location".to_string(),
+            }),
+            ..Default::default()
+        };
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "legacy parent".to_string(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: current_timestamp(),
+            expires_at: None,
+            burn_after_reading: false,
+            bundle: metadata.bundle.clone(),
+            bundle_parent: None,
+            bundle_label: None,
+            not_before: None,
+            not_after: None,
+            persistence: None,
+            webhook: None,
+            metadata,
+            is_live: false,
+            owner_token_hash: None,
+        };
+        let id = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(store.create_paste(paste))
+            .expect("store legacy bundle parent");
+        let client = Client::tracked(build_rocket(store)).expect("client");
+
+        let api = client.get(format!("/api/pastes/{id}")).dispatch();
+        assert_eq!(api.status(), Status::Ok);
+        let api_body = api.into_string().expect("API response");
+        assert!(!api_body.contains("blocked-child-sensitive-id"));
+        let parsed: serde_json::Value = serde_json::from_str(&api_body).unwrap();
+        assert!(parsed.get("bundle").is_none());
+        assert!(parsed.get("persistence").is_none());
+
+        let html = client.get(format!("/{id}")).dispatch();
+        assert_eq!(html.status(), Status::Ok);
+        let html_body = html.into_string().expect("HTML response");
+        assert!(!html_body.contains("blocked-child-sensitive-id"));
+        assert!(!html_body.contains("secret/legacy/paste-location"));
+        assert!(!html_body.contains("Persistence:"));
     }
 
     #[test]
     fn stego_uploaded_rejects_invalid_mime_type() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket = build_rocket_with_features(store, FeaturePolicy::new(false, true));
         let client = Client::tracked(rocket).expect("client");
 
         let data_uri = format!(
@@ -3218,8 +4842,17 @@ mod tests {
 
     #[test]
     fn stego_uploaded_rejects_oversized_data_uri_string() {
+        use rocket::data::{Limits, ToByteUnit};
+
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        // Test-only legacy policy and raised transport limit let the inner
+        // defense be exercised; production rejects this feature outright.
+        let rocket = build_rocket_with_features(store, FeaturePolicy::new(false, true)).configure(
+            rocket::Config {
+                limits: Limits::default().limit("json", 12.mebibytes()),
+                ..Default::default()
+            },
+        );
         let client = Client::tracked(rocket).expect("client");
 
         // data_uri string length > 10_000_000; '!' is invalid base64, so without
@@ -3334,12 +4967,48 @@ mod tests {
         assert_eq!(compat.status(), Status::Ok);
     }
 
+    #[test]
+    fn raw_route_accepts_key_via_header_and_header_wins_over_query() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "raw header secret",
+                    "format": "plain_text",
+                    "encryption": { "algorithm": "aes256_gcm", "key": "headerpass" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+
+        let ok = client
+            .get(format!("/raw/{}", created.id))
+            .header(rocket::http::Header::new("X-Paste-Key", "headerpass"))
+            .dispatch();
+        assert_eq!(ok.status(), Status::Ok);
+        assert_eq!(ok.into_string().as_deref(), Some("raw header secret"));
+
+        let forbidden = client
+            .get(format!("/raw/{}?key=headerpass", created.id))
+            .header(rocket::http::Header::new("X-Paste-Key", "wrong"))
+            .dispatch();
+        assert_eq!(forbidden.status(), Status::Forbidden);
+    }
+
     // ── Webhook SSRF validation at paste creation ──────────────────────────────
 
     #[test]
     fn create_api_rejects_ssrf_webhook_urls_with_structured_400() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let rocket = build_rocket_with_features(store, FeaturePolicy::new(true, false));
         let client = Client::tracked(rocket).expect("client");
 
         for url in [
@@ -3406,6 +5075,20 @@ mod tests {
     }
 
     #[test]
+    fn create_api_rejects_retention_that_cannot_fit_timestamp() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(json!({ "content": "x", "retention_minutes": u64::MAX }).to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::BadRequest);
+    }
+
+    #[test]
     fn create_api_applies_default_retention_when_none_requested() {
         std::env::set_var("COPYPASTE_RETENTION_DEFAULT_MINUTES", "30");
 
@@ -3440,13 +5123,19 @@ mod tests {
 
     #[test]
     fn create_rate_limit_returns_429_when_exceeded() {
-        std::env::set_var("COPYPASTE_RATE_LIMIT_CREATES", "2");
-
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
-        let rocket = build_rocket(store);
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(Some(2), None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
         let client = Client::tracked(rocket).expect("client");
-
-        std::env::remove_var("COPYPASTE_RATE_LIMIT_CREATES");
 
         let body = json!({ "content": "rate", "format": "plain_text" }).to_string();
         for _ in 0..2 {
@@ -3468,7 +5157,7 @@ mod tests {
     // ── Workspace persistence & listing ────────────────────────────────────────
 
     #[test]
-    fn workspace_is_persisted_and_returned_in_view_response() {
+    fn workspace_is_stored_but_not_echoed_by_public_view_response() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         let rocket = build_rocket(Arc::clone(&store));
         let client = Client::tracked(rocket).expect("client");
@@ -3496,12 +5185,14 @@ mod tests {
             .expect("paste should exist");
         assert_eq!(stored.metadata.workspace.as_deref(), Some("team-alpha"));
 
-        // Surfaced in the JSON view response.
+        // Workspace labels are available only through owner/admin-scoped
+        // endpoints, never echoed by the public content response.
         let view_resp = client.get(format!("/api/pastes/{}", created.id)).dispatch();
         assert_eq!(view_resp.status(), Status::Ok);
-        let view: PasteViewResponse =
+        let view: serde_json::Value =
             serde_json::from_str(&view_resp.into_string().unwrap()).unwrap();
-        assert_eq!(view.workspace.as_deref(), Some("team-alpha"));
+        assert!(view.get("workspace").is_none());
+        assert!(view.get("persistence").is_none());
     }
 
     #[test]
@@ -3516,11 +5207,13 @@ mod tests {
 
         let (token, pubkey_hash) = login(&client);
 
-        // One paste owned by the session in the workspace, one owned by someone else.
+        // One authenticated paste owned by the session and one anonymous paste.
         for (owner, content) in [(pubkey_hash.as_str(), "mine"), ("someone_else", "theirs")] {
-            let resp = client
-                .post("/api/pastes")
-                .header(ContentType::JSON)
+            let mut request = client.post("/api/pastes").header(ContentType::JSON);
+            if content == "mine" {
+                request = request.header(bearer(&token));
+            }
+            let resp = request
                 .body(
                     json!({
                         "content": content,
@@ -3606,6 +5299,190 @@ mod tests {
         let view: PasteViewResponse = serde_json::from_str(&view.into_string().unwrap()).unwrap();
         assert_eq!(view.content, "live v2");
         assert!(view.is_live);
+    }
+
+    #[test]
+    fn closed_update_requires_service_admission_and_owner_capability() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(Some("service-write-token".to_string()), None),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .header(bearer("service-write-token"))
+            .body(json!({"content": "live v1", "live": true}).to_string())
+            .dispatch();
+        assert_eq!(create.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+        let owner_token = created.token.expect("ownership token");
+        let update_body = json!({"content": "live v2"}).to_string();
+
+        // Ownership alone never grants admission to a closed service.
+        let owner_only = client
+            .put(format!("/api/pastes/{}", created.id))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .body(update_body.clone())
+            .dispatch();
+        assert_eq!(owner_only.status(), Status::Unauthorized);
+
+        // Service admission alone never substitutes for paste ownership.
+        let admission_only = client
+            .put(format!("/api/pastes/{}", created.id))
+            .header(ContentType::JSON)
+            .header(mutation_write_token("service-write-token"))
+            .body(update_body.clone())
+            .dispatch();
+        assert_eq!(admission_only.status(), Status::Unauthorized);
+
+        let mut duplicate_owner_request = client.put(format!("/api/pastes/{}", created.id));
+        duplicate_owner_request.add_header(ContentType::JSON);
+        duplicate_owner_request.add_header(bearer(&owner_token));
+        duplicate_owner_request.add_header(bearer(&owner_token));
+        duplicate_owner_request.add_header(mutation_write_token("service-write-token"));
+        let duplicate_owner = duplicate_owner_request.body(update_body.clone()).dispatch();
+        assert_eq!(duplicate_owner.status(), Status::Unauthorized);
+
+        let admitted_owner = client
+            .put(format!("/api/pastes/{}", created.id))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .header(mutation_write_token("service-write-token"))
+            .body(update_body)
+            .dispatch();
+        assert_eq!(admitted_owner.status(), Status::Ok);
+    }
+
+    #[test]
+    fn live_updates_share_the_mutation_rate_limit() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(Some(2), None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let (id, owner_token) = create_live_paste(&client);
+
+        // Creation consumed one request; the first update consumes the second.
+        let first = client
+            .put(format!("/api/pastes/{id}"))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .body(json!({"content": "live v2"}).to_string())
+            .dispatch();
+        assert_eq!(first.status(), Status::Ok);
+
+        let limited = client
+            .put(format!("/api/pastes/{id}"))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .body(json!({"content": "live v3"}).to_string())
+            .dispatch();
+        assert_eq!(limited.status(), Status::TooManyRequests);
+    }
+
+    #[test]
+    fn closed_finalize_requires_service_admission_and_owner_capability() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(Some("service-write-token".to_string()), None),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .header(bearer("service-write-token"))
+            .body(json!({"content": "live v1", "live": true}).to_string())
+            .dispatch();
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+        let owner_token = created.token.expect("ownership token");
+
+        let owner_only = client
+            .patch(format!("/api/pastes/{}/finalize", created.id))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .body(json!({"live": false}).to_string())
+            .dispatch();
+        assert_eq!(owner_only.status(), Status::Unauthorized);
+
+        let admission_only = client
+            .patch(format!("/api/pastes/{}/finalize", created.id))
+            .header(ContentType::JSON)
+            .header(mutation_write_token("service-write-token"))
+            .body(json!({"live": false}).to_string())
+            .dispatch();
+        assert_eq!(admission_only.status(), Status::Unauthorized);
+
+        let both = client
+            .patch(format!("/api/pastes/{}/finalize", created.id))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .header(mutation_write_token("service-write-token"))
+            .body(json!({"live": false}).to_string())
+            .dispatch();
+        assert_eq!(both.status(), Status::Ok);
+    }
+
+    #[test]
+    fn finalize_shares_the_mutation_rate_limit() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(Some(2), None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let (id, owner_token) = create_live_paste(&client);
+
+        let first = client
+            .patch(format!("/api/pastes/{id}/finalize"))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .body(json!({"live": false}).to_string())
+            .dispatch();
+        assert_eq!(first.status(), Status::Ok);
+
+        let limited = client
+            .patch(format!("/api/pastes/{id}/finalize"))
+            .header(ContentType::JSON)
+            .header(bearer(&owner_token))
+            .body(json!({"live": false}).to_string())
+            .dispatch();
+        assert_eq!(limited.status(), Status::TooManyRequests);
     }
 
     #[test]
@@ -3708,7 +5585,7 @@ mod tests {
     // ── OpenAPI docs ───────────────────────────────────────────────────────────
 
     #[test]
-    fn openapi_json_and_scalar_docs_are_served() {
+    fn openapi_json_is_served_without_interactive_runtime() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         let rocket = build_rocket(store);
         let client = Client::tracked(rocket).expect("client");
@@ -3719,11 +5596,16 @@ mod tests {
             serde_json::from_str(&resp.into_string().unwrap()).expect("valid OpenAPI JSON");
         assert!(doc["paths"]["/api/pastes"].is_object());
         assert!(doc["paths"]["/api/pastes/{id}"].is_object());
-        assert!(doc["components"]["schemas"]["CreatePasteRequest"].is_object());
-
-        let resp = client.get("/api/docs").dispatch();
-        assert_eq!(resp.status(), Status::Ok);
-        let html = resp.into_string().unwrap();
-        assert!(html.contains("<html") || html.contains("scalar"));
+        assert!(doc["paths"]["/p/{id}"].is_object());
+        let create_schema = &doc["components"]["schemas"]["CreatePasteApiSchema"];
+        assert!(create_schema.is_object());
+        for disabled in ["bundle", "attestation", "persistence", "webhook", "stego"] {
+            assert!(create_schema["properties"].get(disabled).is_none());
+        }
+        let description = doc["info"]["description"].as_str().unwrap();
+        assert!(!description.contains("bundle"));
+        assert!(!description.contains("attestation"));
+        assert!(!description.contains("webhook"));
+        assert!(!description.contains("stego"));
     }
 }

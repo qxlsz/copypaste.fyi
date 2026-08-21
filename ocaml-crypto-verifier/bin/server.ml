@@ -10,7 +10,28 @@ let port = try int_of_string (Sys.getenv "PORT") with _ -> 8001
 let host = try Sys.getenv "HOST" with _ -> "::"
 
 let json_content_type = ("Content-Type", "application/json")
-let max_body_bytes = 1_048_576 (* 1 MB *)
+(* A 1 MiB paste appears twice in an encryption verification request: once as
+   JSON-escaped plaintext (up to 6x expansion for control bytes) and once as
+   base64 ciphertext (~4/3x). Keep the verifier bounded while accepting the
+   backend's full advertised limit plus envelope/key overhead. *)
+let max_body_bytes = 8 * 1024 * 1024
+
+let read_body_bounded (body : Cohttp_lwt.Body.t) =
+  let stream = Cohttp_lwt.Body.to_stream body in
+  let buffer = Buffer.create (min max_body_bytes 65_536) in
+  let rec read total =
+    Lwt.bind (Lwt_stream.get stream) (function
+      | None -> Lwt.return (Ok (Buffer.contents buffer))
+      | Some chunk ->
+          let next_total = total + String.length chunk in
+          if next_total > max_body_bytes then
+            Lwt.return (Error `Too_large)
+          else begin
+            Buffer.add_string buffer chunk;
+            read next_total
+          end)
+  in
+  read 0
 
 let respond_json status json =
   let body = Yojson.Safe.to_string json in
@@ -32,11 +53,11 @@ let handle_health (_req : Request.t) (_body : Cohttp_lwt.Body.t) =
   respond_json `OK json
 
 let handle_verify_encryption (_req : Request.t) (body : Cohttp_lwt.Body.t) =
-  Lwt.bind (Cohttp_lwt.Body.to_string body) (fun body_str ->
-    if String.length body_str > max_body_bytes then
+  Lwt.bind (read_body_bounded body) (function
+    | Error `Too_large ->
       respond_json `Bad_request
         (`Assoc [("valid", `Bool false); ("details", `String "request body too large")])
-    else
+    | Ok body_str ->
       let result = match encryption_verification_of_string body_str with
         | Ok ev -> verify_encryption ev
         | Error msg ->
@@ -45,11 +66,11 @@ let handle_verify_encryption (_req : Request.t) (body : Cohttp_lwt.Body.t) =
       respond_json `OK (result_to_json result))
 
 let handle_verify_signature (_req : Request.t) (body : Cohttp_lwt.Body.t) =
-  Lwt.bind (Cohttp_lwt.Body.to_string body) (fun body_str ->
-    if String.length body_str > max_body_bytes then
+  Lwt.bind (read_body_bounded body) (function
+    | Error `Too_large ->
       respond_json `Bad_request
         (`Assoc [("valid", `Bool false); ("details", `String "request body too large")])
-    else
+    | Ok body_str ->
       let result = match signature_verification_of_string body_str with
         | Ok sv -> verify_signature sv
         | Error msg ->

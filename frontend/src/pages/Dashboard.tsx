@@ -6,7 +6,7 @@ import { fetchUserPasteCount, fetchUserPastes } from "../api/client";
 import type { UserPasteListItem } from "../api/types";
 
 export const DashboardPage = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [pasteCount, setPasteCount] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"pastes" | "account">("pastes");
   const [pastes, setPastes] = useState<UserPasteListItem[]>([]);
@@ -48,16 +48,16 @@ export const DashboardPage = () => {
   }, [user]);
 
   const creationTimestamp = user ? new Date(user.createdAt) : null;
-  const keyAlgorithm = "Ed25519 / Curve25519";
-  const keyStrength = "256-bit elliptic curve";
-  const gpgKeyId = user ? user.pubkeyHash.slice(0, 16).toUpperCase() : "";
+  const keyAlgorithm = "Ed25519";
+  const keyStrength = "~128-bit security level";
+  const identityKeyId = user ? user.pubkeyHash.slice(0, 16).toUpperCase() : "";
 
   const loadPastes = useCallback(async () => {
     if (!user) return;
 
     setLoadingPastes(true);
     try {
-      const data = await fetchUserPastes(user.pubkeyHash);
+      const data = await fetchUserPastes(user.pubkeyHash, token);
       setPastes(data.pastes);
     } catch (err) {
       console.error("Failed to fetch user pastes:", err);
@@ -65,11 +65,11 @@ export const DashboardPage = () => {
     } finally {
       setLoadingPastes(false);
     }
-  }, [user]);
+  }, [user, token]);
 
   useEffect(() => {
     if (user) {
-      fetchUserPasteCount(user.pubkeyHash)
+      fetchUserPasteCount(user.pubkeyHash, token)
         .then((data) => setPasteCount(data.pasteCount))
         .catch((err) => {
           console.error("Failed to fetch paste count:", err);
@@ -80,7 +80,7 @@ export const DashboardPage = () => {
       setPasteCount(null);
       setPastes([]);
     }
-  }, [user, loadPastes]);
+  }, [user, token, loadPastes]);
 
   if (!user) {
     return (
@@ -139,7 +139,8 @@ export const DashboardPage = () => {
               Your pastes
             </h3>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              All your created pastes
+              Pastes indexed on this server instance. Durable Redis records may
+              be absent after a restart until a shared ownership index exists.
             </p>
           </div>
           <div className="divide-y divide-border">
@@ -184,11 +185,6 @@ export const DashboardPage = () => {
                               minute: "2-digit",
                             },
                           )}
-                        </span>
-                        <span className="mx-2">•</span>
-                        <span>
-                          {paste.accessCount} view
-                          {paste.accessCount !== 1 ? "s" : ""}
                         </span>
                       </div>
                     </div>
@@ -247,10 +243,10 @@ export const DashboardPage = () => {
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
                 <dt className="text-sm font-medium text-muted-foreground">
-                  GPG Key ID
+                  Identity Key ID
                 </dt>
                 <dd className="mt-1 font-mono text-sm text-text sm:col-span-2 sm:mt-0">
-                  {gpgKeyId}
+                  {identityKeyId}
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
@@ -258,7 +254,7 @@ export const DashboardPage = () => {
                   Key Usage
                 </dt>
                 <dd className="mt-1 text-sm text-text sm:col-span-2 sm:mt-0">
-                  Digital signatures, key exchange
+                  Digital signatures for authentication
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
@@ -266,7 +262,7 @@ export const DashboardPage = () => {
                   Curve Parameters
                 </dt>
                 <dd className="mt-1 font-mono text-sm text-text sm:col-span-2 sm:mt-0">
-                  y² = x³ + 486662x² + x (Curve25519)
+                  Edwards25519 (RFC 8032)
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">

@@ -140,7 +140,6 @@ CRYPTO_PID=$!
 sleep 5
 
 echo "Starting Rocket backend on http://127.0.0.1:8000"
-# Force memory persistence to avoid Redis connection issues
-COPYPASTE_PERSISTENCE_BACKEND=memory ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste
+ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste -- serve
 
 popd >/dev/null

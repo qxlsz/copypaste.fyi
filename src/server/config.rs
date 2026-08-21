@@ -50,6 +50,7 @@ pub struct StorageConfig {
 #[serde(default)]
 pub struct AuthConfig {
     pub token: String,
+    pub require_write_auth: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -80,7 +81,7 @@ impl Default for ServerConfig {
         ServerConfig {
             address: "0.0.0.0".to_string(),
             port: 8000,
-            max_paste_size: "10mb".to_string(),
+            max_paste_size: "1mb".to_string(),
         }
     }
 }
@@ -107,8 +108,8 @@ impl Default for RetentionConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         RateLimitConfig {
-            creates_per_minute: 60,
-            reads_per_minute: 300,
+            creates_per_minute: 10,
+            reads_per_minute: 120,
         }
     }
 }
@@ -138,7 +139,7 @@ impl Config {
             Some(path) => Self::load_from_file(&path)?,
             None => Self::default(),
         };
-        config.apply_env_overrides();
+        config.apply_env_overrides()?;
         config.validate()?;
         Ok(config)
     }
@@ -177,50 +178,65 @@ impl Config {
     }
 
     /// Apply env var overrides on top of whatever was loaded from the config file.
-    /// Env vars always win; missing or invalid env vars are silently ignored.
-    fn apply_env_overrides(&mut self) {
-        if let Ok(v) = std::env::var("COPYPASTE_ADDRESS") {
+    ///
+    /// Environment variables always win. Present-but-invalid values fail startup
+    /// instead of silently falling back to a less restrictive default.
+    fn apply_env_overrides(&mut self) -> Result<(), ConfigError> {
+        if let Some(v) = env_value("COPYPASTE_ADDRESS")? {
             self.server.address = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_PORT") {
-            if let Ok(port) = v.parse() {
-                self.server.port = port;
-            }
+        if let Some(v) = env_value("COPYPASTE_PORT")? {
+            self.server.port = parse_env_value("COPYPASTE_PORT", &v, "an integer from 1 to 65535")?;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_MAX_PASTE_SIZE") {
+        if let Some(v) = env_value("COPYPASTE_MAX_PASTE_SIZE")? {
             self.server.max_paste_size = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_STORAGE_BACKEND") {
+        if let Some(v) = env_value("COPYPASTE_STORAGE_BACKEND")? {
             self.storage.backend = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_STORAGE_PATH") {
+        if let Some(v) = env_value("COPYPASTE_STORAGE_PATH")? {
             self.storage.path = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_AUTH_TOKEN") {
+        if let Some(v) = env_value("COPYPASTE_AUTH_TOKEN")? {
             self.auth.token = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_RETENTION_DEFAULT") {
+        if let Some(v) = env_value("COPYPASTE_REQUIRE_WRITE_AUTH")? {
+            self.auth.require_write_auth = parse_bool(&v)
+                .ok_or_else(|| invalid_env("COPYPASTE_REQUIRE_WRITE_AUTH", "a boolean"))?;
+        }
+        if let Some(v) = env_value("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION")? {
+            parse_bool(&v)
+                .ok_or_else(|| invalid_env("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION", "a boolean"))?;
+        }
+        if let Some(v) = env_value("CRYPTO_VERIFIER_URL")? {
+            super::crypto::validate_verifier_base_url(&v).map_err(|_| {
+                invalid_env(
+                    "CRYPTO_VERIFIER_URL",
+                    "clean HTTPS or HTTP on loopback/Fly private ingress",
+                )
+            })?;
+        }
+        if let Some(v) = env_value("COPYPASTE_RETENTION_DEFAULT")? {
             self.retention.default = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_RETENTION_MAX") {
+        if let Some(v) = env_value("COPYPASTE_RETENTION_MAX")? {
             self.retention.max = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_RATE_LIMIT_CREATES") {
-            if let Ok(n) = v.parse() {
-                self.rate_limit.creates_per_minute = n;
-            }
+        if let Some(v) = env_value("COPYPASTE_RATE_LIMIT_CREATES")? {
+            self.rate_limit.creates_per_minute =
+                parse_env_value("COPYPASTE_RATE_LIMIT_CREATES", &v, "a non-negative integer")?;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_RATE_LIMIT_READS") {
-            if let Ok(n) = v.parse() {
-                self.rate_limit.reads_per_minute = n;
-            }
+        if let Some(v) = env_value("COPYPASTE_RATE_LIMIT_READS")? {
+            self.rate_limit.reads_per_minute =
+                parse_env_value("COPYPASTE_RATE_LIMIT_READS", &v, "a non-negative integer")?;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_LOG_FORMAT") {
+        if let Some(v) = env_value("COPYPASTE_LOG_FORMAT")? {
             self.logging.format = v;
         }
-        if let Ok(v) = std::env::var("COPYPASTE_LOG_LEVEL") {
+        if let Some(v) = env_value("COPYPASTE_LOG_LEVEL")? {
             self.logging.level = v;
         }
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
@@ -229,17 +245,41 @@ impl Config {
                 "server.port must be between 1 and 65535".to_string(),
             ));
         }
-        if parse_duration_minutes(&self.retention.default).is_none() {
+        let max_paste_bytes = parse_byte_size(&self.server.max_paste_size).ok_or_else(|| {
+            ConfigError::ValidationError(format!(
+                "server.max_paste_size must be bytes or a size like '256kb' or '1mb', got '{}'",
+                self.server.max_paste_size
+            ))
+        })?;
+        if max_paste_bytes == 0 || max_paste_bytes > 1024 * 1024 {
+            return Err(ConfigError::ValidationError(
+                "server.max_paste_size must be between 1 byte and 1 MiB".to_string(),
+            ));
+        }
+        if !matches!(self.storage.backend.as_str(), "memory" | "redis") {
             return Err(ConfigError::ValidationError(format!(
-                "retention.default must be a duration like '30m', '24h', '30d', got '{}'",
-                self.retention.default
+                "storage.backend must be 'memory' or 'redis', got '{}'",
+                self.storage.backend
             )));
         }
-        if parse_duration_minutes(&self.retention.max).is_none() {
-            return Err(ConfigError::ValidationError(format!(
+        let retention_default =
+            parse_duration_minutes(&self.retention.default).ok_or_else(|| {
+                ConfigError::ValidationError(format!(
+                    "retention.default must be a duration like '30m', '24h', '30d', got '{}'",
+                    self.retention.default
+                ))
+            })?;
+        let retention_max = parse_duration_minutes(&self.retention.max).ok_or_else(|| {
+            ConfigError::ValidationError(format!(
                 "retention.max must be a duration like '30m', '24h', '30d', got '{}'",
                 self.retention.max
-            )));
+            ))
+        })?;
+        if retention_default == 0 || retention_max == 0 || retention_default > retention_max {
+            return Err(ConfigError::ValidationError(
+                "retention.default and retention.max must be positive, and default must not exceed max"
+                    .to_string(),
+            ));
         }
         let valid_formats = ["json", "pretty"];
         if !valid_formats.contains(&self.logging.format.as_str()) {
@@ -284,13 +324,19 @@ impl Config {
         if std::env::var("COPYPASTE_AUTH_TOKEN").is_err() && !self.auth.token.is_empty() {
             std::env::set_var("COPYPASTE_AUTH_TOKEN", &self.auth.token);
         }
-        // Redis URL, if provided. The Redis persistence adapter reads
-        // UPSTASH_REDIS_REST_URL (Upstash REST API), so bridge storage.url to
-        // that variable; REDIS_URL is kept for backward compatibility.
-        if let Some(url) = &self.storage.url {
-            if std::env::var("REDIS_URL").is_err() {
-                std::env::set_var("REDIS_URL", url);
+        if std::env::var("COPYPASTE_REQUIRE_WRITE_AUTH").is_err() && self.auth.require_write_auth {
+            std::env::set_var("COPYPASTE_REQUIRE_WRITE_AUTH", "true");
+        }
+        // Paste handlers consume an exact byte count. Parse the human-friendly
+        // TOML value once instead of silently falling back to a larger limit.
+        if std::env::var("COPYPASTE_MAX_PASTE_SIZE").is_err() {
+            if let Some(bytes) = parse_byte_size(&self.server.max_paste_size) {
+                std::env::set_var("COPYPASTE_MAX_PASTE_SIZE", bytes.to_string());
             }
+        }
+        // Redis URL, if provided. The Redis persistence adapter speaks the
+        // Upstash HTTPS REST API, not the native redis:// protocol.
+        if let Some(url) = &self.storage.url {
             if std::env::var("UPSTASH_REDIS_REST_URL").is_err() {
                 std::env::set_var("UPSTASH_REDIS_REST_URL", url);
             }
@@ -361,6 +407,62 @@ pub fn parse_duration_minutes(input: &str) -> Option<u64> {
         .and_then(|n| n.checked_mul(multiplier))
 }
 
+fn parse_byte_size(input: &str) -> Option<usize> {
+    let normalized = input.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let (number, multiplier) = if let Some(value) = normalized.strip_suffix("mib") {
+        (value, 1024usize * 1024)
+    } else if let Some(value) = normalized.strip_suffix("mb") {
+        (value, 1024usize * 1024)
+    } else if let Some(value) = normalized.strip_suffix("kib") {
+        (value, 1024usize)
+    } else if let Some(value) = normalized.strip_suffix("kb") {
+        (value, 1024usize)
+    } else if let Some(value) = normalized.strip_suffix('b') {
+        (value, 1usize)
+    } else {
+        (normalized.as_str(), 1usize)
+    };
+
+    number
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .and_then(|value| value.checked_mul(multiplier))
+}
+
+fn parse_bool(input: &str) -> Option<bool> {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn invalid_env(name: &str, expected: &str) -> ConfigError {
+    ConfigError::ValidationError(format!("environment variable {name} must be {expected}"))
+}
+
+fn env_value(name: &str) -> Result<Option<String>, ConfigError> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err(invalid_env(name, "valid UTF-8 without binary data"))
+        }
+    }
+}
+
+fn parse_env_value<T>(name: &str, value: &str, expected: &str) -> Result<T, ConfigError>
+where
+    T: std::str::FromStr,
+{
+    value.parse().map_err(|_| invalid_env(name, expected))
+}
+
 // — Example config ——————————————————————————————————————
 
 pub const EXAMPLE_CONFIG: &str = r#"# copypaste.fyi server configuration
@@ -372,25 +474,28 @@ pub const EXAMPLE_CONFIG: &str = r#"# copypaste.fyi server configuration
 [server]
 address = "0.0.0.0"        # COPYPASTE_ADDRESS  — bind address
 port = 8000                 # COPYPASTE_PORT     — listen port
-max_paste_size = "10mb"     # COPYPASTE_MAX_PASTE_SIZE
+max_paste_size = "1mb"      # COPYPASTE_MAX_PASTE_SIZE
 
 [storage]
-backend = "memory"          # COPYPASTE_STORAGE_BACKEND — memory | redis | vault
+backend = "memory"          # COPYPASTE_STORAGE_BACKEND — memory | redis
 path = "./copypaste.db"     # COPYPASTE_STORAGE_PATH
-# For Redis: backend = "redis", url = "redis://localhost:6379"
+# For Redis: backend = "redis", url = "https://<database>.upstash.io"
+# Set UPSTASH_REDIS_REST_TOKEN separately through a secret manager.
 
 [auth]
 token = ""                  # COPYPASTE_AUTH_TOKEN
                             # If non-empty, all write requests require:
-                            #   Authorization: Bearer <token>
+                            #   X-CopyPaste-Write-Token: <token>
+require_write_auth = false  # COPYPASTE_REQUIRE_WRITE_AUTH
+                            # true rejects anonymous writes even without a token
 
 [retention]
 default = "24h"             # COPYPASTE_RETENTION_DEFAULT — default paste lifetime
 max = "30d"                 # COPYPASTE_RETENTION_MAX    — maximum allowed lifetime
 
 [rate_limit]
-creates_per_minute = 60     # COPYPASTE_RATE_LIMIT_CREATES
-reads_per_minute = 300      # COPYPASTE_RATE_LIMIT_READS
+creates_per_minute = 10     # COPYPASTE_RATE_LIMIT_CREATES
+reads_per_minute = 120      # COPYPASTE_RATE_LIMIT_READS
 
 [logging]
 format = "json"             # COPYPASTE_LOG_FORMAT — "json" or "pretty"
@@ -421,11 +526,12 @@ mod tests {
         let c = Config::default();
         assert_eq!(c.server.port, 8000);
         assert_eq!(c.server.address, "0.0.0.0");
-        assert_eq!(c.server.max_paste_size, "10mb");
+        assert_eq!(c.server.max_paste_size, "1mb");
         assert_eq!(c.storage.backend, "memory");
         assert!(c.auth.token.is_empty());
         assert_eq!(c.retention.default, "24h");
-        assert_eq!(c.rate_limit.creates_per_minute, 60);
+        assert_eq!(c.rate_limit.creates_per_minute, 10);
+        assert_eq!(c.rate_limit.reads_per_minute, 120);
         assert_eq!(c.logging.format, "json");
         assert_eq!(c.logging.level, "info");
     }
@@ -442,6 +548,7 @@ mod tests {
 
     #[test]
     fn load_from_toml_file() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let path = write_temp_config(
             r#"
 [server]
@@ -471,6 +578,54 @@ address = "127.0.0.1"
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(config.server.port, 7777, "env var must win over TOML value");
+    }
+
+    #[test]
+    fn invalid_security_environment_values_fail_startup() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let path = write_temp_config("");
+
+        for (name, value) in [
+            ("COPYPASTE_PORT", "not-a-port"),
+            ("COPYPASTE_REQUIRE_WRITE_AUTH", "sometimes"),
+            ("COPYPASTE_REQUIRE_CRYPTO_VERIFICATION", "maybe"),
+            ("COPYPASTE_RATE_LIMIT_CREATES", "unlimited"),
+            ("COPYPASTE_RATE_LIMIT_READS", "-1"),
+        ] {
+            std::env::set_var(name, value);
+            let error = Config::load(Some(path.to_str().unwrap()))
+                .expect_err("invalid security environment value must fail startup");
+            std::env::remove_var(name);
+
+            let message = error.to_string();
+            assert!(
+                message.contains(name),
+                "error must identify the invalid variable without exposing its value: {message}"
+            );
+            assert!(
+                !message.contains(value),
+                "error must not echo environment values: {message}"
+            );
+        }
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn invalid_crypto_verifier_url_fails_startup_without_echoing_it() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let path = write_temp_config("");
+        let unsafe_url = "http://public.example/secret-path";
+        std::env::set_var("CRYPTO_VERIFIER_URL", unsafe_url);
+
+        let error = Config::load(Some(path.to_str().unwrap()))
+            .expect_err("plaintext public verifier URL must fail startup");
+
+        std::env::remove_var("CRYPTO_VERIFIER_URL");
+        let _ = std::fs::remove_file(path);
+        let message = error.to_string();
+        assert!(message.contains("CRYPTO_VERIFIER_URL"));
+        assert!(!message.contains(unsafe_url));
     }
 
     #[test]
@@ -519,6 +674,15 @@ address = "127.0.0.1"
     }
 
     #[test]
+    fn parse_byte_size_accepts_bounded_human_units() {
+        assert_eq!(parse_byte_size("1024"), Some(1024));
+        assert_eq!(parse_byte_size("256kb"), Some(256 * 1024));
+        assert_eq!(parse_byte_size("1 MiB"), Some(1024 * 1024));
+        assert_eq!(parse_byte_size(""), None);
+        assert_eq!(parse_byte_size("huge"), None);
+    }
+
+    #[test]
     fn validation_rejects_unparsable_retention() {
         let _lock = ENV_LOCK.lock().unwrap();
         std::env::remove_var("COPYPASTE_RETENTION_MAX");
@@ -535,6 +699,26 @@ address = "127.0.0.1"
     }
 
     #[test]
+    fn validation_rejects_invalid_retention_bounds() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("COPYPASTE_RETENTION_DEFAULT");
+        std::env::remove_var("COPYPASTE_RETENTION_MAX");
+
+        for retention in [
+            "[retention]\ndefault = \"0m\"\nmax = \"30d\"\n",
+            "[retention]\ndefault = \"31d\"\nmax = \"30d\"\n",
+        ] {
+            let path = write_temp_config(retention);
+            let result = Config::load(Some(path.to_str().unwrap()));
+            let _ = std::fs::remove_file(&path);
+            assert!(
+                result.is_err(),
+                "invalid retention bounds must fail startup"
+            );
+        }
+    }
+
+    #[test]
     fn bridge_to_env_exports_retention_rate_limit_and_upstash_url() {
         let _lock = ENV_LOCK.lock().unwrap();
         for var in [
@@ -542,7 +726,8 @@ address = "127.0.0.1"
             "COPYPASTE_RETENTION_MAX_MINUTES",
             "COPYPASTE_RATE_LIMIT_CREATES",
             "COPYPASTE_RATE_LIMIT_READS",
-            "REDIS_URL",
+            "COPYPASTE_MAX_PASTE_SIZE",
+            "COPYPASTE_REQUIRE_WRITE_AUTH",
             "UPSTASH_REDIS_REST_URL",
         ] {
             std::env::remove_var(var);
@@ -564,28 +749,28 @@ address = "127.0.0.1"
         );
         assert_eq!(
             std::env::var("COPYPASTE_RATE_LIMIT_CREATES").as_deref(),
-            Ok("60")
+            Ok("10")
         );
         assert_eq!(
             std::env::var("COPYPASTE_RATE_LIMIT_READS").as_deref(),
-            Ok("300")
+            Ok("120")
+        );
+        assert_eq!(
+            std::env::var("COPYPASTE_MAX_PASTE_SIZE").as_deref(),
+            Ok("1048576")
         );
         assert_eq!(
             std::env::var("UPSTASH_REDIS_REST_URL").as_deref(),
             Ok("https://upstash.example.com"),
             "storage.url must bridge to the variable the Redis adapter reads"
         );
-        assert_eq!(
-            std::env::var("REDIS_URL").as_deref(),
-            Ok("https://upstash.example.com")
-        );
-
         for var in [
             "COPYPASTE_RETENTION_DEFAULT_MINUTES",
             "COPYPASTE_RETENTION_MAX_MINUTES",
             "COPYPASTE_RATE_LIMIT_CREATES",
             "COPYPASTE_RATE_LIMIT_READS",
-            "REDIS_URL",
+            "COPYPASTE_MAX_PASTE_SIZE",
+            "COPYPASTE_REQUIRE_WRITE_AUTH",
             "UPSTASH_REDIS_REST_URL",
         ] {
             std::env::remove_var(var);
@@ -611,6 +796,8 @@ address = "127.0.0.1"
         std::env::remove_var("COPYPASTE_RETENTION_DEFAULT_MINUTES");
         std::env::remove_var("COPYPASTE_RATE_LIMIT_CREATES");
         std::env::remove_var("COPYPASTE_RATE_LIMIT_READS");
+        std::env::remove_var("COPYPASTE_MAX_PASTE_SIZE");
+        std::env::remove_var("COPYPASTE_REQUIRE_WRITE_AUTH");
     }
 
     #[test]

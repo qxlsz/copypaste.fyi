@@ -115,7 +115,7 @@ const StatsContent = ({ summary }: StatsContentProps) => {
       <section className="grid gap-6 lg:grid-cols-2">
         <InsightCard
           title="Encryption adoption"
-          description="See how many pastes leverage client-side encryption. Encourage secure defaults when usage is low."
+          description="See how many pastes use server-side encryption. Encourage secure defaults when usage is low."
           value={`${summary.encryptionUsage.reduce((acc, item) => acc + item.count, 0)} encrypted pastes`}
         />
         <InsightCard

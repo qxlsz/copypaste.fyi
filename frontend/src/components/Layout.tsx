@@ -126,9 +126,9 @@ export const Layout = () => {
               ⌘K
             </span>
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (user) {
-                  logout();
+                  await logout();
                   navigate("/");
                 } else {
                   navigate("/login");

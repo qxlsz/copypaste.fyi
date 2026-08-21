@@ -4,7 +4,7 @@ use copypaste::{
 
 #[tokio::test]
 async fn store_round_trip_plain() {
-    let store = create_paste_store();
+    let store = create_paste_store().expect("paste store should initialize");
     let metadata = PasteMetadata::default();
     let paste = StoredPaste {
         content: StoredContent::Plain {
@@ -26,7 +26,10 @@ async fn store_round_trip_plain() {
         owner_token_hash: None,
     };
 
-    let id = store.create_paste(paste.clone()).await;
+    let id = store
+        .create_paste(paste.clone())
+        .await
+        .expect("create paste");
     let stored = store.get_paste(&id).await.expect("paste should exist");
     assert!(matches!(stored.content, StoredContent::Plain { .. }));
     assert_eq!(stored.format, paste.format);
@@ -34,7 +37,7 @@ async fn store_round_trip_plain() {
 
 #[tokio::test]
 async fn store_expired_returns_error() {
-    let store = create_paste_store();
+    let store = create_paste_store().expect("paste store should initialize");
     let metadata = PasteMetadata::default();
     let paste = StoredPaste {
         content: StoredContent::Plain {
@@ -56,13 +59,13 @@ async fn store_expired_returns_error() {
         owner_token_hash: None,
     };
 
-    let id = store.create_paste(paste).await;
+    let id = store.create_paste(paste).await.expect("create paste");
     assert!(store.get_paste(&id).await.is_err());
 }
 
 #[tokio::test]
 async fn store_handles_encrypted_variant() {
-    let store = create_paste_store();
+    let store = create_paste_store().expect("paste store should initialize");
     let metadata = PasteMetadata::default();
     let paste = StoredPaste {
         content: StoredContent::Encrypted {
@@ -87,7 +90,7 @@ async fn store_handles_encrypted_variant() {
         owner_token_hash: None,
     };
 
-    let id = store.create_paste(paste).await;
+    let id = store.create_paste(paste).await.expect("create paste");
     let stored = store
         .get_paste(&id)
         .await
@@ -97,7 +100,7 @@ async fn store_handles_encrypted_variant() {
 
 #[tokio::test]
 async fn store_handles_chacha_variant() {
-    let store = create_paste_store();
+    let store = create_paste_store().expect("paste store should initialize");
     let metadata = PasteMetadata::default();
     let paste = StoredPaste {
         content: StoredContent::Encrypted {
@@ -122,7 +125,7 @@ async fn store_handles_chacha_variant() {
         owner_token_hash: None,
     };
 
-    let id = store.create_paste(paste).await;
+    let id = store.create_paste(paste).await.expect("create paste");
     let stored = store
         .get_paste(&id)
         .await

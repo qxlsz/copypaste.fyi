@@ -115,9 +115,13 @@ export const MonacoEditor = ({
     }
 
     let cancelled = false;
-    import("@monaco-editor/react")
-      .then((module) => {
+    Promise.all([
+      import("@monaco-editor/react"),
+      import("./monacoEnvironment"),
+    ])
+      .then(([module, { configureMonaco }]) => {
         if (!cancelled) {
+          module.loader.config({ monaco: configureMonaco() });
           setEditorModule(module);
         }
       })

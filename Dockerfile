@@ -10,7 +10,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ─── Stage 2: Build Rust binary ───────────────────────────────────────────────
-FROM rust:1.84-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
@@ -20,7 +20,7 @@ COPY static/index.html ./static/
 # Cache deps layer
 RUN cargo build --release --locked --bin copypaste
 # Prepare /data with correct ownership for distroless nonroot (UID 65532)
-RUN mkdir -p /data && chown 65532:65532 /data
+RUN mkdir -p /data && chown 65532:65532 /data && chmod 0700 /data
 
 # ─── Stage 3: Runtime (distroless — no shell, runs as nonroot UID 65532) ─────
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime

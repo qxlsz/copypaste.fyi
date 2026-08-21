@@ -12,6 +12,6 @@ if ! command -v cargo &>/dev/null; then
 fi
 
 echo "Starting Rocket backend on http://127.0.0.1:8000 ..."
-ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste
+ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8000 cargo run --bin copypaste -- serve
 
 popd >/dev/null

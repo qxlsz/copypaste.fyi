@@ -13,12 +13,13 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use urlencoding::encode;
 
 async fn rocket_client() -> Client {
-    Client::tracked(build_rocket(create_paste_store()))
-        .await
-        .expect("valid rocket instance")
+    Client::tracked(build_rocket(
+        create_paste_store().expect("paste store should initialize"),
+    ))
+    .await
+    .expect("valid rocket instance")
 }
 
 async fn rocket_client_with_store(store: SharedPasteStore) -> Client {
@@ -59,7 +60,7 @@ async fn post_encrypted_requires_key() {
     let payload = json!({
         "content": "secret text",
         "format": "markdown",
-        "retention_minutes": 0,
+        "retention_minutes": 60,
         "encryption": {
             "algorithm": "aes256_gcm",
             "key": "passphrase"
@@ -78,7 +79,7 @@ async fn post_encrypted_requires_key() {
 
     let without_key = client.get(&path).dispatch().await;
     let without_body = without_key.into_string().await.expect("html");
-    assert!(without_body.contains("Provide the encryption key"));
+    assert!(without_body.contains("Encryption key"));
 
     let with_key = client
         .get(format!("{}?key=passphrase", path))
@@ -118,7 +119,7 @@ async fn raw_endpoint_requires_key_for_encrypted_content() {
         owner_token_hash: None,
     };
 
-    let id = store.create_paste(paste).await;
+    let id = store.create_paste(paste).await.expect("create paste");
     let client = rocket_client_with_store(store.clone()).await;
 
     let missing_key = client.get(format!("/raw/{}", id)).dispatch().await;
@@ -140,7 +141,7 @@ async fn raw_endpoint_requires_key_for_encrypted_content() {
 }
 
 #[rocket::async_test]
-async fn shared_secret_attestation_enforced() {
+async fn shared_secret_attestation_fails_closed_in_hardened_builder() {
     let store: SharedPasteStore = Arc::new(MemoryPasteStore::default());
     let secret = "trust-me";
     let mut hasher = Sha256::new();
@@ -173,26 +174,11 @@ async fn shared_secret_attestation_enforced() {
         owner_token_hash: None,
     };
 
-    let id = store.create_paste(paste).await;
+    let id = store.create_paste(paste).await.expect("create paste");
     let client = rocket_client_with_store(store.clone()).await;
 
-    let missing = client.get(format!("/{}", id)).dispatch().await;
-    let missing_html = missing.into_string().await.expect("html");
-    assert!(missing_html.contains("Additional verification required"));
-
-    let wrong = client
-        .get(format!("/{id}?attest=incorrect"))
-        .dispatch()
-        .await;
-    let wrong_html = wrong.into_string().await.expect("html");
-    assert!(wrong_html.contains("Verification failed"));
-
-    let ok = client
-        .get(format!("/{id}?attest={}", encode(secret)))
-        .dispatch()
-        .await;
-    let ok_html = ok.into_string().await.expect("html");
-    assert!(ok_html.contains("attested"));
+    let response = client.get(format!("/{}", id)).dispatch().await;
+    assert_eq!(response.status(), Status::ServiceUnavailable);
 }
 
 #[rocket::async_test]
@@ -277,7 +263,7 @@ async fn time_locked_paste_is_protected() {
         owner_token_hash: None,
     };
 
-    let id = store.create_paste(paste).await;
+    let id = store.create_paste(paste).await.expect("create paste");
     let client = rocket_client_with_store(store.clone()).await;
 
     let gated = client.get(format!("/{id}")).dispatch().await;
@@ -290,7 +276,7 @@ async fn time_locked_paste_is_protected() {
 }
 
 #[rocket::async_test]
-async fn bundle_creation_requires_encryption() {
+async fn bundle_creation_is_disabled() {
     let client = rocket_client().await;
     let payload = json!({
         "content": "parent plain",
@@ -309,13 +295,13 @@ async fn bundle_creation_requires_encryption() {
         .dispatch()
         .await;
 
-    assert_eq!(response.status(), Status::BadRequest);
+    assert_eq!(response.status(), Status::Forbidden);
     let message = response.into_string().await.expect("error body");
-    assert!(message.contains("require an encryption key"));
+    assert!(message.contains("Bundles are disabled"));
 }
 
 #[rocket::async_test]
-async fn bundle_creation_renders_children() {
+async fn encrypted_bundle_creation_is_still_disabled() {
     let client = rocket_client().await;
     let payload = json!({
         "content": "parent encrypted",
@@ -341,17 +327,9 @@ async fn bundle_creation_renders_children() {
         .dispatch()
         .await;
 
-    assert_eq!(response.status(), Status::Ok);
-    let path = response.into_string().await.expect("path body");
-
-    let html_response = client
-        .get(format!("{}?key=bundle-pass", path))
-        .dispatch()
-        .await;
-    assert_eq!(html_response.status(), Status::Ok);
-    let html = html_response.into_string().await.expect("html body");
-    assert!(html.contains("Bundle shares"));
-    assert!(html.contains("child-one"));
+    assert_eq!(response.status(), Status::Forbidden);
+    let message = response.into_string().await.expect("error body");
+    assert!(message.contains("Bundles are disabled"));
 }
 
 #[rocket::async_test]
@@ -366,35 +344,27 @@ async fn health_endpoint_responds_quickly() {
 }
 
 #[rocket::async_test]
-async fn detailed_health_includes_service_status() {
+async fn api_health_excludes_internal_service_status() {
     let client = rocket_client().await;
     let response = client.get("/api/health").dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let body = response.into_string().await.expect("body");
-    assert!(body.contains("\"services\""));
-    assert!(body.contains("\"backend\""));
-    assert!(body.contains("\"crypto_verifier\""));
-    assert!(body.contains("\"storage\""));
+    let value: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+    assert_eq!(value["status"], "ok");
+    assert!(value.get("services").is_none());
+    assert!(value.get("commit_message").is_none());
 }
 
 #[rocket::async_test]
-async fn detailed_health_overall_status_reflects_crypto_verifier() {
-    // Point CRYPTO_VERIFIER_URL at an unreachable address so crypto_status is "unavailable".
-    // The timeout (2 s) ensures the request fails quickly in CI.
-    std::env::set_var("CRYPTO_VERIFIER_URL", "http://127.0.0.1:19999");
+async fn api_health_does_not_probe_or_disclose_crypto_verifier() {
     let client = rocket_client().await;
     let response = client.get("/api/health").dispatch().await;
     assert_eq!(response.status(), Status::Ok);
     let body = response.into_string().await.expect("body");
     let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
-    // overall_status must not be "ok" when crypto verifier is unreachable
-    assert_ne!(
-        v["status"].as_str().unwrap_or(""),
-        "ok",
-        "overall_status should not be ok when crypto verifier is unavailable"
-    );
-    std::env::remove_var("CRYPTO_VERIFIER_URL");
+    assert_eq!(v["status"], "ok");
+    assert!(v.get("services").is_none());
 }
 
 #[rocket::async_test]

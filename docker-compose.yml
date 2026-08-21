@@ -8,8 +8,27 @@ services:
       - data:/data
     environment:
       COPYPASTE_AUTH_TOKEN: "${COPYPASTE_AUTH_TOKEN:-}"
+      COPYPASTE_ADMIN_TOKEN: "${COPYPASTE_ADMIN_TOKEN:-}"
+      COPYPASTE_BLOCKED_PASTE_IDS: "${COPYPASTE_BLOCKED_PASTE_IDS:-}"
+      COPYPASTE_PERSISTENCE_BACKEND: "${COPYPASTE_PERSISTENCE_BACKEND:-memory}"
+      UPSTASH_REDIS_REST_URL: "${UPSTASH_REDIS_REST_URL:-}"
+      UPSTASH_REDIS_REST_TOKEN: "${UPSTASH_REDIS_REST_TOKEN:-}"
+      COPYPASTE_ALLOWED_ORIGINS: "${COPYPASTE_ALLOWED_ORIGINS:-https://copypaste.fyi,https://www.copypaste.fyi,http://127.0.0.1:5173,http://localhost:5173}"
+      COPYPASTE_RATE_LIMIT_CREATES: "${COPYPASTE_RATE_LIMIT_CREATES:-10}"
+      COPYPASTE_RATE_LIMIT_READS: "${COPYPASTE_RATE_LIMIT_READS:-120}"
+      COPYPASTE_MAX_PASTE_SIZE: "${COPYPASTE_MAX_PASTE_SIZE:-1048576}"
+      # Local development remains open unless an operator opts into API-key auth.
+      COPYPASTE_REQUIRE_WRITE_AUTH: "${COPYPASTE_REQUIRE_WRITE_AUTH:-false}"
+      COPYPASTE_ALLOW_SESSION_WRITES: "${COPYPASTE_ALLOW_SESSION_WRITES:-false}"
+      COPYPASTE_ALLOW_WEBHOOKS: "false"
+      COPYPASTE_ALLOW_ATTESTATIONS: "false"
+      COPYPASTE_ALLOW_UPLOADED_STEGO: "false"
+      COPYPASTE_ALLOW_STEGO: "false"
+      COPYPASTE_REQUIRE_CRYPTO_VERIFICATION: "${COPYPASTE_REQUIRE_CRYPTO_VERIFICATION:-true}"
       ROCKET_LOG_LEVEL: "${ROCKET_LOG_LEVEL:-normal}"
-      CRYPTO_VERIFIER_URL: "http://crypto-verifier:8001"
+      CRYPTO_VERIFIER_URL: "http://crypto-verifier.internal:8001"
+      COPYPASTE_ONION_HOST: "${COPYPASTE_ONION_HOST:-}"
+      COPYPASTE_ONION_INGRESS_TOKEN: "${COPYPASTE_ONION_INGRESS_TOKEN:-}"
     deploy:
       resources:
         limits:
@@ -21,6 +40,7 @@ services:
     restart: unless-stopped
     networks:
       - copypaste-net
+      - verifier-net
 
   crypto-verifier:
     build:
@@ -35,7 +55,9 @@ services:
           cpus: "0.5"
     restart: unless-stopped
     networks:
-      - copypaste-net
+      verifier-net:
+        aliases:
+          - crypto-verifier.internal
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
       interval: 30s
@@ -46,6 +68,9 @@ services:
 networks:
   copypaste-net:
     driver: bridge
+  verifier-net:
+    driver: bridge
+    internal: true
 
 volumes:
   data:

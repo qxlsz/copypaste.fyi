@@ -1,16 +1,25 @@
 use std::env;
+use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use reqwest::Client;
+use reqwest::redirect::Policy;
+use reqwest::{Client, Response, Url};
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use urlencoding::encode;
+use serde_json::{json, Value};
 
 use crate::{PersistenceAdapter, PersistenceError, StoredPaste};
 
 const DEFAULT_KEY_PREFIX: &str = "paste:";
 const KEY_PREFIX_ENV: &str = "COPYPASTE_REDIS_KEY_PREFIX";
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+// Stored encryption fields can expand the validated 1 MiB content limit through
+// base64 and record metadata. Keep Redis responses bounded with ample overhead.
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_KEY_PREFIX_BYTES: usize = 256;
 
 #[derive(Clone)]
 pub struct RedisPersistenceAdapter {
@@ -25,7 +34,6 @@ mod tests {
     use super::*;
     use crate::{EncryptionAlgorithm, PasteFormat, PasteMetadata, StoredContent, StoredPaste};
     use httpmock::prelude::*;
-    use regex::Regex;
     use serde_json::json;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -69,24 +77,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn post_command_sends_authorized_request() {
+    async fn command_uses_json_body_at_base_url_with_authorization() {
         let server = MockServer::start();
         let adapter = test_adapter(&server);
         let key = adapter.key("abc");
-        let encoded_key = urlencoding::encode(&key).into_owned();
 
-        let pattern = Regex::new(&format!(r"^/set/{}/.+", regex::escape(&encoded_key))).unwrap();
+        let expected_key = key.clone();
         let mock = server.mock(move |when, then| {
             when.method(POST)
-                .path_matches(pattern.clone())
-                .header("authorization", "Bearer token");
-            then.status(200);
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["SET", expected_key, "value"]));
+            then.status(200).json_body(json!({"result": "OK"}));
         });
 
-        adapter
-            .post_command("set", &key, &["value"])
+        let result: Option<String> = adapter
+            .execute_command(
+                vec![json!("SET"), json!(&key), json!("value")],
+                &key,
+                RedisOperation::Save,
+            )
             .await
             .expect("post_command should succeed");
+        assert_eq!(result.as_deref(), Some("OK"));
         mock.assert();
     }
 
@@ -95,16 +108,14 @@ mod tests {
         let server = MockServer::start();
         let adapter = test_adapter(&server);
         let key = adapter.key("xyz");
-        let encoded_key = urlencoding::encode(&key).into_owned();
 
-        let value_path = format!("/get/{encoded_key}");
-        let found_path = value_path.clone();
+        let found_key = key.clone();
         let found_mock = server.mock(move |when, then| {
-            when.method(GET)
-                .path(found_path.clone())
-                .header("authorization", "Bearer token");
-            then.status(200)
-                .json_body(json!({"result": "payload", "error": null}));
+            when.method(POST)
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["GET", found_key]));
+            then.status(200).json_body(json!({"result": "payload"}));
         });
 
         let value = adapter
@@ -117,69 +128,95 @@ mod tests {
         let server = MockServer::start();
         let adapter = test_adapter(&server);
         let key = adapter.key("missing");
-        let encoded_key = urlencoding::encode(&key).into_owned();
-        let value_path = format!("/get/{encoded_key}");
-        let not_found_path = value_path.clone();
 
+        let missing_key = key.clone();
         let not_found_mock = server.mock(move |when, then| {
-            when.method(GET)
-                .path(not_found_path.clone())
-                .header("authorization", "Bearer token");
-            then.status(404);
+            when.method(POST)
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["GET", missing_key]));
+            then.status(200).json_body(json!({"result": null}));
         });
 
         let none = adapter
             .get_value(&key)
             .await
-            .expect("404 should map to Ok(None)");
+            .expect("null result should map to Ok(None)");
         assert!(none.is_none());
         not_found_mock.assert();
     }
 
     #[tokio::test]
-    async fn save_and_load_flow_roundtrips_payload() {
+    async fn load_http_404_is_storage_failure_not_missing_key() {
+        let server = MockServer::start();
+        let adapter = test_adapter(&server);
+        let key = adapter.key("misrouted");
+
+        let expected_key = key.clone();
+        let failure = server.mock(move |when, then| {
+            when.method(POST)
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["GET", expected_key]));
+            then.status(404);
+        });
+
+        let error = adapter
+            .get_value(&key)
+            .await
+            .expect_err("HTTP 404 from the provider must fail closed");
+        assert!(matches!(error, PersistenceError::Load(_, _)));
+        failure.assert();
+    }
+
+    #[tokio::test]
+    async fn save_load_and_delete_use_body_commands_without_content_in_url() {
         let server = MockServer::start();
         let adapter = test_adapter(&server);
         let key = adapter.key("roundtrip");
-        let encoded_key = urlencoding::encode(&key).into_owned();
-        let paste = sample_paste();
+        let mut paste = sample_paste();
+        paste.expires_at = None;
+        if let StoredContent::Encrypted { ciphertext, .. } = &mut paste.content {
+            *ciphertext = "url-secret-marker/with?query#fragment".into();
+        }
         let serialized = serde_json::to_string(&paste).unwrap();
-        let setex_pattern =
-            Regex::new(&format!(r"^/setex/{}/.+", regex::escape(&encoded_key))).unwrap();
-        let setex_mock = server.mock(move |when, then| {
+
+        let save_key = key.clone();
+        let save_body = serialized.clone();
+        let save_mock = server.mock(move |when, then| {
             when.method(POST)
-                .path_matches(setex_pattern.clone())
-                .header("authorization", "Bearer token");
-            then.status(200);
+                // Exact root path proves neither serialized content nor the
+                // secret marker was placed in the request target.
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["SET", save_key, save_body]));
+            then.status(200).json_body(json!({"result": "OK"}));
         });
 
-        let get_path = format!("/get/{encoded_key}");
-        let load_path = get_path.clone();
+        let load_key = key.clone();
         let body = serialized.clone();
         let load_mock = server.mock(move |when, then| {
-            when.method(GET)
-                .path(load_path.clone())
-                .header("authorization", "Bearer token");
-            then.status(200).json_body(json!({
-                "result": body,
-                "error": null
-            }));
+            when.method(POST)
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["GET", load_key]));
+            then.status(200).json_body(json!({"result": body}));
         });
 
-        let delete_pattern =
-            Regex::new(&format!(r"^/del/{}$", regex::escape(&encoded_key))).unwrap();
+        let delete_key = key.clone();
         let delete_mock = server.mock(move |when, then| {
             when.method(POST)
-                .path_matches(delete_pattern.clone())
-                .header("authorization", "Bearer token");
-            then.status(200);
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["DEL", delete_key]));
+            then.status(200).json_body(json!({"result": 1}));
         });
 
         adapter
             .save("roundtrip", &paste)
             .await
             .expect("save succeeds");
-        setex_mock.assert();
+        save_mock.assert();
 
         let loaded = adapter
             .load("roundtrip")
@@ -192,6 +229,109 @@ mod tests {
         adapter.delete("roundtrip").await.expect("delete succeeds");
         delete_mock.assert();
     }
+
+    #[tokio::test]
+    async fn expiring_pastes_use_setex_and_keep_payload_in_body() {
+        let server = MockServer::start();
+        let adapter = test_adapter(&server);
+        let paste = sample_paste();
+
+        let mock = server.mock(move |when, then| {
+            when.method(POST)
+                .path("/")
+                .header("authorization", "Bearer token")
+                .body_includes("[\"SETEX\",\"prefix:ttl\",\"")
+                .body_includes("cipher");
+            then.status(200).json_body(json!({"result": "OK"}));
+        });
+
+        adapter.save("ttl", &paste).await.expect("SETEX succeeds");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn already_expired_pastes_are_deleted_instead_of_saved_without_ttl() {
+        let server = MockServer::start();
+        let adapter = test_adapter(&server);
+        let mut paste = sample_paste();
+        paste.expires_at = Some(0);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/")
+                .header("authorization", "Bearer token")
+                .json_body(json!(["DEL", "prefix:expired"]));
+            then.status(200).json_body(json!({"result": 1}));
+        });
+
+        adapter
+            .save("expired", &paste)
+            .await
+            .expect("expired record deletion succeeds");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn provider_errors_do_not_echo_response_content() {
+        let server = MockServer::start();
+        let adapter = test_adapter(&server);
+        let key = adapter.key("error");
+        let marker = "sensitive-provider-echo";
+
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200)
+                .json_body(json!({"error": "sensitive-provider-echo"}));
+        });
+
+        let error = adapter
+            .get_value(&key)
+            .await
+            .expect_err("provider error should fail");
+        assert!(!error.to_string().contains(marker));
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn oversized_responses_are_rejected() {
+        let server = MockServer::start();
+        let adapter = test_adapter(&server);
+        let key = adapter.key("oversized");
+
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200).body("x".repeat(MAX_RESPONSE_BYTES + 1));
+        });
+
+        let error = adapter
+            .get_value(&key)
+            .await
+            .expect_err("oversized response should fail");
+        assert!(error.to_string().contains("exceeded size limit"));
+        mock.assert();
+    }
+
+    #[test]
+    fn production_base_url_requires_clean_https_origin() {
+        assert_eq!(
+            validate_base_url(" https://redis.example.com/ ").as_deref(),
+            Ok("https://redis.example.com")
+        );
+        assert_eq!(
+            validate_base_url("http://127.0.0.1:8079/").as_deref(),
+            Ok("http://127.0.0.1:8079")
+        );
+        for invalid in [
+            "http://redis.example.com",
+            "http://127.0.0.2.example.com",
+            "https://user@redis.example.com",
+            "https://redis.example.com/command",
+            "https://redis.example.com?token=secret",
+            "not a URL",
+        ] {
+            assert!(validate_base_url(invalid).is_err(), "accepted {invalid}");
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -200,18 +340,67 @@ struct RedisResponse<T> {
     error: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+enum RedisOperation {
+    Save,
+    Load,
+    Delete,
+}
+
+impl RedisOperation {
+    fn error(self, key: &str, message: impl Into<String>) -> PersistenceError {
+        match self {
+            Self::Save => PersistenceError::Save(key.to_string(), message.into()),
+            Self::Load => PersistenceError::Load(key.to_string(), message.into()),
+            Self::Delete => PersistenceError::Delete(key.to_string(), message.into()),
+        }
+    }
+}
+
 impl RedisPersistenceAdapter {
     pub fn from_env() -> Result<Arc<dyn PersistenceAdapter>, String> {
-        let base_url = env::var("UPSTASH_REDIS_REST_URL")
-            .map_err(|_| "UPSTASH_REDIS_REST_URL missing".to_string())?;
-        let token = env::var("UPSTASH_REDIS_REST_TOKEN")
-            .map_err(|_| "UPSTASH_REDIS_REST_TOKEN missing".to_string())?;
-        let key_prefix =
-            env::var(KEY_PREFIX_ENV).unwrap_or_else(|_| DEFAULT_KEY_PREFIX.to_string());
+        let base_url = required_unicode_env("UPSTASH_REDIS_REST_URL")?;
+        let token = required_unicode_env("UPSTASH_REDIS_REST_TOKEN")?;
+        let key_prefix = match env::var(KEY_PREFIX_ENV) {
+            Ok(value) => value,
+            Err(env::VarError::NotPresent) => DEFAULT_KEY_PREFIX.to_string(),
+            Err(env::VarError::NotUnicode(_)) => {
+                return Err(format!("{KEY_PREFIX_ENV} must contain valid Unicode"));
+            }
+        };
+
+        let base_url = validate_base_url(&base_url)?;
+        if token.is_empty()
+            || token.len() > 4096
+            || !token.as_bytes().iter().all(|byte| byte.is_ascii_graphic())
+        {
+            return Err(
+                "UPSTASH_REDIS_REST_TOKEN must be a non-empty visible-ASCII token".to_string(),
+            );
+        }
+        if key_prefix.len() > MAX_KEY_PREFIX_BYTES
+            || !key_prefix
+                .as_bytes()
+                .iter()
+                .all(|byte| byte.is_ascii_graphic())
+        {
+            return Err(format!(
+                "{KEY_PREFIX_ENV} must contain at most {MAX_KEY_PREFIX_BYTES} visible-ASCII bytes"
+            ));
+        }
+
+        let client = Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            // Never forward the Redis authorization header or command body to
+            // a different origin through an HTTP redirect.
+            .redirect(Policy::none())
+            .build()
+            .map_err(|error| format!("failed to build Redis HTTP client: {error}"))?;
 
         let adapter = RedisPersistenceAdapter {
-            client: Client::new(),
-            base_url: base_url.trim_end_matches('/').to_string(),
+            client,
+            base_url,
             token,
             key_prefix,
         };
@@ -223,81 +412,109 @@ impl RedisPersistenceAdapter {
         format!("{}{}", self.key_prefix, id)
     }
 
-    async fn post_command(
+    async fn execute_command<T: DeserializeOwned>(
         &self,
-        command: &str,
+        command: Vec<Value>,
         key: &str,
-        extra: &[&str],
-    ) -> Result<(), PersistenceError> {
-        let mut path = format!("{}/{}/{}", self.base_url, command, encode(key));
-        for segment in extra {
-            path.push('/');
-            path.push_str(&encode(segment));
-        }
-
+        operation: RedisOperation,
+    ) -> Result<Option<T>, PersistenceError> {
+        // Upstash accepts the entire Redis command as a JSON array at the base
+        // REST endpoint. In particular, paste JSON must remain in the HTTPS
+        // request body and must never become part of a request target or log.
         let response = self
             .client
-            .post(&path)
+            .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.token))
+            .json(&command)
             .send()
             .await
-            .map_err(|error| PersistenceError::Save(key.to_string(), error.to_string()))?;
+            .map_err(|error| operation.error(key, error.to_string()))?;
 
-        if !response.status().is_success() {
-            let text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "<empty>".to_string());
-            return Err(PersistenceError::Save(
-                key.to_string(),
-                format!("Redis command failed: {}", text),
-            ));
+        let status = response.status();
+        if !status.is_success() {
+            return Err(operation.error(key, format!("Redis command failed with HTTP {status}")));
         }
-
-        Ok(())
-    }
-
-    async fn get_value(&self, key: &str) -> Result<Option<String>, PersistenceError> {
-        let url = format!("{}/get/{}", self.base_url, encode(key));
-
-        let response = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .send()
+        let body = read_bounded_body(response)
             .await
-            .map_err(|error| PersistenceError::Load(key.to_string(), error.to_string()))?;
+            .map_err(|error| operation.error(key, error))?;
 
-        if response.status().as_u16() == 404 {
-            return Ok(None);
-        }
+        let body: RedisResponse<T> = serde_json::from_slice(&body)
+            .map_err(|error| operation.error(key, error.to_string()))?;
 
-        if !response.status().is_success() {
-            let text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "<empty>".to_string());
-            return Err(PersistenceError::Load(
-                key.to_string(),
-                format!("Redis GET failed: {}", text),
-            ));
-        }
-
-        let body: RedisResponse<String> = response
-            .json()
-            .await
-            .map_err(|error| PersistenceError::Load(key.to_string(), error.to_string()))?;
-
-        if let Some(error) = body.error {
-            return Err(PersistenceError::Load(key.to_string(), error));
+        if body.error.is_some() {
+            // Do not copy the provider's message into logs: command errors can
+            // echo arguments, and arguments may contain paste content.
+            return Err(operation.error(key, "Redis command returned an error"));
         }
 
         Ok(body.result)
     }
 
-    async fn delete_key(&self, key: &str) -> Result<(), PersistenceError> {
-        self.post_command("del", key, &[]).await
+    async fn get_value(&self, key: &str) -> Result<Option<String>, PersistenceError> {
+        self.execute_command(vec![json!("GET"), json!(key)], key, RedisOperation::Load)
+            .await
     }
+
+    async fn delete_key(&self, key: &str) -> Result<(), PersistenceError> {
+        let _: Option<u64> = self
+            .execute_command(vec![json!("DEL"), json!(key)], key, RedisOperation::Delete)
+            .await?;
+        Ok(())
+    }
+}
+
+fn required_unicode_env(name: &'static str) -> Result<String, String> {
+    match env::var(name) {
+        Ok(value) => Ok(value),
+        Err(env::VarError::NotPresent) => Err(format!("{name} missing")),
+        Err(env::VarError::NotUnicode(_)) => Err(format!("{name} must contain valid Unicode")),
+    }
+}
+
+fn validate_base_url(value: &str) -> Result<String, String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    let parsed =
+        Url::parse(trimmed).map_err(|_| "UPSTASH_REDIS_REST_URL is invalid".to_string())?;
+    let loopback_http = parsed.scheme() == "http"
+        && parsed.host_str().is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        });
+    if (parsed.scheme() != "https" && !loopback_http)
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(
+            "UPSTASH_REDIS_REST_URL must be a clean HTTPS origin (HTTP is allowed only on loopback) with no credentials, path, query, or fragment".to_string(),
+        );
+    }
+    Ok(trimmed.to_string())
+}
+
+async fn read_bounded_body(mut response: Response) -> Result<Vec<u8>, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+    {
+        return Err("Redis response exceeded size limit".to_string());
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("failed to read Redis response: {error}"))?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            return Err("Redis response exceeded size limit".to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 #[async_trait]
@@ -307,24 +524,45 @@ impl PersistenceAdapter for RedisPersistenceAdapter {
         let serialized = serde_json::to_string(paste)
             .map_err(|error| PersistenceError::Save(id.to_string(), error.to_string()))?;
 
-        let ttl_seconds = paste.expires_at.and_then(|expires_at| {
+        let ttl_seconds = paste.expires_at.map(|expires_at| {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or_default();
-            let remaining = expires_at - now;
-            if remaining > 0 {
-                Some(remaining as u64)
-            } else {
-                None
-            }
+            expires_at - now
         });
 
-        if let Some(ttl) = ttl_seconds {
-            self.post_command("setex", &key, &[&ttl.to_string(), &serialized])
-                .await
+        if ttl_seconds.is_some_and(|ttl| ttl <= 0) {
+            // Never turn an already-expired record into an unbounded SET.
+            let _: Option<u64> = self
+                .execute_command(vec![json!("DEL"), json!(&key)], &key, RedisOperation::Save)
+                .await?;
+            Ok(())
+        } else if let Some(ttl) = ttl_seconds {
+            let result: Option<String> = self
+                .execute_command(
+                    vec![
+                        json!("SETEX"),
+                        json!(&key),
+                        // Redis command arguments are strings in Upstash's
+                        // JSON-body form (and in the local REST shim).
+                        json!((ttl as u64).to_string()),
+                        json!(&serialized),
+                    ],
+                    &key,
+                    RedisOperation::Save,
+                )
+                .await?;
+            expect_ok_result(&key, result)
         } else {
-            self.post_command("set", &key, &[&serialized]).await
+            let result: Option<String> = self
+                .execute_command(
+                    vec![json!("SET"), json!(&key), json!(&serialized)],
+                    &key,
+                    RedisOperation::Save,
+                )
+                .await?;
+            expect_ok_result(&key, result)
         }
     }
 
@@ -342,5 +580,16 @@ impl PersistenceAdapter for RedisPersistenceAdapter {
     async fn delete(&self, id: &str) -> Result<(), PersistenceError> {
         let key = self.key(id);
         self.delete_key(&key).await
+    }
+}
+
+fn expect_ok_result(key: &str, result: Option<String>) -> Result<(), PersistenceError> {
+    if result.as_deref() == Some("OK") {
+        Ok(())
+    } else {
+        Err(PersistenceError::Save(
+            key.to_string(),
+            "Redis save did not return OK".to_string(),
+        ))
     }
 }

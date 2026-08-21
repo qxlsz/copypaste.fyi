@@ -7,6 +7,26 @@ frontend/dist/
 frontend/.vite/
 frontend/coverage/
 
+# Local configuration, credentials, and private key material
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.secret
+*.mnemonic
+*.seed
+*.wallet
+wallet*.json
+secrets/
+blockchain/keystore/
+blockchain/keystores/
+blockchain/wallets/
+
 # OCaml dune builds
 ocaml-crypto-verifier/_build/
 frontend/playwright-report/

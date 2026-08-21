@@ -13,6 +13,37 @@ export const API_BASE = import.meta.env.DEV
   ? "/api"
   : (import.meta.env.VITE_API_BASE ?? "/api");
 
+const requestOrigin = (url: string): string => {
+  const frontendOrigin = globalThis.location?.origin ?? "http://localhost";
+  return new URL(url, frontendOrigin).origin;
+};
+
+const guardedApiHeaderOptions = (
+  url: string,
+  headers: Record<string, string>,
+): Pick<RequestInit, "credentials" | "headers" | "redirect"> => {
+  if (requestOrigin(url) !== requestOrigin(API_BASE)) {
+    throw new Error("Refusing to send secrets outside the API origin");
+  }
+
+  return {
+    credentials: "omit",
+    headers,
+    redirect: "error",
+  };
+};
+
+// Bearer credentials are opt-in per endpoint and are never attached unless the
+// request targets the exact origin configured for the API. This prevents a
+// future absolute-URL refactor from accidentally disclosing a live session.
+const sessionRequestOptions = (
+  url: string,
+  token?: string | null,
+): Pick<RequestInit, "credentials" | "headers" | "redirect"> => {
+  if (!token) return {};
+  return guardedApiHeaderOptions(url, { Authorization: `Bearer ${token}` });
+};
+
 // Typed error thrown for non-2xx API responses so callers can branch on
 // status / machine-readable code instead of matching message strings.
 export class ApiError extends Error {
@@ -37,11 +68,18 @@ const jsonFetch = async <T>(
   try {
     const response = await fetch(input, {
       ...init,
+      // API requests may contain paste bodies, login proofs, or decryption
+      // material even when they do not carry an Authorization header. Never
+      // attach ambient browser credentials and never replay them through an
+      // HTTP redirect.
+      credentials: "omit",
+      redirect: "error",
       headers: {
         "Content-Type": "application/json",
         "X-Requested-With": "XMLHttpRequest",
         ...(init?.headers ?? {}),
       },
+      cache: "no-store",
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -93,12 +131,38 @@ const jsonFetch = async <T>(
 
 export const createPaste = async (
   payload: CreatePastePayload,
+  credentials?: {
+    sessionToken?: string | null;
+    writeCredential?: string | null;
+  },
 ): Promise<CreatePasteResponse> => {
   const url = `${API_BASE}/pastes`;
-  return jsonFetch<CreatePasteResponse>(url, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const credentialHeaders: Record<string, string> = {};
+  if (credentials?.sessionToken) {
+    credentialHeaders.Authorization = `Bearer ${credentials.sessionToken}`;
+  }
+  if (credentials?.writeCredential) {
+    credentialHeaders["X-CopyPaste-Write-Token"] =
+      credentials.writeCredential;
+  }
+  try {
+    return await jsonFetch<CreatePasteResponse>(url, {
+      ...(Object.keys(credentialHeaders).length > 0
+        ? guardedApiHeaderOptions(url, credentialHeaders)
+        : undefined),
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      throw new ApiError(
+        "Posting requires an operator-issued write credential.",
+        401,
+        "write_credential_required",
+      );
+    }
+    throw error;
+  }
 };
 
 export const fetchStatsSummary = async (): Promise<StatsSummary> => {
@@ -110,12 +174,16 @@ export const fetchPaste = async (
   id: string,
   key?: string,
 ): Promise<PasteViewResponse> => {
-  const params = new URLSearchParams();
-  if (key) {
-    params.set("key", key);
-  }
-  const url = `${API_BASE}/pastes/${encodeURIComponent(id)}${params.toString() ? `?${params.toString()}` : ""}`;
-  return jsonFetch<PasteViewResponse>(url);
+  const url = `${API_BASE}/pastes/${encodeURIComponent(id)}`;
+  return jsonFetch<PasteViewResponse>(url, {
+    ...(key ? guardedApiHeaderOptions(url, { "X-Paste-Key": key }) : undefined),
+  });
+};
+
+export const rawPasteUrl = (id: string): string => {
+  const frontendOrigin = globalThis.location?.origin ?? "http://localhost";
+  const apiDirectory = new URL(`${API_BASE.replace(/\/$/, "")}/`, frontendOrigin);
+  return new URL(`../raw/${encodeURIComponent(id)}`, apiDirectory).toString();
 };
 
 export const fetchAuthChallenge = async (): Promise<AuthChallengeResponse> => {
@@ -125,16 +193,22 @@ export const fetchAuthChallenge = async (): Promise<AuthChallengeResponse> => {
 
 export const fetchUserPasteCount = async (
   pubkeyHash: string,
+  token?: string | null,
 ): Promise<{ pasteCount: number }> => {
   const url = `${API_BASE}/user/paste-count?pubkey_hash=${encodeURIComponent(pubkeyHash)}`;
-  return jsonFetch<{ pasteCount: number }>(url);
+  return jsonFetch<{ pasteCount: number }>(url, {
+    ...sessionRequestOptions(url, token),
+  });
 };
 
 export const fetchUserPastes = async (
   pubkeyHash: string,
+  token?: string | null,
 ): Promise<UserPasteListResponse> => {
   const url = `${API_BASE}/user/pastes?pubkey_hash=${encodeURIComponent(pubkeyHash)}`;
-  return jsonFetch<UserPasteListResponse>(url);
+  return jsonFetch<UserPasteListResponse>(url, {
+    ...sessionRequestOptions(url, token),
+  });
 };
 
 export const loginWithSignature = async (
@@ -149,9 +223,12 @@ export const loginWithSignature = async (
   });
 };
 
-export const logoutUser = async (): Promise<{ success: boolean }> => {
+export const logoutUser = async (
+  token?: string | null,
+): Promise<{ success: boolean }> => {
   const url = `${API_BASE}/auth/logout`;
   return jsonFetch<{ success: boolean }>(url, {
+    ...sessionRequestOptions(url, token),
     method: "POST",
     body: JSON.stringify({}),
   });

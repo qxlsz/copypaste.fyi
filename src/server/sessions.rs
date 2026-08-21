@@ -10,6 +10,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use rand::{rngs::OsRng, RngCore};
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome},
@@ -21,6 +23,15 @@ use super::time::current_timestamp;
 /// Lifetime of a login session: 24 hours.
 pub const SESSION_TTL_SECS: i64 = 24 * 60 * 60;
 
+/// Login challenges are deliberately short-lived and single-use.
+pub const CHALLENGE_TTL_SECS: i64 = 5 * 60;
+
+/// Bound unauthenticated challenge state to prevent memory exhaustion.
+const MAX_OUTSTANDING_CHALLENGES: usize = 10_000;
+
+/// Bound authenticated session state to prevent memory exhaustion.
+const MAX_ACTIVE_SESSIONS: usize = 10_000;
+
 #[derive(Debug, Clone)]
 struct Session {
     pubkey_hash: String,
@@ -28,10 +39,14 @@ struct Session {
 }
 
 /// In-memory session store, kept on Rocket managed state (mirrors the
-/// `SharedRateLimiter` pattern in `api_keys.rs`). Expired entries are purged
-/// lazily on every insert.
+/// `SharedRateLimiter` pattern in `api_keys.rs`). To keep normal insertions
+/// O(1), expired entries are purged and the oldest live entry is evicted only
+/// when the relevant map reaches its configured capacity.
 pub struct SessionStore {
     sessions: RwLock<HashMap<String, Session>>,
+    challenges: RwLock<HashMap<String, i64>>,
+    max_active_sessions: usize,
+    max_outstanding_challenges: usize,
 }
 
 pub type SharedSessionStore = Arc<SessionStore>;
@@ -40,6 +55,59 @@ impl SessionStore {
     pub fn new() -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            challenges: RwLock::new(HashMap::new()),
+            max_active_sessions: MAX_ACTIVE_SESSIONS,
+            max_outstanding_challenges: MAX_OUTSTANDING_CHALLENGES,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_capacities(max_active_sessions: usize, max_outstanding_challenges: usize) -> Self {
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            challenges: RwLock::new(HashMap::new()),
+            max_active_sessions: max_active_sessions.max(1),
+            max_outstanding_challenges: max_outstanding_challenges.max(1),
+        }
+    }
+
+    /// Issue and remember a cryptographically random login challenge.
+    pub fn issue_challenge(&self) -> String {
+        let mut bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut bytes);
+        let challenge = URL_SAFE_NO_PAD.encode(bytes);
+        self.insert_challenge_with_expiry(&challenge, current_timestamp() + CHALLENGE_TTL_SECS);
+        challenge
+    }
+
+    fn insert_challenge_with_expiry(&self, challenge: &str, expires_at: i64) {
+        let mut challenges = self.challenges.write().unwrap();
+        if !challenges.contains_key(challenge)
+            && challenges.len() >= self.max_outstanding_challenges
+        {
+            let now = current_timestamp();
+            challenges.retain(|_, expiry| *expiry > now);
+            if challenges.len() >= self.max_outstanding_challenges {
+                if let Some(oldest) = challenges
+                    .iter()
+                    .min_by_key(|(_, expiry)| **expiry)
+                    .map(|(challenge, _)| challenge.clone())
+                {
+                    challenges.remove(&oldest);
+                }
+            }
+        }
+        challenges.insert(challenge.to_owned(), expires_at);
+    }
+
+    /// Atomically consume a valid issued challenge. Unknown, expired, and
+    /// already-consumed challenges all return `false`.
+    pub fn consume_challenge(&self, challenge: &str) -> bool {
+        let now = current_timestamp();
+        let mut challenges = self.challenges.write().unwrap();
+        match challenges.remove(challenge) {
+            Some(expires_at) => expires_at > now,
+            None => false,
         }
     }
 
@@ -49,11 +117,23 @@ impl SessionStore {
     }
 
     /// Register a session token with an explicit expiry timestamp.
-    /// Lazily purges any already-expired sessions.
+    /// At capacity, expired sessions are purged before the oldest live session
+    /// is evicted to make room.
     pub fn insert_with_expiry(&self, token: &str, pubkey_hash: &str, expires_at: i64) {
-        let now = current_timestamp();
         let mut map = self.sessions.write().unwrap();
-        map.retain(|_, session| session.expires_at > now);
+        if !map.contains_key(token) && map.len() >= self.max_active_sessions {
+            let now = current_timestamp();
+            map.retain(|_, session| session.expires_at > now);
+            if map.len() >= self.max_active_sessions {
+                if let Some(oldest) = map
+                    .iter()
+                    .min_by_key(|(_, session)| session.expires_at)
+                    .map(|(token, _)| token.clone())
+                {
+                    map.remove(&oldest);
+                }
+            }
+        }
         map.insert(
             token.to_owned(),
             Session {
@@ -160,13 +240,31 @@ mod tests {
     }
 
     #[test]
-    fn expired_sessions_are_purged_on_insert() {
-        let store = SessionStore::new();
+    fn expired_sessions_are_purged_when_capacity_is_reached() {
+        let store = SessionStore::with_capacities(2, 2);
         store.insert_with_expiry("stale", "hash-b", current_timestamp() - 1);
+        store.insert("active", "hash-c");
         store.insert("fresh", "hash-c");
-        // The stale entry must be gone from the map entirely.
+        // Reaching capacity purges the stale entry before considering a live
+        // session for eviction.
         assert!(!store.remove("stale"));
+        assert_eq!(store.validate("active").as_deref(), Some("hash-c"));
         assert_eq!(store.validate("fresh").as_deref(), Some("hash-c"));
+        assert_eq!(store.sessions.read().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn sessions_are_bounded_and_evict_oldest_at_capacity() {
+        let store = SessionStore::with_capacities(2, 2);
+        let now = current_timestamp();
+        store.insert_with_expiry("oldest", "hash-a", now + 10);
+        store.insert_with_expiry("newer", "hash-b", now + 20);
+        store.insert_with_expiry("newest", "hash-c", now + 30);
+
+        assert!(store.validate("oldest").is_none());
+        assert_eq!(store.validate("newer").as_deref(), Some("hash-b"));
+        assert_eq!(store.validate("newest").as_deref(), Some("hash-c"));
+        assert_eq!(store.sessions.read().unwrap().len(), 2);
     }
 
     #[test]
@@ -176,5 +274,49 @@ mod tests {
         assert!(store.remove("token-2"));
         assert!(store.validate("token-2").is_none());
         assert!(!store.remove("token-2"));
+    }
+
+    #[test]
+    fn challenge_is_single_use() {
+        let store = SessionStore::new();
+        let challenge = store.issue_challenge();
+        assert!(store.consume_challenge(&challenge));
+        assert!(!store.consume_challenge(&challenge));
+    }
+
+    #[test]
+    fn unknown_and_expired_challenges_are_rejected() {
+        let store = SessionStore::new();
+        assert!(!store.consume_challenge("not-issued"));
+
+        store.insert_challenge_with_expiry("expired", current_timestamp() - 1);
+        assert!(!store.consume_challenge("expired"));
+    }
+
+    #[test]
+    fn challenges_are_bounded_and_evict_oldest_at_capacity() {
+        let store = SessionStore::with_capacities(2, 2);
+        let now = current_timestamp();
+        store.insert_challenge_with_expiry("oldest", now + 10);
+        store.insert_challenge_with_expiry("newer", now + 20);
+        store.insert_challenge_with_expiry("newest", now + 30);
+
+        assert!(!store.consume_challenge("oldest"));
+        assert!(store.consume_challenge("newer"));
+        assert!(store.consume_challenge("newest"));
+        assert!(store.challenges.read().unwrap().is_empty());
+    }
+
+    #[test]
+    fn expired_challenges_are_purged_at_capacity_before_live_eviction() {
+        let store = SessionStore::with_capacities(2, 2);
+        let now = current_timestamp();
+        store.insert_challenge_with_expiry("expired", now - 1);
+        store.insert_challenge_with_expiry("active", now + 20);
+        store.insert_challenge_with_expiry("fresh", now + 30);
+
+        assert!(!store.consume_challenge("expired"));
+        assert!(store.consume_challenge("active"));
+        assert!(store.consume_challenge("fresh"));
     }
 }

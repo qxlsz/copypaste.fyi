@@ -20,8 +20,8 @@ use rocket::{
 /// Fixed rate-limit window length.
 const WINDOW: Duration = Duration::from_secs(60);
 
-/// Purge stale windows once the map grows beyond this many client entries.
-const PURGE_THRESHOLD: usize = 10_000;
+/// Hard cap for each per-client counter map.
+const MAX_TRACKED_CLIENTS: usize = 10_000;
 
 /// Per-IP fixed-window counters for paste creates and reads.
 pub struct PasteRateLimiter {
@@ -29,6 +29,7 @@ pub struct PasteRateLimiter {
     reads_per_minute: Option<u32>,
     creates: Mutex<HashMap<String, (u32, Instant)>>,
     reads: Mutex<HashMap<String, (u32, Instant)>>,
+    max_tracked_clients: usize,
 }
 
 impl PasteRateLimiter {
@@ -39,6 +40,22 @@ impl PasteRateLimiter {
             reads_per_minute: reads_per_minute.filter(|n| *n > 0),
             creates: Mutex::new(HashMap::new()),
             reads: Mutex::new(HashMap::new()),
+            max_tracked_clients: MAX_TRACKED_CLIENTS,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_capacity(
+        creates_per_minute: Option<u32>,
+        reads_per_minute: Option<u32>,
+        max_tracked_clients: usize,
+    ) -> Self {
+        Self {
+            creates_per_minute: creates_per_minute.filter(|n| *n > 0),
+            reads_per_minute: reads_per_minute.filter(|n| *n > 0),
+            creates: Mutex::new(HashMap::new()),
+            reads: Mutex::new(HashMap::new()),
+            max_tracked_clients: max_tracked_clients.max(1),
         }
     }
 
@@ -53,25 +70,56 @@ impl PasteRateLimiter {
 
     /// Returns `true` when a create request from `ip` is allowed.
     pub fn allow_create(&self, ip: &str) -> bool {
-        Self::allow(&self.creates, self.creates_per_minute, ip)
+        Self::allow_at(
+            &self.creates,
+            self.creates_per_minute,
+            self.max_tracked_clients,
+            ip,
+            Instant::now(),
+        )
     }
 
     /// Returns `true` when a read request from `ip` is allowed.
     pub fn allow_read(&self, ip: &str) -> bool {
-        Self::allow(&self.reads, self.reads_per_minute, ip)
+        Self::allow_at(
+            &self.reads,
+            self.reads_per_minute,
+            self.max_tracked_clients,
+            ip,
+            Instant::now(),
+        )
     }
 
-    fn allow(map: &Mutex<HashMap<String, (u32, Instant)>>, limit: Option<u32>, ip: &str) -> bool {
+    fn allow_at(
+        map: &Mutex<HashMap<String, (u32, Instant)>>,
+        limit: Option<u32>,
+        max_tracked_clients: usize,
+        ip: &str,
+        now: Instant,
+    ) -> bool {
         let Some(limit) = limit else {
             return true;
         };
         let mut map = map.lock().unwrap();
-        let now = Instant::now();
-        if map.len() > PURGE_THRESHOLD {
-            map.retain(|_, (_, start)| now.duration_since(*start) <= WINDOW);
+
+        // Only pay the O(n) cleanup cost when a new client would reach the
+        // hard cap. Expired windows are removed first; if all tracked windows
+        // are still live, evict the oldest before inserting.
+        if !map.contains_key(ip) && map.len() >= max_tracked_clients {
+            map.retain(|_, (_, start)| now.saturating_duration_since(*start) <= WINDOW);
+            if map.len() >= max_tracked_clients {
+                if let Some(oldest) = map
+                    .iter()
+                    .min_by_key(|(_, (_, start))| *start)
+                    .map(|(client, _)| client.clone())
+                {
+                    map.remove(&oldest);
+                }
+            }
         }
+
         let entry = map.entry(ip.to_owned()).or_insert((0, now));
-        if now.duration_since(entry.1) > WINDOW {
+        if now.saturating_duration_since(entry.1) > WINDOW {
             *entry = (0, now);
         }
         if entry.0 >= limit {
@@ -182,6 +230,75 @@ mod tests {
         assert!(limiter.allow_create("10.0.0.1"));
         assert!(!limiter.allow_create("10.0.0.1"));
         assert!(limiter.allow_create("10.0.0.2"));
+    }
+
+    #[test]
+    fn create_counter_map_is_hard_capped_and_evicts_oldest() {
+        let limiter = PasteRateLimiter::with_capacity(Some(10), None, 2);
+        let base = Instant::now();
+
+        assert!(PasteRateLimiter::allow_at(
+            &limiter.creates,
+            limiter.creates_per_minute,
+            limiter.max_tracked_clients,
+            "oldest",
+            base,
+        ));
+        assert!(PasteRateLimiter::allow_at(
+            &limiter.creates,
+            limiter.creates_per_minute,
+            limiter.max_tracked_clients,
+            "newer",
+            base + Duration::from_secs(1),
+        ));
+        assert!(PasteRateLimiter::allow_at(
+            &limiter.creates,
+            limiter.creates_per_minute,
+            limiter.max_tracked_clients,
+            "newest",
+            base + Duration::from_secs(2),
+        ));
+
+        let map = limiter.creates.lock().unwrap();
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key("oldest"));
+        assert!(map.contains_key("newer"));
+        assert!(map.contains_key("newest"));
+    }
+
+    #[test]
+    fn read_counter_map_purges_expired_before_live_eviction() {
+        let limiter = PasteRateLimiter::with_capacity(None, Some(10), 2);
+        let base = Instant::now();
+        let live = base + WINDOW + Duration::from_secs(1);
+
+        assert!(PasteRateLimiter::allow_at(
+            &limiter.reads,
+            limiter.reads_per_minute,
+            limiter.max_tracked_clients,
+            "expired",
+            base,
+        ));
+        assert!(PasteRateLimiter::allow_at(
+            &limiter.reads,
+            limiter.reads_per_minute,
+            limiter.max_tracked_clients,
+            "active",
+            live,
+        ));
+        assert!(PasteRateLimiter::allow_at(
+            &limiter.reads,
+            limiter.reads_per_minute,
+            limiter.max_tracked_clients,
+            "fresh",
+            live + Duration::from_secs(1),
+        ));
+
+        let map = limiter.reads.lock().unwrap();
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key("expired"));
+        assert!(map.contains_key("active"));
+        assert!(map.contains_key("fresh"));
     }
 
     #[test]

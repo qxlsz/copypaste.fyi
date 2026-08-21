@@ -13,6 +13,19 @@ primary_region = 'iad'
   ROCKET_ADDRESS = '0.0.0.0'
   ROCKET_PORT = '8000'
   RUST_LOG = 'info'
+  COPYPASTE_TRUSTED_IP_HEADER = 'Fly-Client-IP'
+  COPYPASTE_ALLOWED_ORIGINS = 'https://copypaste.fyi,https://www.copypaste.fyi'
+  COPYPASTE_RATE_LIMIT_CREATES = '10'
+  COPYPASTE_RATE_LIMIT_READS = '120'
+  COPYPASTE_MAX_PASTE_SIZE = '1048576'
+  COPYPASTE_REQUIRE_WRITE_AUTH = 'true'
+  COPYPASTE_ALLOW_SESSION_WRITES = 'false'
+  COPYPASTE_ALLOW_WEBHOOKS = 'false'
+  COPYPASTE_ALLOW_ATTESTATIONS = 'false'
+  COPYPASTE_ALLOW_UPLOADED_STEGO = 'false'
+  COPYPASTE_ALLOW_STEGO = 'false'
+  COPYPASTE_PERSISTENCE_BACKEND = 'redis'
+  COPYPASTE_REQUIRE_CRYPTO_VERIFICATION = 'true'
   # crypto-verifier runs in its own process group (separate VM) — reach it via
   # Fly's per-process-group private DNS, not localhost.
   CRYPTO_VERIFIER_URL = 'http://crypto-verifier.process.copypaste-fyi-withered-darkness-575.internal:8001'
@@ -48,9 +61,8 @@ primary_region = 'iad'
     soft_limit = 200
     hard_limit = 250
 
-# crypto-verifier is internal-only: reachable via localhost:8001 within the
-# same Fly.io VM. Removing the public [[services]] block for port 8001 to
-# prevent direct internet access to the OCaml crypto verifier.
+# crypto-verifier is internal-only: its separate process-group VM is reachable
+# over Fly's private network and has no public [[services]] listener.
 
 [processes]
   app = 'copypaste serve'

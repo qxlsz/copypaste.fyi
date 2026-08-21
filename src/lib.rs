@@ -1,16 +1,14 @@
 use std::collections::{BTreeMap, HashMap};
 use std::env;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nanoid::nanoid;
-use rand::seq::SliceRandom;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
 use utoipa::ToSchema;
 
 pub mod server;
@@ -268,19 +266,8 @@ pub enum PasteError {
     NotFound(String),
     #[error("paste expired: {0}")]
     Expired(String),
-}
-
-#[async_trait]
-pub trait PasteStore: Send + Sync + 'static {
-    async fn create_paste(&self, paste: StoredPaste) -> String;
-    async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError>;
-    async fn delete_paste(&self, id: &str) -> bool;
-    async fn get_all_paste_ids(&self) -> Vec<String>;
-    async fn stats(&self) -> StoreStats;
-    /// Replace the content of a live paste (requires ownership token verification at handler level).
-    async fn update_paste(&self, id: &str, content: StoredContent) -> Result<(), PasteError>;
-    /// Mark a live paste as finalized (no longer live).
-    async fn finalize_paste(&self, id: &str) -> Result<(), PasteError>;
+    #[error(transparent)]
+    Persistence(#[from] PersistenceError),
 }
 
 #[derive(Error, Debug)]
@@ -291,6 +278,35 @@ pub enum PersistenceError {
     Load(String, String),
     #[error("persistence delete failed for {0}: {1}")]
     Delete(String, String),
+}
+
+#[derive(Error, Debug)]
+pub enum PasteMutationError {
+    #[error("paste not found: {0}")]
+    NotFound(String),
+    #[error("paste expired: {0}")]
+    Expired(String),
+    #[error("paste finalized: {0}")]
+    Finalized(String),
+    #[error(transparent)]
+    Persistence(#[from] PersistenceError),
+}
+
+#[async_trait]
+pub trait PasteStore: Send + Sync + 'static {
+    async fn create_paste(&self, paste: StoredPaste) -> Result<String, PersistenceError>;
+    async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError>;
+    async fn delete_paste(&self, id: &str) -> Result<bool, PersistenceError>;
+    async fn get_all_paste_ids(&self) -> Vec<String>;
+    async fn stats(&self) -> StoreStats;
+    /// Replace the content of a live paste (requires ownership token verification at handler level).
+    async fn update_paste(
+        &self,
+        id: &str,
+        content: StoredContent,
+    ) -> Result<(), PasteMutationError>;
+    /// Mark a live paste as finalized (no longer live).
+    async fn finalize_paste(&self, id: &str) -> Result<(), PasteMutationError>;
 }
 
 #[async_trait]
@@ -334,6 +350,12 @@ pub struct MemoryPasteStore {
     entries: RwLock<HashMap<String, StoredPaste>>,
     persistence: Option<Arc<dyn PersistenceAdapter>>,
     stats_cache: Mutex<Option<StatsCache>>,
+    // Mutations and persistence cache fills are serialized per paste ID within
+    // this store instance. Persistent multi-instance deployments still need a
+    // distributed CAS/tombstone for global ordering; incident takedowns must
+    // quarantine the ID and roll every instance. The weak map does not retain
+    // locks after the last operation on an ID ends.
+    operation_locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
 }
 
 impl MemoryPasteStore {
@@ -342,6 +364,7 @@ impl MemoryPasteStore {
             entries: RwLock::new(HashMap::new()),
             persistence: None,
             stats_cache: Mutex::new(None),
+            operation_locks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -350,7 +373,20 @@ impl MemoryPasteStore {
             entries: RwLock::new(HashMap::new()),
             persistence: Some(adapter),
             stats_cache: Mutex::new(None),
+            operation_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn operation_lock(&self, id: &str) -> Arc<AsyncMutex<()>> {
+        let mut locks = self.operation_locks.lock().unwrap();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(id).and_then(Weak::upgrade) {
+            return lock;
+        }
+
+        let lock = Arc::new(AsyncMutex::new(()));
+        locks.insert(id.to_string(), Arc::downgrade(&lock));
+        lock
     }
 }
 
@@ -366,7 +402,7 @@ fn is_expired(paste: &StoredPaste) -> bool {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or_default();
-        now > expires_at
+        now >= expires_at
     } else {
         false
     }
@@ -376,83 +412,100 @@ pub(crate) fn bool_is_false(value: &bool) -> bool {
     !*value
 }
 
-const PASTE_ID_ADJECTIVES: &[&str] = &[
-    "stellar", "quantum", "luminous", "neon", "orbital", "cosmic", "radiant", "sonic", "velvet",
-    "ember",
-];
-
-const PASTE_ID_NOUNS: &[&str] = &[
-    "otter", "phoenix", "nebula", "cipher", "comet", "matrix", "falcon", "vertex", "galaxy",
-    "aurora",
-];
-
 fn generate_paste_id(map: &HashMap<String, StoredPaste>) -> String {
-    let mut rng = rand::thread_rng();
-
-    for _ in 0..12 {
-        let adjective = PASTE_ID_ADJECTIVES
-            .choose(&mut rng)
-            .unwrap_or(&PASTE_ID_ADJECTIVES[0]);
-        let noun = PASTE_ID_NOUNS
-            .choose(&mut rng)
-            .unwrap_or(&PASTE_ID_NOUNS[0]);
-        let number: u16 = rng.gen_range(10..100);
-        let candidate = format!("{adjective}-{noun}-{number}");
+    loop {
+        // nanoid's default URL-safe alphabet contains 64 symbols. At 24
+        // characters this carries 144 bits of CSPRNG-backed entropy, making
+        // paste identifiers infeasible to enumerate.
+        let candidate = nanoid!(24);
         if !map.contains_key(&candidate) {
             return candidate;
         }
     }
-
-    nanoid!(10)
 }
 
 #[async_trait]
 impl PasteStore for MemoryPasteStore {
-    async fn create_paste(&self, paste: StoredPaste) -> String {
-        let mut map = self.entries.write().await;
-        let id = generate_paste_id(&map);
-        map.insert(id.clone(), paste.clone());
-        if let Some(adapter) = &self.persistence {
-            let _ = adapter.save(&id, &paste).await;
+    async fn create_paste(&self, paste: StoredPaste) -> Result<String, PersistenceError> {
+        loop {
+            let id = {
+                let map = self.entries.read().await;
+                generate_paste_id(&map)
+            };
+            let operation_lock = self.operation_lock(&id);
+            let _operation = operation_lock.lock().await;
+
+            // An astronomically unlikely random collision may have been
+            // inserted while this task waited for the per-ID lock.
+            if self.entries.read().await.contains_key(&id) {
+                continue;
+            }
+
+            if let Some(adapter) = &self.persistence {
+                // Never acknowledge a paste that the configured durable
+                // backend failed to store. Only the per-ID async operation
+                // lock, never the entries map lock, spans adapter I/O.
+                adapter.save(&id, &paste).await?;
+            }
+            self.entries.write().await.insert(id.clone(), paste);
+            return Ok(id);
         }
-        id
     }
 
     async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError> {
-        let mut map = self.entries.write().await;
-        match map.get(id) {
-            Some(paste) if !is_expired(paste) => Ok(paste.clone()),
-            Some(_) => {
-                map.remove(id);
-                Err(PasteError::Expired(id.to_string()))
+        {
+            let map = self.entries.read().await;
+            if let Some(paste) = map.get(id).filter(|paste| !is_expired(paste)) {
+                return Ok(paste.clone());
             }
-            None => {
-                if let Some(adapter) = &self.persistence {
-                    match adapter.load(id).await {
-                        Ok(Some(paste)) => {
-                            if is_expired(&paste) {
-                                return Err(PasteError::Expired(id.to_string()));
-                            }
-                            map.insert(id.to_string(), paste.clone());
-                            Ok(paste)
-                        }
-                        Ok(None) => Err(PasteError::NotFound(id.to_string())),
-                        Err(_) => Err(PasteError::NotFound(id.to_string())),
-                    }
-                } else {
-                    Err(PasteError::NotFound(id.to_string()))
+        }
+
+        let operation_lock = self.operation_lock(id);
+        let _operation = operation_lock.lock().await;
+
+        // Recheck after waiting: another cache fill or mutation may have
+        // completed while this operation was queued.
+        {
+            let mut map = self.entries.write().await;
+            match map.get(id) {
+                Some(paste) if !is_expired(paste) => return Ok(paste.clone()),
+                Some(_) => {
+                    map.remove(id);
+                    return Err(PasteError::Expired(id.to_string()));
                 }
+                None => {}
             }
+        }
+
+        let Some(adapter) = &self.persistence else {
+            return Err(PasteError::NotFound(id.to_string()));
+        };
+        match adapter.load(id).await? {
+            Some(paste) if !is_expired(&paste) => {
+                self.entries
+                    .write()
+                    .await
+                    .insert(id.to_string(), paste.clone());
+                Ok(paste)
+            }
+            Some(_) => Err(PasteError::Expired(id.to_string())),
+            None => Err(PasteError::NotFound(id.to_string())),
         }
     }
 
-    async fn delete_paste(&self, id: &str) -> bool {
-        let mut map = self.entries.write().await;
-        let existed = map.remove(id).is_some();
+    async fn delete_paste(&self, id: &str) -> Result<bool, PersistenceError> {
+        let operation_lock = self.operation_lock(id);
+        let _operation = operation_lock.lock().await;
+        // Delete durable state first. If that fails, retain the in-memory copy
+        // and propagate the error so callers never claim a takedown succeeded
+        // while the paste can reappear after a restart. Per-ID serialization
+        // within this process prevents an earlier local update save from
+        // completing after this delete.
         if let Some(adapter) = &self.persistence {
-            let _ = adapter.delete(id).await;
+            adapter.delete(id).await?;
         }
-        existed
+        let existed = self.entries.write().await.remove(id).is_some();
+        Ok(existed)
     }
 
     async fn stats(&self) -> StoreStats {
@@ -545,221 +598,134 @@ impl PasteStore for MemoryPasteStore {
         map.keys().cloned().collect()
     }
 
-    async fn update_paste(&self, id: &str, content: StoredContent) -> Result<(), PasteError> {
+    async fn update_paste(
+        &self,
+        id: &str,
+        content: StoredContent,
+    ) -> Result<(), PasteMutationError> {
+        let operation_lock = self.operation_lock(id);
+        let _operation = operation_lock.lock().await;
+        // Work on a clone so a failed durable write cannot partially mutate
+        // the read cache. Never retain an entries map lock across adapter I/O.
+        let updated = {
+            let map = self.entries.read().await;
+            match map.get(id) {
+                Some(paste) if is_expired(paste) => {
+                    return Err(PasteMutationError::Expired(id.to_string()));
+                }
+                Some(paste) if !paste.is_live => {
+                    return Err(PasteMutationError::Finalized(id.to_string()));
+                }
+                Some(paste) => {
+                    let mut updated = paste.clone();
+                    updated.content = content;
+                    updated
+                }
+                None => return Err(PasteMutationError::NotFound(id.to_string())),
+            }
+        };
+
+        if let Some(adapter) = &self.persistence {
+            adapter.save(id, &updated).await?;
+        }
+
         let mut map = self.entries.write().await;
         match map.get_mut(id) {
             Some(paste) if !is_expired(paste) => {
-                paste.content = content;
+                *paste = updated;
                 Ok(())
             }
-            Some(_) => {
-                map.remove(id);
-                Err(PasteError::Expired(id.to_string()))
-            }
-            None => Err(PasteError::NotFound(id.to_string())),
+            Some(_) => Err(PasteMutationError::Expired(id.to_string())),
+            None => Err(PasteMutationError::NotFound(id.to_string())),
         }
     }
 
-    async fn finalize_paste(&self, id: &str) -> Result<(), PasteError> {
+    async fn finalize_paste(&self, id: &str) -> Result<(), PasteMutationError> {
+        let operation_lock = self.operation_lock(id);
+        let _operation = operation_lock.lock().await;
+        // As with content updates, persist a complete modified snapshot before
+        // publishing it to the in-memory read cache.
+        let finalized = {
+            let map = self.entries.read().await;
+            match map.get(id) {
+                Some(paste) if !is_expired(paste) => {
+                    let mut finalized = paste.clone();
+                    finalized.is_live = false;
+                    finalized
+                }
+                Some(_) => return Err(PasteMutationError::Expired(id.to_string())),
+                None => return Err(PasteMutationError::NotFound(id.to_string())),
+            }
+        };
+
+        if let Some(adapter) = &self.persistence {
+            adapter.save(id, &finalized).await?;
+        }
+
         let mut map = self.entries.write().await;
         match map.get_mut(id) {
             Some(paste) if !is_expired(paste) => {
-                paste.is_live = false;
+                *paste = finalized;
                 Ok(())
             }
-            Some(_) => {
-                map.remove(id);
-                Err(PasteError::Expired(id.to_string()))
-            }
-            None => Err(PasteError::NotFound(id.to_string())),
+            Some(_) => Err(PasteMutationError::Expired(id.to_string())),
+            None => Err(PasteMutationError::NotFound(id.to_string())),
         }
     }
 }
 
 pub type SharedPasteStore = Arc<dyn PasteStore>;
 
-pub fn create_paste_store() -> SharedPasteStore {
-    match env::var("COPYPASTE_PERSISTENCE_BACKEND") {
-        Ok(value) if value.eq_ignore_ascii_case("vault") => {
-            if let Ok(adapter) = vault::VaultPersistenceAdapter::from_env() {
-                return Arc::new(MemoryPasteStore::with_persistence(adapter));
-            }
-            Arc::new(MemoryPasteStore::new())
-        }
-        Ok(value) if value.eq_ignore_ascii_case("redis") => {
-            if let Ok(adapter) = RedisPersistenceAdapter::from_env() {
-                return Arc::new(MemoryPasteStore::with_persistence(adapter));
-            }
-            Arc::new(MemoryPasteStore::new())
-        }
-        Ok(value) if value.eq_ignore_ascii_case("memory") || value.trim().is_empty() => {
-            Arc::new(MemoryPasteStore::new())
-        }
-        _ => Arc::new(MemoryPasteStore::new()),
+#[derive(Error, Debug)]
+pub enum PasteStoreInitError {
+    #[error("failed to initialize configured {backend} persistence: {reason}")]
+    ConfiguredBackend {
+        backend: &'static str,
+        reason: String,
+    },
+    #[error("unsupported persistence backend: {0}")]
+    UnsupportedBackend(String),
+    #[error("COPYPASTE_PERSISTENCE_BACKEND must contain valid Unicode")]
+    InvalidBackendValue,
+}
+
+pub fn create_paste_store() -> Result<SharedPasteStore, PasteStoreInitError> {
+    let configured = match env::var("COPYPASTE_PERSISTENCE_BACKEND") {
+        Ok(configured) => configured,
+        Err(env::VarError::NotPresent) => "memory".to_string(),
+        Err(env::VarError::NotUnicode(_)) => return Err(PasteStoreInitError::InvalidBackendValue),
+    };
+    match configured.trim().to_ascii_lowercase().as_str() {
+        "vault" => vault::VaultPersistenceAdapter::from_env()
+            .map(|adapter| {
+                Arc::new(MemoryPasteStore::with_persistence(adapter)) as SharedPasteStore
+            })
+            .map_err(|reason| PasteStoreInitError::ConfiguredBackend {
+                backend: "vault",
+                reason,
+            }),
+        "redis" => RedisPersistenceAdapter::from_env()
+            .map(|adapter| {
+                Arc::new(MemoryPasteStore::with_persistence(adapter)) as SharedPasteStore
+            })
+            .map_err(|reason| PasteStoreInitError::ConfiguredBackend {
+                backend: "redis",
+                reason,
+            }),
+        "memory" | "" => Ok(Arc::new(MemoryPasteStore::new())),
+        _ => Err(PasteStoreInitError::UnsupportedBackend(configured)),
     }
 }
 
 pub mod vault {
-    use super::{PersistenceAdapter, PersistenceError, StoredPaste};
-    use async_trait::async_trait;
-    use reqwest::Client;
-    use serde::Deserialize;
-    use serde_json::json;
-    use std::env;
+    use super::PersistenceAdapter;
     use std::sync::Arc;
 
-    #[derive(Clone)]
-    pub struct VaultPersistenceAdapter {
-        client: Client,
-        addr: String,
-        token: String,
-        mount: String,
-        namespace: Option<String>,
-        key_prefix: String,
-    }
+    pub struct VaultPersistenceAdapter;
 
     impl VaultPersistenceAdapter {
         pub fn from_env() -> Result<Arc<dyn PersistenceAdapter>, String> {
-            let addr = env::var("COPYPASTE_VAULT_ADDR")
-                .map_err(|_| "COPYPASTE_VAULT_ADDR missing".to_string())?;
-            let token = env::var("COPYPASTE_VAULT_TOKEN")
-                .map_err(|_| "COPYPASTE_VAULT_TOKEN missing".to_string())?;
-            let mount = env::var("COPYPASTE_VAULT_MOUNT").unwrap_or_else(|_| "secret".to_string());
-            let namespace = env::var("COPYPASTE_VAULT_NAMESPACE").ok();
-            let key_prefix =
-                env::var("COPYPASTE_VAULT_PREFIX").unwrap_or_else(|_| "copypaste".to_string());
-            let client = Client::builder()
-                .build()
-                .map_err(|e| format!("failed to build vault client: {e}"))?;
-
-            let adapter = VaultPersistenceAdapter {
-                client,
-                addr,
-                token,
-                mount,
-                namespace,
-                key_prefix,
-            };
-
-            let arc: Arc<dyn PersistenceAdapter> = Arc::new(adapter);
-            Ok(arc)
-        }
-
-        fn data_path(&self, id: &str) -> String {
-            format!(
-                "{}/v1/{}/data/{}",
-                self.addr.trim_end_matches('/'),
-                self.mount.trim_matches('/'),
-                self.namespaced_id(id)
-            )
-        }
-
-        fn metadata_path(&self, id: &str) -> String {
-            format!(
-                "{}/v1/{}/metadata/{}",
-                self.addr.trim_end_matches('/'),
-                self.mount.trim_matches('/'),
-                self.namespaced_id(id)
-            )
-        }
-
-        fn namespaced_id(&self, id: &str) -> String {
-            if self.key_prefix.is_empty() {
-                id.to_string()
-            } else {
-                format!("{}/{}", self.key_prefix.trim_matches('/'), id)
-            }
-        }
-
-        fn auth_headers(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-            let builder = builder.header("X-Vault-Token", &self.token);
-            if let Some(ns) = &self.namespace {
-                builder.header("X-Vault-Namespace", ns)
-            } else {
-                builder
-            }
-        }
-    }
-
-    #[derive(Deserialize)]
-    struct VaultReadResponse {
-        data: VaultReadData,
-    }
-
-    #[derive(Deserialize)]
-    struct VaultReadData {
-        data: VaultPayload,
-    }
-
-    #[derive(Deserialize)]
-    struct VaultPayload {
-        payload: String,
-    }
-
-    #[async_trait]
-    impl PersistenceAdapter for VaultPersistenceAdapter {
-        async fn save(&self, id: &str, paste: &StoredPaste) -> Result<(), PersistenceError> {
-            let serialized = serde_json::to_string(paste)
-                .map_err(|e| PersistenceError::Save(id.to_string(), e.to_string()))?;
-            let payload = json!({
-                "data": {
-                    "payload": serialized,
-                }
-            });
-
-            let request = self
-                .auth_headers(self.client.post(self.data_path(id)))
-                .json(&payload);
-
-            request
-                .send()
-                .await
-                .map_err(|e| PersistenceError::Save(id.to_string(), e.to_string()))?
-                .error_for_status()
-                .map_err(|e| PersistenceError::Save(id.to_string(), e.to_string()))?;
-            Ok(())
-        }
-
-        async fn load(&self, id: &str) -> Result<Option<StoredPaste>, PersistenceError> {
-            let request = self.auth_headers(self.client.get(self.data_path(id)));
-            let response = request.send().await;
-            match response {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        let body: VaultReadResponse = resp
-                            .json()
-                            .await
-                            .map_err(|e| PersistenceError::Load(id.to_string(), e.to_string()))?;
-                        let paste: StoredPaste = serde_json::from_str(&body.data.data.payload)
-                            .map_err(|e| PersistenceError::Load(id.to_string(), e.to_string()))?;
-                        Ok(Some(paste))
-                    } else if resp.status().as_u16() == 404 {
-                        Ok(None)
-                    } else {
-                        Err(PersistenceError::Load(
-                            id.to_string(),
-                            format!("unexpected status {}", resp.status()),
-                        ))
-                    }
-                }
-                Err(err) => Err(PersistenceError::Load(id.to_string(), err.to_string())),
-            }
-        }
-
-        async fn delete(&self, id: &str) -> Result<(), PersistenceError> {
-            let request = self.auth_headers(self.client.delete(self.metadata_path(id)));
-            let response = request
-                .send()
-                .await
-                .map_err(|e| PersistenceError::Delete(id.to_string(), e.to_string()))?;
-            if response.status().is_success() || response.status().as_u16() == 404 {
-                Ok(())
-            } else {
-                Err(PersistenceError::Delete(
-                    id.to_string(),
-                    format!("unexpected status {}", response.status()),
-                ))
-            }
+            Err("Vault persistence is disabled in this hardened build".to_string())
         }
     }
 }
@@ -768,22 +734,59 @@ pub mod vault {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use once_cell::sync::Lazy;
     use std::collections::{HashMap, VecDeque};
+    use std::ffi::OsString;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
+    use tokio::sync::{oneshot, Notify};
+
+    static STORE_ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+    struct EnvSnapshot(Vec<(&'static str, Option<OsString>)>);
+
+    impl EnvSnapshot {
+        fn capture(names: &[&'static str]) -> Self {
+            Self(
+                names
+                    .iter()
+                    .map(|name| (*name, std::env::var_os(name)))
+                    .collect(),
+            )
+        }
+    }
+
+    impl Drop for EnvSnapshot {
+        fn drop(&mut self) {
+            for (name, value) in self.0.drain(..) {
+                if let Some(value) = value {
+                    std::env::set_var(name, value);
+                } else {
+                    std::env::remove_var(name);
+                }
+            }
+        }
+    }
 
     #[derive(Default)]
     struct RecordingAdapter {
         saved: Mutex<Vec<String>>,
+        last_saved_paste: Mutex<Option<(String, StoredPaste)>>,
         deleted: Mutex<Vec<String>>,
         load_queue: Mutex<VecDeque<Result<Option<StoredPaste>, PersistenceError>>>,
+        save_error: Mutex<Option<String>>,
+        delete_error: Mutex<Option<String>>,
     }
 
     impl RecordingAdapter {
         fn with_load_results(results: Vec<Result<Option<StoredPaste>, PersistenceError>>) -> Self {
             Self {
                 saved: Mutex::new(Vec::new()),
+                last_saved_paste: Mutex::new(None),
                 deleted: Mutex::new(Vec::new()),
                 load_queue: Mutex::new(results.into_iter().collect()),
+                save_error: Mutex::new(None),
+                delete_error: Mutex::new(None),
             }
         }
 
@@ -798,12 +801,28 @@ mod tests {
         fn take_saved(&self) -> Vec<String> {
             std::mem::take(&mut *self.saved.lock().unwrap())
         }
+
+        fn last_saved_paste(&self) -> Option<(String, StoredPaste)> {
+            self.last_saved_paste.lock().unwrap().clone()
+        }
+
+        fn fail_next_delete(&self, message: &str) {
+            *self.delete_error.lock().unwrap() = Some(message.to_string());
+        }
+
+        fn fail_next_save(&self, message: &str) {
+            *self.save_error.lock().unwrap() = Some(message.to_string());
+        }
     }
 
     #[async_trait]
     impl PersistenceAdapter for RecordingAdapter {
-        async fn save(&self, id: &str, _paste: &StoredPaste) -> Result<(), PersistenceError> {
+        async fn save(&self, id: &str, paste: &StoredPaste) -> Result<(), PersistenceError> {
             self.saved.lock().unwrap().push(id.to_string());
+            *self.last_saved_paste.lock().unwrap() = Some((id.to_string(), paste.clone()));
+            if let Some(message) = self.save_error.lock().unwrap().take() {
+                return Err(PersistenceError::Save(id.to_string(), message));
+            }
             Ok(())
         }
 
@@ -826,6 +845,63 @@ mod tests {
 
         async fn delete(&self, id: &str) -> Result<(), PersistenceError> {
             self.deleted.lock().unwrap().push(id.to_string());
+            if let Some(message) = self.delete_error.lock().unwrap().take() {
+                return Err(PersistenceError::Delete(id.to_string(), message));
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct CoordinatedAdapter {
+        records: Mutex<HashMap<String, StoredPaste>>,
+        block_next_save: AtomicBool,
+        save_started: Notify,
+        release_save: Notify,
+    }
+
+    impl CoordinatedAdapter {
+        fn block_next_save(&self) {
+            self.block_next_save.store(true, Ordering::SeqCst);
+        }
+
+        async fn wait_for_blocked_save(&self) {
+            self.save_started.notified().await;
+        }
+
+        fn release_blocked_save(&self) {
+            self.release_save.notify_one();
+        }
+
+        fn contains(&self, id: &str) -> bool {
+            self.records.lock().unwrap().contains_key(id)
+        }
+
+        fn record(&self, id: &str) -> Option<StoredPaste> {
+            self.records.lock().unwrap().get(id).cloned()
+        }
+    }
+
+    #[async_trait]
+    impl PersistenceAdapter for CoordinatedAdapter {
+        async fn save(&self, id: &str, paste: &StoredPaste) -> Result<(), PersistenceError> {
+            if self.block_next_save.swap(false, Ordering::SeqCst) {
+                self.save_started.notify_one();
+                self.release_save.notified().await;
+            }
+            self.records
+                .lock()
+                .unwrap()
+                .insert(id.to_string(), paste.clone());
+            Ok(())
+        }
+
+        async fn load(&self, id: &str) -> Result<Option<StoredPaste>, PersistenceError> {
+            Ok(self.records.lock().unwrap().get(id).cloned())
+        }
+
+        async fn delete(&self, id: &str) -> Result<(), PersistenceError> {
+            self.records.lock().unwrap().remove(id);
             Ok(())
         }
     }
@@ -848,6 +924,85 @@ mod tests {
             is_live: false,
             owner_token_hash: None,
         }
+    }
+
+    #[test]
+    fn unconfigured_or_explicit_memory_backend_initializes_in_memory_store() {
+        let _lock = STORE_ENV_LOCK.lock().unwrap();
+        let _env = EnvSnapshot::capture(&["COPYPASTE_PERSISTENCE_BACKEND"]);
+
+        std::env::remove_var("COPYPASTE_PERSISTENCE_BACKEND");
+        assert!(create_paste_store().is_ok());
+
+        std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "memory");
+        assert!(create_paste_store().is_ok());
+    }
+
+    #[test]
+    fn explicitly_configured_persistence_never_falls_back_to_memory() {
+        let _lock = STORE_ENV_LOCK.lock().unwrap();
+        let _env = EnvSnapshot::capture(&[
+            "COPYPASTE_PERSISTENCE_BACKEND",
+            "UPSTASH_REDIS_REST_URL",
+            "UPSTASH_REDIS_REST_TOKEN",
+            "COPYPASTE_VAULT_ADDR",
+            "COPYPASTE_VAULT_TOKEN",
+        ]);
+
+        std::env::remove_var("UPSTASH_REDIS_REST_URL");
+        std::env::remove_var("UPSTASH_REDIS_REST_TOKEN");
+        std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "redis");
+        assert!(matches!(
+            create_paste_store(),
+            Err(PasteStoreInitError::ConfiguredBackend {
+                backend: "redis",
+                ..
+            })
+        ));
+
+        std::env::remove_var("COPYPASTE_VAULT_ADDR");
+        std::env::remove_var("COPYPASTE_VAULT_TOKEN");
+        std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "vault");
+        match create_paste_store() {
+            Err(PasteStoreInitError::ConfiguredBackend { backend, reason }) => {
+                assert_eq!(backend, "vault");
+                assert_eq!(
+                    reason,
+                    "Vault persistence is disabled in this hardened build"
+                );
+            }
+            _ => panic!("configured Vault backend must fail closed"),
+        }
+    }
+
+    #[test]
+    fn unknown_persistence_backend_fails_closed() {
+        let _lock = STORE_ENV_LOCK.lock().unwrap();
+        let _env = EnvSnapshot::capture(&["COPYPASTE_PERSISTENCE_BACKEND"]);
+        std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "typo-backend");
+
+        assert!(matches!(
+            create_paste_store(),
+            Err(PasteStoreInitError::UnsupportedBackend(value)) if value == "typo-backend"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_unicode_persistence_backend_fails_closed() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let _lock = STORE_ENV_LOCK.lock().unwrap();
+        let _env = EnvSnapshot::capture(&["COPYPASTE_PERSISTENCE_BACKEND"]);
+        std::env::set_var(
+            "COPYPASTE_PERSISTENCE_BACKEND",
+            OsString::from_vec(vec![0xff]),
+        );
+
+        assert!(matches!(
+            create_paste_store(),
+            Err(PasteStoreInitError::InvalidBackendValue)
+        ));
     }
 
     #[tokio::test]
@@ -874,7 +1029,7 @@ mod tests {
             owner_token_hash: None,
         };
 
-        let id = store.create_paste(paste).await;
+        let id = store.create_paste(paste).await.expect("create paste");
         let stored = store.get_paste(&id).await.expect("paste should exist");
 
         match stored.content {
@@ -907,7 +1062,7 @@ mod tests {
             owner_token_hash: None,
         };
 
-        let id = store.create_paste(paste).await;
+        let id = store.create_paste(paste).await.expect("create paste");
         let result = store.get_paste(&id).await;
 
         assert!(matches!(result, Err(PasteError::Expired(_))));
@@ -944,7 +1099,7 @@ mod tests {
             owner_token_hash: None,
         };
 
-        let id = store.create_paste(paste).await;
+        let id = store.create_paste(paste).await.expect("create paste");
         let stored = store.get_paste(&id).await.expect("paste should exist");
         assert!(matches!(stored.content, StoredContent::Encrypted { .. }));
     }
@@ -957,14 +1112,157 @@ mod tests {
             text: "tracked".into(),
         });
 
-        let id = store.create_paste(paste).await;
-        assert!(store.delete_paste(&id).await);
+        let id = store.create_paste(paste).await.expect("create paste");
+        assert!(store.delete_paste(&id).await.unwrap());
         assert_eq!(adapter.take_deleted(), vec![id.clone()]);
 
         // Second deletion still triggers adapter delete but reports false
-        assert!(!store.delete_paste(&id).await);
+        assert!(!store.delete_paste(&id).await.unwrap());
         assert_eq!(adapter.take_deleted(), vec![id.clone()]);
         assert_eq!(adapter.take_saved(), vec![id]);
+    }
+
+    #[tokio::test]
+    async fn failed_persistent_create_is_reported_and_not_cached() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+        adapter.fail_next_save("backend unavailable");
+
+        let result = store
+            .create_paste(build_paste(StoredContent::Plain {
+                text: "must not be acknowledged".into(),
+            }))
+            .await;
+
+        assert!(matches!(result, Err(PersistenceError::Save(_, _))));
+        assert!(store.get_all_paste_ids().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_persistent_delete_is_reported_and_keeps_memory_copy() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+        let paste = build_paste(StoredContent::Plain {
+            text: "must remain until durable deletion succeeds".into(),
+        });
+        let id = store.create_paste(paste).await.expect("create paste");
+        adapter.fail_next_delete("backend unavailable");
+
+        assert!(matches!(
+            store.delete_paste(&id).await,
+            Err(PersistenceError::Delete(_, _))
+        ));
+        assert!(store.get_paste(&id).await.is_ok());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn delete_waits_for_local_inflight_update_and_cannot_be_resurrected() {
+        let adapter = Arc::new(CoordinatedAdapter::default());
+        let store = Arc::new(MemoryPasteStore::with_persistence(adapter.clone()));
+        let mut paste = build_paste(StoredContent::Plain {
+            text: "original".into(),
+        });
+        paste.is_live = true;
+        let id = store.create_paste(paste).await.expect("create paste");
+
+        adapter.block_next_save();
+        let update_store = store.clone();
+        let update_id = id.clone();
+        let update = tokio::spawn(async move {
+            update_store
+                .update_paste(
+                    &update_id,
+                    StoredContent::Plain {
+                        text: "inflight update".into(),
+                    },
+                )
+                .await
+        });
+        adapter.wait_for_blocked_save().await;
+
+        let delete_store = store.clone();
+        let delete_id = id.clone();
+        let (delete_started_tx, delete_started_rx) = oneshot::channel();
+        let delete = tokio::spawn(async move {
+            let _ = delete_started_tx.send(());
+            delete_store.delete_paste(&delete_id).await
+        });
+        delete_started_rx.await.expect("delete task started");
+        // On the single-threaded scheduler, the delete task now either waits
+        // on the ID lock (fixed behavior) or has already raced ahead.
+        tokio::task::yield_now().await;
+
+        adapter.release_blocked_save();
+        assert!(update.await.expect("update task").is_ok());
+        assert!(matches!(delete.await.expect("delete task"), Ok(true)));
+        assert!(!adapter.contains(&id), "durable record was resurrected");
+        assert!(matches!(
+            store.get_paste(&id).await,
+            Err(PasteError::NotFound(_))
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn finalize_orders_after_local_inflight_update_and_cannot_be_reopened() {
+        let adapter = Arc::new(CoordinatedAdapter::default());
+        let store = Arc::new(MemoryPasteStore::with_persistence(adapter.clone()));
+        let mut paste = build_paste(StoredContent::Plain {
+            text: "original".into(),
+        });
+        paste.is_live = true;
+        let id = store.create_paste(paste).await.expect("create paste");
+
+        adapter.block_next_save();
+        let update_store = store.clone();
+        let update_id = id.clone();
+        let update = tokio::spawn(async move {
+            update_store
+                .update_paste(
+                    &update_id,
+                    StoredContent::Plain {
+                        text: "final content".into(),
+                    },
+                )
+                .await
+        });
+        adapter.wait_for_blocked_save().await;
+
+        let finalize_store = store.clone();
+        let finalize_id = id.clone();
+        let (finalize_started_tx, finalize_started_rx) = oneshot::channel();
+        let finalize = tokio::spawn(async move {
+            let _ = finalize_started_tx.send(());
+            finalize_store.finalize_paste(&finalize_id).await
+        });
+        finalize_started_rx.await.expect("finalize task started");
+        tokio::task::yield_now().await;
+
+        adapter.release_blocked_save();
+        assert!(update.await.expect("update task").is_ok());
+        assert!(finalize.await.expect("finalize task").is_ok());
+
+        let cached = store.get_paste(&id).await.expect("cached record");
+        let durable = adapter.record(&id).expect("durable record");
+        assert!(!cached.is_live);
+        assert!(!durable.is_live);
+        assert!(matches!(
+            durable.content,
+            StoredContent::Plain { ref text } if text == "final content"
+        ));
+    }
+
+    #[tokio::test]
+    async fn generated_ids_have_at_least_128_bits_of_entropy() {
+        let store = MemoryPasteStore::default();
+        let id = store
+            .create_paste(build_paste(StoredContent::Plain { text: "id".into() }))
+            .await
+            .expect("create paste");
+
+        assert_eq!(id.len(), 24);
+        assert!(id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')));
     }
 
     #[tokio::test]
@@ -1011,7 +1309,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_paste_returns_not_found_on_adapter_error() {
+    async fn get_paste_surfaces_adapter_error_as_unavailable() {
         let adapter = Arc::new(RecordingAdapter::with_load_results(vec![Err(
             PersistenceError::Load("err".into(), "boom".into()),
         )]));
@@ -1020,17 +1318,21 @@ mod tests {
         let err = store
             .get_paste("missing-id")
             .await
-            .expect_err("adapter error should surface as not found");
-        assert!(matches!(err, PasteError::NotFound(id) if id == "missing-id"));
+            .expect_err("adapter error should remain distinguishable");
+        assert!(matches!(
+            err,
+            PasteError::Persistence(PersistenceError::Load(id, _)) if id == "missing-id"
+        ));
     }
 
     #[tokio::test]
     async fn update_paste_replaces_content() {
         let store = MemoryPasteStore::default();
-        let paste = build_paste(StoredContent::Plain {
+        let mut paste = build_paste(StoredContent::Plain {
             text: "original".into(),
         });
-        let id = store.create_paste(paste).await;
+        paste.is_live = true;
+        let id = store.create_paste(paste).await.expect("create paste");
 
         store
             .update_paste(
@@ -1050,13 +1352,102 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn update_paste_persists_modified_record_before_cache_update() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+        let mut paste = build_paste(StoredContent::Plain {
+            text: "original".into(),
+        });
+        paste.is_live = true;
+        let id = store.create_paste(paste).await.expect("create paste");
+
+        store
+            .update_paste(
+                &id,
+                StoredContent::Plain {
+                    text: "durable update".into(),
+                },
+            )
+            .await
+            .expect("update paste");
+
+        let (saved_id, saved) = adapter.last_saved_paste().expect("saved snapshot");
+        assert_eq!(saved_id, id);
+        assert!(matches!(
+            saved.content,
+            StoredContent::Plain { ref text } if text == "durable update"
+        ));
+        let cached = store.get_paste(&id).await.expect("cached paste");
+        assert!(matches!(
+            cached.content,
+            StoredContent::Plain { ref text } if text == "durable update"
+        ));
+    }
+
+    #[tokio::test]
+    async fn failed_persistent_update_is_reported_and_leaves_cache_unchanged() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+        let mut paste = build_paste(StoredContent::Plain {
+            text: "original".into(),
+        });
+        paste.is_live = true;
+        let id = store.create_paste(paste).await.expect("create paste");
+        adapter.fail_next_save("backend unavailable");
+
+        let result = store
+            .update_paste(
+                &id,
+                StoredContent::Plain {
+                    text: "must not enter cache".into(),
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(PasteMutationError::Persistence(PersistenceError::Save(
+                _,
+                _
+            )))
+        ));
+        let cached = store.get_paste(&id).await.expect("original cached paste");
+        assert!(matches!(
+            cached.content,
+            StoredContent::Plain { ref text } if text == "original"
+        ));
+    }
+
+    #[tokio::test]
     async fn update_paste_not_found_returns_error() {
         let store = MemoryPasteStore::default();
         let err = store
             .update_paste("nonexistent", StoredContent::Plain { text: "x".into() })
             .await
             .expect_err("should fail");
-        assert!(matches!(err, PasteError::NotFound(_)));
+        assert!(matches!(err, PasteMutationError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn update_paste_rejects_finalized_record_inside_store_boundary() {
+        let store = MemoryPasteStore::default();
+        let id = store
+            .create_paste(build_paste(StoredContent::Plain {
+                text: "final".into(),
+            }))
+            .await
+            .expect("create paste");
+
+        let error = store
+            .update_paste(
+                &id,
+                StoredContent::Plain {
+                    text: "must not reopen".into(),
+                },
+            )
+            .await
+            .expect_err("finalized paste must reject updates");
+        assert!(matches!(error, PasteMutationError::Finalized(_)));
     }
 
     #[tokio::test]
@@ -1066,7 +1457,7 @@ mod tests {
             text: "live log".into(),
         });
         paste.is_live = true;
-        let id = store.create_paste(paste).await;
+        let id = store.create_paste(paste).await.expect("create paste");
 
         assert!(store.get_paste(&id).await.unwrap().is_live);
 
@@ -1079,13 +1470,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn finalize_paste_persists_modified_record_before_cache_update() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+        let mut paste = build_paste(StoredContent::Plain {
+            text: "live log".into(),
+        });
+        paste.is_live = true;
+        let id = store.create_paste(paste).await.expect("create paste");
+
+        store.finalize_paste(&id).await.expect("finalize paste");
+
+        let (saved_id, saved) = adapter.last_saved_paste().expect("saved snapshot");
+        assert_eq!(saved_id, id);
+        assert!(!saved.is_live);
+        assert!(!store.get_paste(&id).await.expect("cached paste").is_live);
+    }
+
+    #[tokio::test]
+    async fn failed_persistent_finalize_is_reported_and_leaves_cache_live() {
+        let adapter = Arc::new(RecordingAdapter::default());
+        let store = MemoryPasteStore::with_persistence(adapter.clone());
+        let mut paste = build_paste(StoredContent::Plain {
+            text: "live log".into(),
+        });
+        paste.is_live = true;
+        let id = store.create_paste(paste).await.expect("create paste");
+        adapter.fail_next_save("backend unavailable");
+
+        let result = store.finalize_paste(&id).await;
+
+        assert!(matches!(
+            result,
+            Err(PasteMutationError::Persistence(PersistenceError::Save(
+                _,
+                _
+            )))
+        ));
+        assert!(
+            store
+                .get_paste(&id)
+                .await
+                .expect("original cached paste")
+                .is_live
+        );
+    }
+
+    #[tokio::test]
     async fn finalize_paste_not_found_returns_error() {
         let store = MemoryPasteStore::default();
         let err = store
             .finalize_paste("nonexistent")
             .await
             .expect_err("should fail");
-        assert!(matches!(err, PasteError::NotFound(_)));
+        assert!(matches!(err, PasteMutationError::NotFound(_)));
     }
 
     #[tokio::test]
@@ -1093,14 +1531,14 @@ mod tests {
         let store = MemoryPasteStore::default();
 
         let paste = build_paste(StoredContent::Plain { text: "one".into() });
-        store.create_paste(paste).await;
+        store.create_paste(paste).await.expect("create paste");
 
         let stats1 = store.stats().await;
         assert_eq!(stats1.total_pastes, 1);
 
         // Create a second paste — should not be visible within the TTL window.
         let paste2 = build_paste(StoredContent::Plain { text: "two".into() });
-        store.create_paste(paste2).await;
+        store.create_paste(paste2).await.expect("create paste");
 
         let stats2 = store.stats().await;
         assert_eq!(
@@ -1140,9 +1578,9 @@ mod tests {
         stego.format = PasteFormat::Markdown;
         stego.created_at = 1_700_086_400;
 
-        let id1 = store.create_paste(plain).await;
-        let id2 = store.create_paste(encrypted).await;
-        let id3 = store.create_paste(stego).await;
+        let id1 = store.create_paste(plain).await.expect("create paste");
+        let id2 = store.create_paste(encrypted).await.expect("create paste");
+        let id3 = store.create_paste(stego).await.expect("create paste");
 
         let stats = store.stats().await;
 

@@ -1,9 +1,12 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use image::codecs::png::PngEncoder;
-use image::load_from_memory;
+use image::io::{Limits as ImageLimits, Reader as ImageReader};
 use image::{ImageBuffer, ImageEncoder, Rgba, RgbaImage};
 use std::{f32::consts::PI, io::Cursor};
+
+const MAX_CARRIER_DIMENSION: u32 = 4096;
+const MAX_CARRIER_DECODE_BYTES: u64 = 80 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StegoError {
@@ -39,7 +42,16 @@ pub fn embed_payload(
     let (mut image, mime) = match source {
         StegoCarrierSource::BuiltIn(identifier) => generate_builtin(identifier.as_str()),
         StegoCarrierSource::Uploaded { mime, data } => {
-            let dynamic = load_from_memory(&data)
+            let mut reader = ImageReader::new(Cursor::new(data))
+                .with_guessed_format()
+                .map_err(|error| StegoError::DecodeCarrier(error.to_string()))?;
+            let mut limits = ImageLimits::default();
+            limits.max_image_width = Some(MAX_CARRIER_DIMENSION);
+            limits.max_image_height = Some(MAX_CARRIER_DIMENSION);
+            limits.max_alloc = Some(MAX_CARRIER_DECODE_BYTES);
+            reader.limits(limits);
+            let dynamic = reader
+                .decode()
                 .map_err(|error| StegoError::DecodeCarrier(error.to_string()))?;
             (dynamic.to_rgba8(), mime)
         }
@@ -316,6 +328,29 @@ mod tests {
 
         let err = embed_payload(source, &[0u8; 16]).expect_err("payload should be too large");
         assert!(matches!(err, StegoError::PayloadTooLarge { .. }));
+    }
+
+    #[test]
+    fn uploaded_carrier_dimension_bomb_is_rejected_before_allocation() {
+        let mut bmp = vec![0u8; 54];
+        bmp[0..2].copy_from_slice(b"BM");
+        bmp[2..6].copy_from_slice(&(54u32).to_le_bytes());
+        bmp[10..14].copy_from_slice(&(54u32).to_le_bytes());
+        bmp[14..18].copy_from_slice(&(40u32).to_le_bytes());
+        bmp[18..22].copy_from_slice(&(100_000i32).to_le_bytes());
+        bmp[22..26].copy_from_slice(&(100_000i32).to_le_bytes());
+        bmp[26..28].copy_from_slice(&(1u16).to_le_bytes());
+        bmp[28..30].copy_from_slice(&(24u16).to_le_bytes());
+
+        let error = embed_payload(
+            StegoCarrierSource::Uploaded {
+                mime: "image/bmp".to_string(),
+                data: bmp,
+            },
+            b"x",
+        )
+        .expect_err("oversized decoded dimensions must fail before allocation");
+        assert!(matches!(error, StegoError::DecodeCarrier(_)));
     }
 
     #[test]

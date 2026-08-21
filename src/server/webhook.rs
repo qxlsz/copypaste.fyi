@@ -147,8 +147,10 @@ async fn send_webhook(
         .post(&config.url)
         .json(&payload)
         .send()
-        .await?
-        .error_for_status()?;
+        .await
+        .map_err(reqwest::Error::without_url)?
+        .error_for_status()
+        .map_err(reqwest::Error::without_url)?;
     Ok(())
 }
 
@@ -175,7 +177,7 @@ fn resolve_webhook_message(
             if let Some(label) = bundle_label {
                 format!("Bundle share '{label}' for paste {paste_id} was consumed")
             } else {
-                format!("Paste {paste_id} self-destructed")
+                format!("Paste {paste_id} was consumed")
             }
         }
     };
@@ -220,6 +222,7 @@ fn apply_template(template: &str, id: &str, label: Option<&str>, event: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::prelude::*;
 
     fn base_config() -> WebhookConfig {
         WebhookConfig {
@@ -291,6 +294,31 @@ mod tests {
     fn webhook_client_new_builds_successfully() {
         // Smoke-test that building the shared client does not panic.
         let _ = WebhookClient::new();
+    }
+
+    #[tokio::test]
+    async fn dispatch_errors_never_retain_credential_bearing_urls() {
+        let server = MockServer::start();
+        let endpoint = server.mock(|when, then| {
+            when.method(POST).path("/services/credential-in-path");
+            then.status(500);
+        });
+        let mut config = base_config();
+        config.url = format!("{}/services/credential-in-path", server.base_url());
+
+        let error = send_webhook(
+            &WebhookClient::new().0,
+            config,
+            WebhookEvent::Viewed,
+            "paste-id".to_string(),
+            None,
+        )
+        .await
+        .expect_err("500 response must fail");
+
+        endpoint.assert();
+        assert!(error.url().is_none());
+        assert!(!error.to_string().contains("credential-in-path"));
     }
 
     // ── SSRF validation ────────────────────────────────────────────────────

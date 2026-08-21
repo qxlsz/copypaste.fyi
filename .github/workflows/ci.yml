@@ -28,6 +28,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7  # stable
         with:
+          toolchain: 1.88.0
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -38,11 +39,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7  # stable
         with:
+          toolchain: 1.88.0
           components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
       - uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6  # v2
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest,cargo-audit
+      - run: cargo audit
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo nextest run --workspace --all-features
 
@@ -52,6 +55,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7  # stable
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
       - uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6  # v2
         with:
@@ -74,7 +79,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
+      - run: npm audit --audit-level=high
+        working-directory: frontend
       - run: npm run lint
         working-directory: frontend
       - run: npm test -- --run
         working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - name: Verify canonical Vercel policy is synchronized
+        run: cmp vercel.json frontend/vercel.json

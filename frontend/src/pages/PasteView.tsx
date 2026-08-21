@@ -5,11 +5,11 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, ExternalLink, GitFork, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ApiError, fetchPaste } from "../api/client";
+import { ApiError, fetchPaste, rawPasteUrl } from "../api/client";
 import type { PasteViewResponse } from "../server/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
 import { formatCountdown } from "../lib/countdown";
@@ -94,39 +94,6 @@ const formatTimeLock = (timeLock?: PasteViewResponse["timeLock"]) => {
   return parts.length > 0 ? parts.join(" · ") : "Configured";
 };
 
-const formatAttestation = (attestation?: PasteViewResponse["attestation"]) => {
-  if (!attestation) return "None";
-  if (attestation.kind === "totp") {
-    return attestation.issuer ? `TOTP (${attestation.issuer})` : "TOTP";
-  }
-  if (attestation.kind === "shared_secret") {
-    return "Shared secret";
-  }
-  return attestation.kind;
-};
-
-const formatPersistence = (persistence?: PasteViewResponse["persistence"]) => {
-  if (!persistence) return "Ephemeral (memory)";
-  if (persistence.detail) {
-    return `${persistence.kind} · ${persistence.detail}`;
-  }
-  return persistence.kind;
-};
-
-const formatWebhook = (webhook?: PasteViewResponse["webhook"]) => {
-  if (!webhook) return "None";
-  switch (webhook.provider) {
-    case "slack":
-      return "Slack";
-    case "teams":
-      return "Microsoft Teams";
-    case "generic":
-      return "Webhook";
-    default:
-      return "Webhook";
-  }
-};
-
 // Extract the encryption key from a URL fragment of the form `#key=...`.
 const parseHashKey = (hash: string): string | undefined => {
   if (!hash) return undefined;
@@ -196,23 +163,51 @@ export const PasteViewPage = () => {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
-  // Prefer the fragment (never sent to servers); fall back to the legacy
-  // `?key=` search param so old share links keep working.
-  const key =
-    parseHashKey(location.hash) ?? searchParams.get("key") ?? undefined;
+  const legacyQueryKey = searchParams.get("key") ?? undefined;
+  // Prefer the fragment; accept legacy `?key=` links only as input. API
+  // requests always carry the key in X-Paste-Key, never in their URL.
+  const key = parseHashKey(location.hash) ?? legacyQueryKey;
   const [enteredKey, setEnteredKey] = useState(() => key ?? "");
+
+  useEffect(() => {
+    if (!legacyQueryKey) return;
+
+    const sanitizedSearch = new URLSearchParams(location.search);
+    sanitizedSearch.delete("key");
+    const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
+    if (!fragment.has("key")) {
+      fragment.set("key", legacyQueryKey);
+    }
+    const nextSearch = sanitizedSearch.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+        hash: fragment.toString(),
+      },
+      { replace: true },
+    );
+  }, [legacyQueryKey, location.hash, location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    setEnteredKey(key ?? "");
+  }, [id, key]);
 
   const handleKeySubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = enteredKey.trim();
     if (trimmed) {
-      // Write the key into the fragment (not the query string) so it stays
-      // out of history syncing, referrers, and server logs.
+      const sanitizedSearch = new URLSearchParams(location.search);
+      sanitizedSearch.delete("key");
+      const nextSearch = sanitizedSearch.toString();
+      // Write the key into the fragment so subsequent navigation keeps it out
+      // of HTTP request targets and Referer headers.
       navigate(
         {
           pathname: location.pathname,
-          search: location.search,
+          search: nextSearch ? `?${nextSearch}` : "",
           hash: `key=${encodeURIComponent(trimmed)}`,
         },
         { replace: true },
@@ -220,19 +215,44 @@ export const PasteViewPage = () => {
     }
   };
 
-  const queryKey = useMemo(() => ["paste", id, key ?? null], [id, key]);
+  const sensitiveQueryPrefix = useMemo(() => ["paste", id] as const, [id]);
+  const queryKey = useMemo(
+    () => [
+      ...sensitiveQueryPrefix,
+      key ? `key-attempt:${location.key}` : "without-key",
+    ],
+    [key, location.key, sensitiveQueryPrefix],
+  );
 
   const { data, isLoading, isError, error } = useQuery({
-    enabled: Boolean(id),
+    // Sanitize legacy query-string keys before making any application fetch or
+    // enabling share controls. This also avoids a second read of burn links
+    // when React Router replaces the location.
+    enabled: Boolean(id) && !legacyQueryKey,
     retry: false,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryKey,
     queryFn: () => fetchPaste(id!, key),
   });
 
-  const stegoDataUrl = useMemo(() => {
-    if (!data?.stego) return null;
-    return `data:${data.stego.carrierMime};base64,${data.stego.carrierImage}`;
-  }, [data?.stego]);
+  useEffect(() => {
+    const clearSensitiveQuery = () => {
+      queryClient.removeQueries({
+        queryKey: sensitiveQueryPrefix,
+        exact: false,
+      });
+    };
+
+    window.addEventListener("pagehide", clearSensitiveQuery);
+    return () => {
+      window.removeEventListener("pagehide", clearSensitiveQuery);
+      clearSensitiveQuery();
+    };
+  }, [queryClient, sensitiveQueryPrefix]);
 
   const editorHeight = useMemo(() => {
     const lines = data?.content?.split("\n") ?? [];
@@ -315,12 +335,33 @@ export const PasteViewPage = () => {
     const message = error instanceof Error ? error.message : "Unknown error";
     const isBackendDown =
       message.includes("timed out") || message.includes("Failed to fetch");
+    const attestationRequired =
+      error instanceof ApiError &&
+      (error.code === "attestation_required" ||
+        error.code === "attestation_invalid");
     const keyRequired =
       error instanceof ApiError &&
-      (error.status === 401 || error.code === "key_required");
+      (error.code === "key_required" ||
+        (error.status === 401 && !error.code));
     const keyRejected =
       error instanceof ApiError &&
-      (error.status === 403 || error.code === "invalid_key");
+      (error.code === "invalid_key" ||
+        (error.status === 403 && !error.code));
+
+    if (attestationRequired) {
+      return (
+        <div className="mx-auto max-w-sm space-y-3 py-8 text-center">
+          <h1 className="text-xl font-semibold tracking-tight text-text">
+            Additional verification required
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            This paste uses a legacy attestation gate that this web client does
+            not submit through URL parameters. Ask the sender for a supported
+            sharing method.
+          </p>
+        </div>
+      );
+    }
 
     if (keyRequired || keyRejected) {
       return (
@@ -347,6 +388,10 @@ export const PasteViewPage = () => {
                 type="password"
                 value={enteredKey}
                 onChange={(event) => setEnteredKey(event.target.value)}
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder="Enter the encryption key…"
                 className="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 required
@@ -438,16 +483,19 @@ export const PasteViewPage = () => {
           >
             <Copy className="h-4 w-4" aria-hidden="true" />
           </button>
-          <a
-            href={`/p/${data.id}/raw`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={iconActionClasses}
-            aria-label="Open raw plaintext"
-            title="Raw"
-          >
-            <ExternalLink className="h-4 w-4" aria-hidden="true" />
-          </a>
+          {!data.encryption.requiresKey &&
+          !data.burnAfterReading ? (
+            <a
+              href={rawPasteUrl(data.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={iconActionClasses}
+              aria-label="Open raw plaintext"
+              title="Raw"
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            </a>
+          ) : null}
           <button
             type="button"
             onClick={handleDownload}
@@ -500,16 +548,6 @@ export const PasteViewPage = () => {
               )}
             </dd>
           </div>
-          {data.attestation ? (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-                Attestation
-              </dt>
-              <dd className="text-sm text-text">
-                {formatAttestation(data.attestation)}
-              </dd>
-            </div>
-          ) : null}
           {data.timeLock ? (
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -520,86 +558,8 @@ export const PasteViewPage = () => {
               </dd>
             </div>
           ) : null}
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Persistence
-            </dt>
-            <dd className="text-sm text-text">
-              {formatPersistence(data.persistence)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Webhook
-            </dt>
-            <dd className="text-sm text-text">{formatWebhook(data.webhook)}</dd>
-          </div>
-          {data.bundle?.children?.length ? (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-                Bundle shares
-              </dt>
-              <dd className="text-sm text-text">
-                {data.bundle.children.length}
-              </dd>
-            </div>
-          ) : null}
         </dl>
       </details>
-
-      {data.stego ? (
-        <section className="rounded-lg border border-success/30 bg-success/5 p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <h2 className="text-sm font-semibold tracking-tight text-text">
-                Steganographic carrier
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                The encrypted payload is embedded in the carrier image below.
-                Share this cover along with the encryption key to allow
-                recipients to extract and decrypt the paste locally.
-              </p>
-              <dl className="mt-3 space-y-2 text-xs">
-                <div>
-                  <dt className="uppercase tracking-wide text-muted-foreground">
-                    Mime type
-                  </dt>
-                  <dd className="font-mono text-text">
-                    {data.stego.carrierMime}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="uppercase tracking-wide text-muted-foreground">
-                    Payload digest (SHA-256)
-                  </dt>
-                  <dd className="break-all font-mono text-text">
-                    {data.stego.payloadDigest}
-                  </dd>
-                </div>
-              </dl>
-              {stegoDataUrl ? (
-                <a
-                  href={stegoDataUrl}
-                  download={`copypaste-stego-${data.id}.png`}
-                  className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                >
-                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                  Download carrier image
-                </a>
-              ) : null}
-            </div>
-            {stegoDataUrl ? (
-              <div className="overflow-hidden rounded-md border border-border bg-surface">
-                <img
-                  src={stegoDataUrl}
-                  alt="Steganographic carrier"
-                  className="max-h-64 w-full object-contain"
-                />
-              </div>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 };

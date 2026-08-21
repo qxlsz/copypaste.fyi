@@ -2,18 +2,15 @@ import { useEffect, useState } from "react";
 import { API_BASE } from "../api/client";
 
 const features = [
-  ["encryption", "AES-256-GCM · ChaCha20 · XChaCha20 · ML-KEM-768 hybrid"],
-  ["burn-after-reading", "deleted on first successful read"],
+  ["encryption", "AES-256-GCM · ChaCha20 · XChaCha20 · experimental ML-KEM hybrid"],
+  ["burn-after-reading", "best-effort deletion after a successful read"],
   ["retention", "1 minute to 30 days, enforced server-side"],
   ["time-locks", "not-before / not-after access windows"],
-  ["attestation", "TOTP or shared-secret gate before viewing"],
-  ["steganography", "hide ciphertext inside PNG carrier images"],
-  ["bundles", "group related pastes under one link"],
-  ["webhooks", "Slack / Teams / generic notifications on view & burn"],
+  ["hardened profile", "bundles, attestations, webhooks, and steganography disabled"],
   ["tor-only", "restrict a paste to .onion access"],
-  ["anchoring", "opt-in blockchain manifest anchoring"],
+  ["anchoring", "admin-only encrypted-content commitment or plaintext metadata manifest"],
   ["cli", "pipe from your terminal: copypaste send"],
-  ["api", "REST + OpenAPI, docs at /api/docs"],
+  ["api", "REST + OpenAPI JSON at /api/openapi.json"],
 ] as const;
 
 interface HealthResponse {
@@ -21,11 +18,6 @@ interface HealthResponse {
   timestamp: number;
   version: string;
   commit?: string;
-  services: {
-    backend: { status: string };
-    crypto_verifier: { status: string };
-    storage: { status: string };
-  };
 }
 
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
@@ -53,7 +45,11 @@ export const AboutPage = () => {
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const response = await fetch(`${API_BASE}/health`);
+        const response = await fetch(`${API_BASE}/health`, {
+          cache: "no-store",
+          credentials: "omit",
+          redirect: "error",
+        });
         if (response.ok) {
           setHealth((await response.json()) as HealthResponse);
         } else {
@@ -75,8 +71,9 @@ export const AboutPage = () => {
         <p className="text-sm leading-relaxed text-muted-foreground">
           copypaste.fyi is an open-source paste sharing service built for
           secrets that should not outlive their purpose. A Rust backend
-          encrypts and enforces retention; an independent OCaml service
-          re-verifies the cryptography; the frontend stays out of the way.
+          encrypts and enforces retention; an optional OCaml service can
+          independently check supported algorithms; the frontend stays out of
+          the way.
         </p>
       </header>
 
@@ -103,8 +100,8 @@ export const AboutPage = () => {
           {`browser / cli
    → POST /api/pastes            content + policy (retention, burn, locks)
    → encrypt                     Rust (aes-gcm · chacha20 · ml-kem crates)
-   → verify                      independent OCaml re-check (mirage-crypto)
-   → store                       in-memory by default · Redis / Vault optional
+   → verify                      optional OCaml check for supported algorithms
+	   → store                       in-memory by default · Redis optional
    → share                       /p/<id> — key travels in the #fragment`}
         </pre>
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -129,12 +126,6 @@ export const AboutPage = () => {
           {health ? (
             <div className="flex flex-wrap items-center gap-2">
               <HealthChip label="overall" status={health.status} />
-              <HealthChip label="backend" status={health.services.backend.status} />
-              <HealthChip
-                label="crypto-verifier"
-                status={health.services.crypto_verifier.status}
-              />
-              <HealthChip label="storage" status={health.services.storage.status} />
               <span className="font-mono text-[11px] text-muted-foreground">
                 v{health.version}
                 {health.commit ? ` · ${health.commit.slice(0, 7)}` : ""}
@@ -157,8 +148,13 @@ export const AboutPage = () => {
         >
           github
         </a>
-        <a href="/api/docs" className="hover:text-text">
-          api docs
+        <a
+          href={`${API_BASE}/openapi.json`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-text"
+        >
+          openapi json
         </a>
         <a
           href="https://github.com/qxlsz/copypaste.fyi/blob/main/SECURITY.md"

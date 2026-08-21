@@ -1,6 +1,11 @@
 open Crypto_verifier
 open OUnit2
 
+let derive_test_key salt passphrase =
+  salt ^ passphrase
+  |> Digestif.SHA256.digest_string
+  |> Digestif.SHA256.to_raw_string
+
 let test_health_check (_ctx : test_ctxt) =
   let result = health_check () in
   assert_bool "health check should be valid" result.valid;
@@ -12,17 +17,14 @@ let test_aes_gcm_valid (_ctx : test_ctxt) =
   let salt_str = String.make 16 '\x00' in
   let nonce_str = String.make 12 '\x01' in
   let plaintext = "Hello, AES-GCM!" in
-  let salt_cs = Cstruct.of_string salt_str in
-  let key_material = Mirage_crypto.Hash.SHA256.digest
-    (Cstruct.concat [salt_cs; Cstruct.of_string passphrase]) in
-  let key = Mirage_crypto.Cipher_block.AES.GCM.of_secret key_material in
-  let nonce_cs = Cstruct.of_string nonce_str in
-  let ct_cs = Mirage_crypto.Cipher_block.AES.GCM.authenticate_encrypt
-    ~key ~nonce:nonce_cs ~adata:Cstruct.empty (Cstruct.of_string plaintext) in
+  let key_material = derive_test_key salt_str passphrase in
+  let key = Mirage_crypto.AES.GCM.of_secret key_material in
+  let ct = Mirage_crypto.AES.GCM.authenticate_encrypt
+    ~key ~nonce:nonce_str ~adata:"" plaintext in
   let ev : encryption_verification = {
     algorithm = "aes256_gcm";
     plaintext;
-    ciphertext = Base64.encode_string (Cstruct.to_string ct_cs);
+    ciphertext = Base64.encode_string ct;
     key = passphrase;
     nonce = Some (Base64.encode_string nonce_str);
     salt = Some (Base64.encode_string salt_str);
@@ -76,17 +78,14 @@ let test_chacha20_valid (_ctx : test_ctxt) =
   let salt_str = String.make 16 '\x00' in
   let nonce_str = String.make 12 '\x02' in
   let plaintext = "Hello, ChaCha20!" in
-  let salt_cs = Cstruct.of_string salt_str in
-  let key_material = Mirage_crypto.Hash.SHA256.digest
-    (Cstruct.concat [salt_cs; Cstruct.of_string passphrase]) in
-  let nonce_cs = Cstruct.of_string nonce_str in
-  let ct_cs = Mirage_crypto.Chacha20.authenticate_encrypt
+  let key_material = derive_test_key salt_str passphrase in
+  let ct = Mirage_crypto.Chacha20.authenticate_encrypt
     ~key:(Mirage_crypto.Chacha20.of_secret key_material)
-    ~nonce:nonce_cs (Cstruct.of_string plaintext) in
+    ~nonce:nonce_str plaintext in
   let ev : encryption_verification = {
     algorithm = "chacha20_poly1305";
     plaintext;
-    ciphertext = Base64.encode_string (Cstruct.to_string ct_cs);
+    ciphertext = Base64.encode_string ct;
     key = passphrase;
     nonce = Some (Base64.encode_string nonce_str);
     salt = Some (Base64.encode_string salt_str);

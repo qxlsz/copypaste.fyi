@@ -4,6 +4,7 @@
    crypto_verifier
    mirage-crypto
    mirage-crypto-ec
+   digestif
    base64
    cstruct
    ounit2))

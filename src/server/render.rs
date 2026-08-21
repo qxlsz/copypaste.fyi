@@ -1,9 +1,11 @@
 use crate::{
-    AttestationRequirement, EncryptionAlgorithm, PasteFormat, PasteMetadata, PersistenceLocator,
-    StoredContent, WebhookProvider,
+    AttestationRequirement, EncryptionAlgorithm, PasteFormat, PasteMetadata, StoredContent,
+    WebhookProvider,
 };
+use ammonia::Builder;
 use html_escape::encode_safe;
 use pulldown_cmark::{html, Options, Parser};
+use std::collections::{HashMap, HashSet};
 
 use super::time::format_timestamp;
 
@@ -110,20 +112,6 @@ pub fn render_paste_view(
         Some(AttestationRequirement::SharedSecret { .. }) => "Shared secret".to_string(),
     };
 
-    let persistence = paste
-        .metadata
-        .persistence
-        .as_ref()
-        .map(|locator| match locator {
-            PersistenceLocator::Memory => "Memory".to_string(),
-            PersistenceLocator::Vault { key_path } => format!("Vault ({})", key_path),
-            PersistenceLocator::S3 { bucket, prefix } => match prefix {
-                Some(p) if !p.is_empty() => format!("S3 {bucket}/{p}"),
-                _ => format!("S3 {bucket}"),
-            },
-        })
-        .unwrap_or_else(|| "Ephemeral".to_string());
-
     let webhook = paste
         .metadata
         .webhook
@@ -157,7 +145,6 @@ pub fn render_paste_view(
     <div><strong>Burn after reading:</strong> {burn}</div>
     <div><strong>Time lock:</strong> {time_lock}</div>
     <div><strong>Attestation:</strong> {attestation}</div>
-    <div><strong>Persistence:</strong> {persistence}</div>
     <div><strong>Webhook:</strong> {webhook}</div>
     <div><strong>Bundle:</strong> {bundle_summary}</div>
 </section>
@@ -176,7 +163,6 @@ pub fn render_paste_view(
             burn_note = burn_note,
             time_lock = encode_safe(&time_lock),
             attestation = encode_safe(&attestation),
-            persistence = encode_safe(&persistence),
             webhook = encode_safe(&webhook),
             bundle_summary = encode_safe(&bundle_summary),
             bundle_section = bundle_section,
@@ -377,7 +363,50 @@ pub fn format_markdown(text: &str) -> String {
     let parser = Parser::new_ext(text, options);
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
-    html_output
+
+    // Markdown accepts raw HTML, so rendering is only the first step. Keep a
+    // small semantic allowlist and strip all generic attributes: event
+    // handlers, inline styles, forms, active embeds, and dangerous URL schemes
+    // never reach the response even if the parser preserves them.
+    let mut sanitizer = Builder::default();
+    sanitizer
+        .tags(HashSet::from([
+            "a",
+            "blockquote",
+            "br",
+            "code",
+            "del",
+            "em",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "hr",
+            "li",
+            "ol",
+            "p",
+            "pre",
+            "strong",
+            "sup",
+            "table",
+            "tbody",
+            "td",
+            "th",
+            "thead",
+            "tr",
+            "ul",
+        ]))
+        .tag_attributes(HashMap::from([("a", HashSet::from(["href", "title"]))]))
+        .generic_attributes(HashSet::new())
+        .url_schemes(HashSet::from(["http", "https"]))
+        .clean_content_tags(HashSet::from([
+            "script", "style", "iframe", "object", "embed", "template", "svg", "math",
+        ]))
+        .link_rel(Some("nofollow noopener noreferrer"));
+
+    sanitizer.clean(&html_output).to_string()
 }
 
 pub fn format_code(text: &str) -> String {
@@ -398,7 +427,8 @@ mod tests {
     use super::*;
     use crate::{
         server::time::TimeLockState, AttestationRequirement, BundleMetadata, BundlePointer,
-        EncryptionAlgorithm, PasteMetadata, StoredContent, WebhookConfig, WebhookProvider,
+        EncryptionAlgorithm, PasteMetadata, PersistenceLocator, StoredContent, WebhookConfig,
+        WebhookProvider,
     };
 
     fn sample_metadata() -> PasteMetadata {
@@ -468,7 +498,8 @@ mod tests {
         assert!(html.contains("ChaCha20-Poly1305"));
         assert!(html.contains("bundle"));
         assert!(html.contains("Test Issuer"));
-        assert!(html.contains("S3 bucket"));
+        assert!(!html.contains("S3 bucket"));
+        assert!(!html.contains("Persistence:"));
         assert!(html.contains("Slack"));
     }
 
@@ -567,5 +598,56 @@ mod tests {
 
         let fallback_json = format_json("not-json");
         assert!(fallback_json.contains("not-json"));
+    }
+
+    #[test]
+    fn markdown_sanitizer_removes_active_and_embedded_content() {
+        let rendered = format_markdown(
+            r#"
+<script>alert(1)</script>
+<style>body { display: none }</style>
+<img src=x onerror="alert(1)">
+<form action="https://evil.example"><input name="secret"><button>send</button></form>
+<iframe src="https://evil.example"></iframe>
+<svg onload="alert(1)"><circle /></svg>
+<a href="javascript:alert(1)" onclick="alert(2)">raw link</a>
+[markdown link](javascript:alert(3))
+"#,
+        );
+        let normalized = rendered.to_ascii_lowercase();
+
+        for forbidden in [
+            "<script",
+            "<style",
+            "<img",
+            "onerror",
+            "<form",
+            "<input",
+            "<button",
+            "<iframe",
+            "<svg",
+            "onload",
+            "onclick",
+            "href=\"javascript:",
+            "href='javascript:",
+        ] {
+            assert!(
+                !normalized.contains(forbidden),
+                "sanitized markdown retained {forbidden}: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_sanitizer_preserves_safe_semantic_markup() {
+        let rendered = format_markdown(
+            "# Heading\n\n**strong** and [safe](https://example.com)\n\n| A | B |\n| - | - |\n| 1 | 2 |",
+        );
+
+        assert!(rendered.contains("<h1>Heading</h1>"));
+        assert!(rendered.contains("<strong>strong</strong>"));
+        assert!(rendered.contains("href=\"https://example.com\""));
+        assert!(rendered.contains("rel=\"nofollow noopener noreferrer\""));
+        assert!(rendered.contains("<table>"));
     }
 }

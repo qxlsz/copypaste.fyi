@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -19,14 +21,18 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
+use super::sessions::SharedSessionStore;
+
 // ── Rate limiter ──────────────────────────────────────────────────────────────
 
 const MAX_FAILED_ATTEMPTS: u32 = 10;
 const RATE_LIMIT_WINDOW_SECS: u64 = 300; // 5 minutes
+const MAX_TRACKED_AUTH_CLIENTS: usize = 10_000;
 
 /// Per-IP sliding-window failed-attempt counter (BUG-002).
 pub struct RateLimiter {
     fails: Mutex<HashMap<String, (u32, Instant)>>,
+    max_tracked_clients: usize,
 }
 
 pub type SharedRateLimiter = Arc<RateLimiter>;
@@ -35,6 +41,15 @@ impl RateLimiter {
     pub fn new() -> Self {
         Self {
             fails: Mutex::new(HashMap::new()),
+            max_tracked_clients: MAX_TRACKED_AUTH_CLIENTS,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_capacity(max_tracked_clients: usize) -> Self {
+        Self {
+            fails: Mutex::new(HashMap::new()),
+            max_tracked_clients: max_tracked_clients.max(1),
         }
     }
 
@@ -50,10 +65,32 @@ impl RateLimiter {
 
     /// Records a failed authentication attempt.
     pub fn record_failure(&self, ip: &str) {
+        self.record_failure_at(ip, Instant::now());
+    }
+
+    fn record_failure_at(&self, ip: &str, now: Instant) {
         let mut map = self.fails.lock().unwrap();
-        let now = Instant::now();
+
+        // Bound attacker-controlled IP cardinality. Cleanup is O(n) only when
+        // a new client reaches the cap; stale windows are removed first, then
+        // the oldest live window is evicted if necessary.
+        if !map.contains_key(ip) && map.len() >= self.max_tracked_clients {
+            map.retain(|_, (_, since)| {
+                now.saturating_duration_since(*since).as_secs() <= RATE_LIMIT_WINDOW_SECS
+            });
+            if map.len() >= self.max_tracked_clients {
+                if let Some(oldest) = map
+                    .iter()
+                    .min_by_key(|(_, (_, since))| *since)
+                    .map(|(client, _)| client.clone())
+                {
+                    map.remove(&oldest);
+                }
+            }
+        }
+
         let entry = map.entry(ip.to_string()).or_insert((0, now));
-        if entry.1.elapsed().as_secs() > RATE_LIMIT_WINDOW_SECS {
+        if now.saturating_duration_since(entry.1).as_secs() > RATE_LIMIT_WINDOW_SECS {
             // Window expired — reset counter, counting this failure
             *entry = (1, now);
         } else {
@@ -136,32 +173,166 @@ pub struct StoredApiKey {
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 pub struct SqliteApiKeyStore {
-    conn: Mutex<Connection>,
+    conn: Option<Mutex<Connection>>,
 }
 
 pub type SharedApiKeyStore = Arc<SqliteApiKeyStore>;
 
+#[derive(Debug, thiserror::Error)]
+pub enum ApiKeyStoreOpenError {
+    #[error("COPYPASTE_SQLITE_PATH is required for persistent API-key storage")]
+    MissingPath,
+    #[error("API-key database parent directory does not exist or is not a directory: {0}")]
+    MissingParent(PathBuf),
+    #[error("API-key database parent directory must be owned by this process and mode 0700: {0}")]
+    InsecureParent(PathBuf),
+    #[error("API-key database path is not a regular owner-controlled file: {0}")]
+    InsecureFile(PathBuf),
+    #[error("API-key database filesystem error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("API-key database initialization failed: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+}
+
+/// Static bearer tokens loaded once when Rocket is built.
+///
+/// Reading these values into managed state avoids process-global environment
+/// lookups on every request and makes the effective authentication policy
+/// immutable for the lifetime of a server instance.
+#[derive(Debug, Default)]
+pub struct StaticAuthTokens {
+    write_token: Option<String>,
+    admin_token: Option<String>,
+    require_write_auth: bool,
+    allow_session_writes: bool,
+}
+
+impl StaticAuthTokens {
+    pub fn from_env() -> Self {
+        Self::new(
+            static_token_env("COPYPASTE_AUTH_TOKEN"),
+            static_token_env("COPYPASTE_ADMIN_TOKEN"),
+        )
+        .with_required_write_auth(required_write_auth_from_env())
+        .with_session_writes(boolean_env("COPYPASTE_ALLOW_SESSION_WRITES"))
+    }
+
+    pub fn new(write_token: Option<String>, admin_token: Option<String>) -> Self {
+        Self {
+            write_token: write_token.filter(|value| !value.trim().is_empty()),
+            admin_token: admin_token.filter(|value| !value.trim().is_empty()),
+            require_write_auth: false,
+            allow_session_writes: false,
+        }
+    }
+
+    pub fn with_required_write_auth(mut self, required: bool) -> Self {
+        self.require_write_auth = required;
+        self
+    }
+
+    /// Allow signed browser login sessions to create pastes.
+    ///
+    /// This is intentionally disabled by default: the login endpoint is
+    /// self-service identity proof, not an invitation or authorization grant.
+    pub fn with_session_writes(mut self, allowed: bool) -> Self {
+        self.allow_session_writes = allowed;
+        self
+    }
+}
+
+fn required_write_auth_from_env() -> bool {
+    boolean_env("COPYPASTE_REQUIRE_WRITE_AUTH")
+}
+
+fn boolean_env(name: &str) -> bool {
+    let Ok(value) = std::env::var(name) else {
+        return false;
+    };
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "0" | "false" | "no" | "off" => false,
+        "1" | "true" | "yes" | "on" => true,
+        _ => panic!("{name} must be true or false"),
+    }
+}
+
+fn valid_static_token(value: &str) -> bool {
+    (43..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn static_token_env(name: &str) -> Option<String> {
+    match std::env::var(name) {
+        Ok(value) if value.trim().is_empty() => None,
+        Ok(value) if valid_static_token(&value) => Some(value),
+        Ok(_) => {
+            panic!("{name} must be 43 to 128 base64url characters (letters, digits, '_' or '-')")
+        }
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            panic!("{name} must contain valid Unicode")
+        }
+    }
+}
+
 impl SqliteApiKeyStore {
-    pub fn open(path: &str) -> Result<Self, rusqlite::Error> {
+    /// Open a durable API-key database at an operator-controlled path.
+    ///
+    /// The parent directory must already exist. On Unix it must be owned by
+    /// the effective process user with mode 0700; the database itself is
+    /// created/opened without following a final symlink and forced to mode
+    /// 0600. WAL plus a busy timeout supports multiple processes sharing this
+    /// exact file. Deployments whose instances do not share a filesystem must
+    /// run a single app instance or use a shared credential store instead.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, ApiKeyStoreOpenError> {
+        let path = path.as_ref();
+        prepare_api_key_database_path(path)?;
+
         let conn = Connection::open(path)?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "FULL")?;
         let store = Self {
-            conn: Mutex::new(conn),
+            conn: Some(Mutex::new(conn)),
         };
         store.init_schema()?;
         Ok(store)
+    }
+
+    /// Open the path explicitly configured for the production server.
+    pub fn open_configured() -> Result<Self, ApiKeyStoreOpenError> {
+        let path = std::env::var_os("COPYPASTE_SQLITE_PATH")
+            .filter(|value| !value.is_empty())
+            .ok_or(ApiKeyStoreOpenError::MissingPath)?;
+        Self::open(PathBuf::from(path))
     }
 
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
         let conn = Connection::open_in_memory()?;
         let store = Self {
-            conn: Mutex::new(conn),
+            conn: Some(Mutex::new(conn)),
         };
         store.init_schema()?;
         Ok(store)
     }
 
+    /// A production-safe mode for deployments that use only static tokens.
+    /// Dynamic API-key verification and management are unavailable.
+    pub fn disabled() -> Self {
+        Self { conn: None }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.conn.is_some()
+    }
+
     fn init_schema(&self) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let Some(conn) = self.conn.as_ref() else {
+            return Ok(());
+        };
+        let conn = conn.lock().unwrap();
         // Create the table with key_prefix for new databases.
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS api_keys (
@@ -173,17 +344,31 @@ impl SqliteApiKeyStore {
                 created_at   INTEGER NOT NULL,
                 last_used_at INTEGER,
                 expires_at   INTEGER
-            );
-            CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);",
+            );",
         )?;
-        // Migration for existing databases: add key_prefix if absent.
-        // ALTER TABLE fails silently when the column already exists.
-        let _ = conn
-            .execute_batch("ALTER TABLE api_keys ADD COLUMN key_prefix TEXT NOT NULL DEFAULT '';");
-        // Recreate index in case it was absent on the existing table.
-        let _ = conn.execute_batch(
+
+        // Migrate databases created before the indexed prefix was introduced.
+        // Inspecting the schema avoids swallowing unrelated ALTER TABLE errors.
+        let has_key_prefix = {
+            let mut statement = conn.prepare("PRAGMA table_info(api_keys)")?;
+            let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+            let mut found = false;
+            for column in columns {
+                if column? == "key_prefix" {
+                    found = true;
+                    break;
+                }
+            }
+            found
+        };
+        if !has_key_prefix {
+            conn.execute_batch(
+                "ALTER TABLE api_keys ADD COLUMN key_prefix TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
+        conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);",
-        );
+        )?;
         Ok(())
     }
 
@@ -195,6 +380,10 @@ impl SqliteApiKeyStore {
         scope: ApiScope,
         expires_at: Option<i64>,
     ) -> Result<(StoredApiKey, String), String> {
+        let connection = self
+            .conn
+            .as_ref()
+            .ok_or_else(|| "Dynamic API-key management is disabled".to_string())?;
         let raw_key = generate_api_key();
         let key_hash = hash_key(&raw_key)?;
         let prefix = key_prefix_for(&raw_key);
@@ -211,7 +400,7 @@ impl SqliteApiKeyStore {
             expires_at,
         };
 
-        let conn = self.conn.lock().unwrap();
+        let conn = connection.lock().unwrap();
         conn.execute(
             "INSERT INTO api_keys (id, name, scope, key_hash, key_prefix, created_at, last_used_at, expires_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -233,7 +422,12 @@ impl SqliteApiKeyStore {
 
     /// List all keys (metadata only, no hashes).
     pub fn list_keys(&self) -> Result<Vec<StoredApiKey>, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .as_ref()
+            .ok_or_else(|| "Dynamic API-key management is disabled".to_string())?
+            .lock()
+            .unwrap();
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, scope, created_at, last_used_at, expires_at
@@ -262,7 +456,12 @@ impl SqliteApiKeyStore {
 
     /// Revoke a key by ID. Returns `true` if the key existed.
     pub fn revoke_key(&self, id: &str) -> Result<bool, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .as_ref()
+            .ok_or_else(|| "Dynamic API-key management is disabled".to_string())?
+            .lock()
+            .unwrap();
         let n = conn
             .execute("DELETE FROM api_keys WHERE id = ?1", params![id])
             .map_err(|e| e.to_string())?;
@@ -288,7 +487,7 @@ impl SqliteApiKeyStore {
 
         // Acquire lock, fetch candidates, then release before Argon2 (BUG-010).
         let candidates: Vec<Row> = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn.as_ref()?.lock().unwrap();
 
             // Fast path: indexed lookup by key_prefix (BUG-003 fix).
             let fast: Vec<Row> = conn
@@ -350,7 +549,7 @@ impl SqliteApiKeyStore {
 
         // Re-acquire lock briefly to update last_used_at.
         {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn.as_ref()?.lock().unwrap();
             let _ = conn.execute(
                 "UPDATE api_keys SET last_used_at = ?1 WHERE id = ?2",
                 params![now, &matched.id],
@@ -379,7 +578,12 @@ impl SqliteApiKeyStore {
     ) -> Result<(), String> {
         let key_hash = hash_key(raw_key)?;
         let now = current_ts();
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .as_ref()
+            .ok_or_else(|| "Dynamic API-key management is disabled".to_string())?
+            .lock()
+            .unwrap();
         conn.execute(
             "INSERT INTO api_keys (id, name, scope, key_hash, key_prefix, created_at)
              VALUES (?1, ?2, ?3, ?4, '', ?5)",
@@ -388,6 +592,56 @@ impl SqliteApiKeyStore {
         .map_err(|e| e.to_string())?;
         Ok(())
     }
+}
+
+fn prepare_api_key_database_path(path: &Path) -> Result<(), ApiKeyStoreOpenError> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let parent_metadata =
+        fs::metadata(parent).map_err(|_| ApiKeyStoreOpenError::MissingParent(parent.into()))?;
+    if !parent_metadata.is_dir() {
+        return Err(ApiKeyStoreOpenError::MissingParent(parent.into()));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+        if parent_metadata.uid() != unsafe { libc::geteuid() }
+            || parent_metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err(ApiKeyStoreOpenError::InsecureParent(parent.into()));
+        }
+
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(ApiKeyStoreOpenError::InsecureFile(path.into()));
+        }
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(ApiKeyStoreOpenError::InsecureFile(path.into()));
+        }
+    }
+
+    Ok(())
 }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
@@ -450,6 +704,14 @@ fn verify_key_hash(key: &str, hash: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Compare bearer tokens without exposing the configured token length through
+/// the comparison path. Hashing both inputs gives `subtle` fixed-size arrays.
+fn constant_time_token_eq(candidate: &str, expected: &str) -> bool {
+    let candidate_digest = Sha256::digest(candidate.as_bytes());
+    let expected_digest = Sha256::digest(expected.as_bytes());
+    candidate_digest.ct_eq(&expected_digest).into()
+}
+
 // ── Request guards ────────────────────────────────────────────────────────────
 
 /// Authenticated key info extracted from a valid Bearer token.
@@ -470,10 +732,10 @@ impl<'r> FromRequest<'r> for OptionalApiKeyAuth {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let auth_header = req.headers().get_one("Authorization");
-        let token = match auth_header.and_then(|h| h.strip_prefix("Bearer ")) {
-            None => return Outcome::Success(OptionalApiKeyAuth(None)),
-            Some(t) => t.to_owned(),
+        let token = match authorization_bearer(req) {
+            Ok(None) => return Outcome::Success(OptionalApiKeyAuth(None)),
+            Ok(Some(token)) => token,
+            Err(status) => return Outcome::Error((status, ())),
         };
 
         let client_ip = req.client_ip().map(|ip| ip.to_string()).unwrap_or_default();
@@ -520,6 +782,253 @@ impl<'r> FromRequest<'r> for OptionalApiKeyAuth {
     }
 }
 
+/// Creation guard honoring the configured write authorization policy.
+///
+/// `Authorization` may carry a signed user session so the created paste gets a
+/// validated owner identity. On closed deployments, service admission is a
+/// separate static/API credential in `X-CopyPaste-Write-Token`. Legacy clients
+/// may still put only that service credential in `Authorization`, but a
+/// self-issued user session is not admission unless the operator explicitly
+/// enables the compatibility option `COPYPASTE_ALLOW_SESSION_WRITES=true`.
+#[derive(Debug, Clone)]
+pub enum WritePrincipal {
+    Anonymous,
+    StaticToken,
+    ApiKey(AuthenticatedKey),
+    UserSession { pubkey_hash: String },
+}
+
+pub struct RequireWriteAuth(pub WritePrincipal);
+
+/// Separate admission guard for live-paste mutations.
+///
+/// `Authorization` remains exclusively the paste ownership capability. Closed
+/// deployments require a service-level write credential in this distinct
+/// header so possession of one capability never substitutes for the other.
+pub struct RequireMutationWriteAuth(pub WritePrincipal);
+
+pub const MUTATION_WRITE_TOKEN_HEADER: &str = "X-CopyPaste-Write-Token";
+
+fn single_header_value(req: &Request<'_>, name: &str) -> Result<Option<String>, Status> {
+    let mut values = req.headers().get(name);
+    match (values.next(), values.next()) {
+        (Some(value), None) if !value.trim().is_empty() => Ok(Some(value.to_owned())),
+        (None, None) => Ok(None),
+        // Duplicate or empty credentials are ambiguous and fail closed.
+        _ => Err(Status::Unauthorized),
+    }
+}
+
+fn authorization_bearer(req: &Request<'_>) -> Result<Option<String>, Status> {
+    match single_header_value(req, "Authorization")? {
+        Some(value) => value
+            .strip_prefix("Bearer ")
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned)
+            .ok_or(Status::Unauthorized)
+            .map(Some),
+        None => Ok(None),
+    }
+}
+
+/// Strict optional bearer capability for live-paste ownership checks.
+/// Duplicate, blank, or malformed Authorization headers fail closed.
+pub struct OwnerBearerToken(pub Option<String>);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for OwnerBearerToken {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        match authorization_bearer(req) {
+            Ok(token) => Outcome::Success(Self(token)),
+            Err(status) => Outcome::Error((status, ())),
+        }
+    }
+}
+
+async fn verify_service_write_credential(
+    req: &Request<'_>,
+    token: String,
+) -> Result<WritePrincipal, Status> {
+    let tokens = match req.guard::<&State<StaticAuthTokens>>().await {
+        Outcome::Success(tokens) => tokens,
+        _ => return Err(Status::InternalServerError),
+    };
+
+    let configured_token = tokens.write_token.as_deref();
+    let client_ip = req.client_ip().map(|ip| ip.to_string()).unwrap_or_default();
+    let rate_limiter = match req.guard::<&State<SharedRateLimiter>>().await {
+        Outcome::Success(limiter) => Some(limiter.inner().clone()),
+        _ => None,
+    };
+    if rate_limiter
+        .as_ref()
+        .is_some_and(|limiter| limiter.is_limited(&client_ip))
+    {
+        return Err(Status::TooManyRequests);
+    }
+
+    let matches_write_token =
+        configured_token.is_some_and(|expected| constant_time_token_eq(&token, expected));
+    let matches_admin_token = tokens
+        .admin_token
+        .as_deref()
+        .is_some_and(|expected| constant_time_token_eq(&token, expected));
+    if matches_write_token || matches_admin_token {
+        if let Some(limiter) = &rate_limiter {
+            limiter.clear_ip(&client_ip);
+        }
+        return Ok(WritePrincipal::StaticToken);
+    }
+
+    let store = match req.guard::<&State<SharedApiKeyStore>>().await {
+        Outcome::Success(store) => store,
+        _ => return Err(Status::InternalServerError),
+    };
+    let store = store.inner().clone();
+    let verified = tokio::task::spawn_blocking(move || store.verify_key(&token))
+        .await
+        .unwrap_or(None);
+
+    match verified {
+        Some(key) if key.scope.can_write() => {
+            if let Some(limiter) = &rate_limiter {
+                limiter.clear_ip(&client_ip);
+            }
+            Ok(WritePrincipal::ApiKey(AuthenticatedKey {
+                key_id: key.id,
+                name: key.name,
+                scope: key.scope,
+            }))
+        }
+        Some(_) => {
+            if let Some(limiter) = &rate_limiter {
+                limiter.record_failure(&client_ip);
+            }
+            Err(Status::Forbidden)
+        }
+        None => {
+            if let Some(limiter) = &rate_limiter {
+                limiter.record_failure(&client_ip);
+            }
+            Err(Status::Unauthorized)
+        }
+    }
+}
+
+async fn session_identity(req: &Request<'_>, token: &str) -> Result<Option<String>, Status> {
+    let sessions = match req.guard::<&State<SharedSessionStore>>().await {
+        Outcome::Success(sessions) => sessions,
+        _ => return Err(Status::InternalServerError),
+    };
+    Ok(sessions.validate(token))
+}
+
+async fn write_policy(req: &Request<'_>) -> Result<(bool, bool), Status> {
+    let tokens = match req.guard::<&State<StaticAuthTokens>>().await {
+        Outcome::Success(tokens) => tokens,
+        _ => return Err(Status::InternalServerError),
+    };
+    let closed = tokens.write_token.is_some() || tokens.require_write_auth;
+    Ok((closed, tokens.allow_session_writes))
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for RequireWriteAuth {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let authorization = match authorization_bearer(req) {
+            Ok(token) => token,
+            Err(status) => return Outcome::Error((status, ())),
+        };
+        let explicit_admission = match single_header_value(req, MUTATION_WRITE_TOKEN_HEADER) {
+            Ok(token) => token,
+            Err(status) => return Outcome::Error((status, ())),
+        };
+        let (closed, allow_session_writes) = match write_policy(req).await {
+            Ok(policy) => policy,
+            Err(status) => return Outcome::Error((status, ())),
+        };
+
+        // Authorization carries optional user identity. If it is not a valid
+        // session, it may still be a legacy service credential for clients
+        // that cannot yet send the dedicated admission header.
+        let session_owner = match authorization.as_deref() {
+            Some(token) => match session_identity(req, token).await {
+                Ok(identity) => identity,
+                Err(status) => return Outcome::Error((status, ())),
+            },
+            None => None,
+        };
+
+        let explicit_principal = match explicit_admission {
+            Some(token) => match verify_service_write_credential(req, token).await {
+                Ok(principal) => Some(principal),
+                Err(status) => return Outcome::Error((status, ())),
+            },
+            None => None,
+        };
+
+        let compatibility_principal = if session_owner.is_none() {
+            match authorization {
+                Some(token) => match verify_service_write_credential(req, token).await {
+                    Ok(principal) => Some(principal),
+                    Err(status) => return Outcome::Error((status, ())),
+                },
+                None => None,
+            }
+        } else {
+            None
+        };
+
+        let session_is_admitted = session_owner.is_some() && allow_session_writes;
+        if closed
+            && explicit_principal.is_none()
+            && compatibility_principal.is_none()
+            && !session_is_admitted
+        {
+            return Outcome::Error((Status::Unauthorized, ()));
+        }
+
+        let principal = match session_owner {
+            Some(pubkey_hash) => WritePrincipal::UserSession { pubkey_hash },
+            None => explicit_principal
+                .or(compatibility_principal)
+                .unwrap_or(WritePrincipal::Anonymous),
+        };
+        Outcome::Success(RequireWriteAuth(principal))
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for RequireMutationWriteAuth {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let token = match single_header_value(req, MUTATION_WRITE_TOKEN_HEADER) {
+            Ok(token) => token,
+            Err(status) => return Outcome::Error((status, ())),
+        };
+        let (closed, _) = match write_policy(req).await {
+            Ok(policy) => policy,
+            Err(status) => return Outcome::Error((status, ())),
+        };
+
+        match token {
+            Some(token) => match verify_service_write_credential(req, token).await {
+                Ok(principal) => Outcome::Success(RequireMutationWriteAuth(principal)),
+                Err(status) => Outcome::Error((status, ())),
+            },
+            None if !closed => {
+                Outcome::Success(RequireMutationWriteAuth(WritePrincipal::Anonymous))
+            }
+            None => Outcome::Error((Status::Unauthorized, ())),
+        }
+    }
+}
+
 /// Required admin guard: fails (401) if no Bearer token; fails (403) if token
 /// is valid but scope is not Admin; succeeds if Admin scope.
 ///
@@ -531,10 +1040,10 @@ impl<'r> FromRequest<'r> for RequireAdminAuth {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let auth_header = req.headers().get_one("Authorization");
-        let token = match auth_header.and_then(|h| h.strip_prefix("Bearer ")) {
-            None => return Outcome::Error((Status::Unauthorized, ())),
-            Some(t) => t.to_owned(),
+        let token = match authorization_bearer(req) {
+            Ok(Some(token)) => token,
+            Ok(None) => return Outcome::Error((Status::Unauthorized, ())),
+            Err(status) => return Outcome::Error((status, ())),
         };
 
         let client_ip = req.client_ip().map(|ip| ip.to_string()).unwrap_or_default();
@@ -550,10 +1059,15 @@ impl<'r> FromRequest<'r> for RequireAdminAuth {
             }
         }
 
-        // Bootstrap: allow COPYPASTE_ADMIN_TOKEN env var as admin token.
+        let tokens = match req.guard::<&State<StaticAuthTokens>>().await {
+            Outcome::Success(tokens) => tokens,
+            _ => return Outcome::Error((Status::InternalServerError, ())),
+        };
+
+        // Bootstrap: allow COPYPASTE_ADMIN_TOKEN as loaded at server startup.
         // Constant-time comparison prevents timing oracle (BUG-001).
-        if let Ok(admin_token) = std::env::var("COPYPASTE_ADMIN_TOKEN") {
-            if !admin_token.is_empty() && token.as_bytes().ct_eq(admin_token.as_bytes()).into() {
+        if let Some(admin_token) = tokens.admin_token.as_deref() {
+            if constant_time_token_eq(&token, admin_token) {
                 if let Some(rl) = &rl_arc {
                     rl.clear_ip(&client_ip);
                 }
@@ -610,6 +1124,114 @@ mod tests {
 
     fn store() -> SqliteApiKeyStore {
         SqliteApiKeyStore::in_memory().expect("in-memory SQLite")
+    }
+
+    #[test]
+    fn static_deployment_tokens_require_a_bounded_base64url_alphabet() {
+        assert!(valid_static_token(&"A".repeat(43)));
+        assert!(valid_static_token(&"aB0_-".repeat(20)));
+        assert!(!valid_static_token(&"A".repeat(42)));
+        assert!(!valid_static_token(&"A".repeat(129)));
+        assert!(!valid_static_token(&format!("{}!", "A".repeat(42))));
+        assert!(!valid_static_token(&format!("{}\n", "A".repeat(43))));
+    }
+
+    struct TemporaryDirectory(PathBuf);
+
+    impl TemporaryDirectory {
+        fn secure() -> Self {
+            let path = std::env::temp_dir().join(format!("copypaste-api-keys-{}", nanoid!(16)));
+            fs::create_dir(&path).expect("create temporary API-key directory");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+                    .expect("secure temporary API-key directory");
+            }
+            Self(path)
+        }
+    }
+
+    impl Drop for TemporaryDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn file_backed_keys_survive_store_restart() {
+        let directory = TemporaryDirectory::secure();
+        let database_path = directory.0.join("api-keys.db");
+
+        let raw_key = {
+            let store = SqliteApiKeyStore::open(&database_path).expect("open durable key store");
+            let (_, raw_key) = store
+                .create_key("restart-test", ApiScope::Write, None)
+                .expect("create durable key");
+            assert!(store.verify_key(&raw_key).is_some());
+            raw_key
+        };
+
+        let reopened = SqliteApiKeyStore::open(&database_path)
+            .expect("reopen durable key store after restart");
+        assert!(reopened.verify_key(&raw_key).is_some());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&database_path)
+                    .expect("database metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn file_backed_legacy_schema_is_migrated_before_index_creation() {
+        let directory = TemporaryDirectory::secure();
+        let database_path = directory.0.join("legacy-api-keys.db");
+        let raw_key = "cp_legacy_persistent_key_material";
+        {
+            let connection = Connection::open(&database_path).expect("create legacy database");
+            connection
+                .execute_batch(
+                    "CREATE TABLE api_keys (
+                        id           TEXT PRIMARY KEY,
+                        name         TEXT NOT NULL,
+                        scope        TEXT NOT NULL,
+                        key_hash     TEXT NOT NULL,
+                        created_at   INTEGER NOT NULL,
+                        last_used_at INTEGER,
+                        expires_at   INTEGER
+                    );",
+                )
+                .expect("create legacy schema");
+            let key_hash = hash_key(raw_key).expect("hash legacy key");
+            connection
+                .execute(
+                    "INSERT INTO api_keys (id, name, scope, key_hash, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params!["legacy-file", "legacy", "write", key_hash, current_ts()],
+                )
+                .expect("insert legacy key");
+        }
+
+        let migrated = SqliteApiKeyStore::open(&database_path).expect("migrate legacy key store");
+        assert!(migrated.verify_key(raw_key).is_some());
+    }
+
+    #[test]
+    fn disabled_store_rejects_dynamic_keys_without_fallback() {
+        let store = SqliteApiKeyStore::disabled();
+        assert!(!store.is_enabled());
+        assert!(store.verify_key("cp_untrusted").is_none());
+        assert!(store.create_key("disabled", ApiScope::Write, None).is_err());
+        assert!(store.list_keys().is_err());
+        assert!(store.revoke_key("missing").is_err());
     }
 
     #[test]
@@ -781,5 +1403,38 @@ mod tests {
         }
         assert!(rl.is_limited(ip_a));
         assert!(!rl.is_limited(ip_b));
+    }
+
+    #[test]
+    fn failed_auth_map_is_hard_capped_and_evicts_oldest() {
+        let rl = RateLimiter::with_capacity(2);
+        let base = Instant::now();
+
+        rl.record_failure_at("oldest", base);
+        rl.record_failure_at("newer", base + std::time::Duration::from_secs(1));
+        rl.record_failure_at("newest", base + std::time::Duration::from_secs(2));
+
+        let map = rl.fails.lock().unwrap();
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key("oldest"));
+        assert!(map.contains_key("newer"));
+        assert!(map.contains_key("newest"));
+    }
+
+    #[test]
+    fn failed_auth_map_purges_expired_before_live_eviction() {
+        let rl = RateLimiter::with_capacity(2);
+        let base = Instant::now();
+        let live = base + std::time::Duration::from_secs(RATE_LIMIT_WINDOW_SECS + 1);
+
+        rl.record_failure_at("expired", base);
+        rl.record_failure_at("active", live);
+        rl.record_failure_at("fresh", live + std::time::Duration::from_secs(1));
+
+        let map = rl.fails.lock().unwrap();
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key("expired"));
+        assert!(map.contains_key("active"));
+        assert!(map.contains_key("fresh"));
     }
 }

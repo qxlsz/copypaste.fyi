@@ -151,7 +151,7 @@ docker buildx du
 
 1. ✅ **Keep dependencies stable** - Only update when necessary
 2. ✅ **Order Dockerfile instructions** - Most stable → most volatile
-3. ✅ **Use specific base image tags** - `rust:1.84` not `rust:latest`
+3. ✅ **Use specific base image tags** - `rust:1.88` not `rust:latest`
 4. ✅ **Minimize layer count** - Combine RUN commands where logical
 5. ✅ **Use .dockerignore** - Exclude unnecessary files
 6. ✅ **Enable BuildKit** - Parallel builds and better caching
