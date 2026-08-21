@@ -82,7 +82,7 @@ async fn post_encrypted_requires_key() {
     assert!(without_body.contains("Encryption key"));
 
     let with_key = client
-        .get(format!("{}?key=passphrase", path))
+        .get(format!("{path}?key=passphrase"))
         .dispatch()
         .await;
     let html = with_key.into_string().await.expect("html");
@@ -122,17 +122,14 @@ async fn raw_endpoint_requires_key_for_encrypted_content() {
     let id = store.create_paste(paste).await.expect("create paste");
     let client = rocket_client_with_store(store.clone()).await;
 
-    let missing_key = client.get(format!("/raw/{}", id)).dispatch().await;
+    let missing_key = client.get(format!("/raw/{id}")).dispatch().await;
     assert_eq!(missing_key.status(), Status::Unauthorized);
 
-    let wrong_key = client
-        .get(format!("/raw/{}?key=not-it", id))
-        .dispatch()
-        .await;
+    let wrong_key = client.get(format!("/raw/{id}?key=not-it")).dispatch().await;
     assert_eq!(wrong_key.status(), Status::Forbidden);
 
     let ok = client
-        .get(format!("/raw/{}?key=super-secret", id))
+        .get(format!("/raw/{id}?key=super-secret"))
         .dispatch()
         .await;
     assert_eq!(ok.status(), Status::Ok);
@@ -177,7 +174,7 @@ async fn shared_secret_attestation_fails_closed_in_hardened_builder() {
     let id = store.create_paste(paste).await.expect("create paste");
     let client = rocket_client_with_store(store.clone()).await;
 
-    let response = client.get(format!("/{}", id)).dispatch().await;
+    let response = client.get(format!("/{id}")).dispatch().await;
     assert_eq!(response.status(), Status::ServiceUnavailable);
 }
 
@@ -222,7 +219,7 @@ async fn decrypt_requires_key_for_encrypted_content() {
     .expect("encrypt");
     match decrypt_content(&stored, None) {
         Err(DecryptError::MissingKey) => {}
-        other => panic!("expected missing key error, got {:?}", other),
+        other => panic!("expected missing key error, got {other:?}"),
     }
 }
 

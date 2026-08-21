@@ -3,7 +3,7 @@ use std::process::Command;
 fn main() {
     // Generate version information from git or fallback
     let version = get_version_from_git();
-    println!("cargo:rustc-env=COPYPASTE_VERSION={}", version);
+    println!("cargo:rustc-env=COPYPASTE_VERSION={version}");
 
     // Re-run build script if git state changes (only if .git exists)
     if std::path::Path::new(".git").exists() {
@@ -25,7 +25,7 @@ fn get_version_from_git() -> String {
                 return describe;
             } else {
                 // For untagged commits, create a dev version
-                return format!("0.1.0-dev+{}", describe);
+                return format!("0.1.0-dev+{describe}");
             }
         }
     }
@@ -42,7 +42,7 @@ fn get_version_from_git() -> String {
         if count.status.success() && hash.status.success() {
             let count_str = String::from_utf8_lossy(&count.stdout).trim().to_string();
             let hash_str = String::from_utf8_lossy(&hash.stdout).trim().to_string();
-            return format!("0.1.0-dev.{}.{}", count_str, hash_str);
+            return format!("0.1.0-dev.{count_str}.{hash_str}");
         }
     }
 
@@ -58,7 +58,7 @@ fn get_version_from_git() -> String {
             }
         }
         if !commit.is_empty() {
-            return format!("0.1.0-dev+{}", commit);
+            return format!("0.1.0-dev+{commit}");
         }
     }
 

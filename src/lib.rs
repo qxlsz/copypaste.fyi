@@ -77,7 +77,7 @@ impl std::fmt::Display for PasteFormat {
             PasteFormat::Html => "html",
             PasteFormat::Css => "css",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

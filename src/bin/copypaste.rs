@@ -159,9 +159,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Send(args) => {
             let url = execute_send(args)?;
             if io::stdout().is_terminal() {
-                println!("Paste link: {}", url);
+                println!("Paste link: {url}");
             } else {
-                println!("{}", url);
+                println!("{url}");
             }
             Ok(())
         }
@@ -527,7 +527,7 @@ mod tests {
         let base = server.base_url();
         let args = SendArgs::parse_from(["copypaste-send", "hello", "--host", base.as_str()]);
         let url = execute_send(args).expect("url");
-        assert_eq!(url, format!("{}/paste/abc123", base));
+        assert_eq!(url, format!("{base}/paste/abc123"));
         mock.assert();
     }
 
@@ -616,7 +616,7 @@ mod tests {
         ]);
         let url = execute_send(args).expect("url");
         std::fs::remove_file(key_file).expect("remove key file");
-        assert_eq!(url, format!("{}/secret", base));
+        assert_eq!(url, format!("{base}/secret"));
         assert!(!url.contains("super"));
         mock.assert();
     }
@@ -761,7 +761,7 @@ mod tests {
             "2h",
         ]);
         let url = execute_send(args).expect("url");
-        assert_eq!(url, format!("{}/paste/timed", base));
+        assert_eq!(url, format!("{base}/paste/timed"));
         mock.assert();
     }
 
@@ -779,7 +779,7 @@ mod tests {
         let args =
             SendArgs::parse_from(["copypaste-send", "hello", "--host", base.as_str(), "--burn"]);
         let url = execute_send(args).expect("url");
-        assert_eq!(url, format!("{}/paste/burned", base));
+        assert_eq!(url, format!("{base}/paste/burned"));
         mock.assert();
     }
 }

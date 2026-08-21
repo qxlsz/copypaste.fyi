@@ -63,7 +63,6 @@ pub async fn build_bundle_overview(
 {items}    </ul>
 </section>
 "#,
-        items = items,
     )))
 }
 

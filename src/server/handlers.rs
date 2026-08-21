@@ -647,7 +647,7 @@ async fn user_paste_list_api(
 
                 user_pastes.push(UserPasteListItem {
                     id: id.clone(),
-                    url: format!("/p/{}", id),
+                    url: format!("/p/{id}"),
                     created_at: paste.created_at,
                     expires_at: paste.expires_at,
                     retention_minutes,
@@ -709,7 +709,7 @@ async fn workspace_pastes_api(
             {
                 pastes.push(WorkspacePasteItem {
                     id: id.clone(),
-                    url: format!("/p/{}", id),
+                    url: format!("/p/{id}"),
                     workspace: paste.metadata.workspace.clone(),
                     created_at: paste.created_at,
                 });
@@ -910,7 +910,7 @@ async fn show_api(
                 Status::NotFound,
                 Json(ApiError::new(
                     "paste_not_found",
-                    format!("Paste '{}' not found", id),
+                    format!("Paste '{id}' not found"),
                 )),
             ));
         }
@@ -1715,7 +1715,7 @@ async fn create_paste_internal(
                     ));
                 }
                 let (mime, data) = parse_data_uri(data_uri)
-                    .map_err(|e| (Status::BadRequest, format!("Invalid data URI: {}", e)))?;
+                    .map_err(|e| (Status::BadRequest, format!("Invalid data URI: {e}")))?;
                 if !matches!(mime.as_str(), "image/png" | "image/bmp" | "image/jpeg") {
                     return Err((
                         Status::BadRequest,
@@ -1818,7 +1818,7 @@ async fn create_paste_internal(
             "Paste storage is temporarily unavailable".to_string(),
         )
     })?;
-    let path = format!("/p/{}", id);
+    let path = format!("/p/{id}");
 
     Ok(CreatePasteResponse {
         id: id.clone(),
@@ -3615,7 +3615,7 @@ mod tests {
 
         // Delete the key
         let delete_resp = client
-            .delete(format!("/api/admin/keys/{}", key_id))
+            .delete(format!("/api/admin/keys/{key_id}"))
             .header(rocket::http::Header::new(
                 "Authorization",
                 "Bearer test-admin-bootstrap",

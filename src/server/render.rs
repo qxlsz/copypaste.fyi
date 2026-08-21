@@ -198,8 +198,6 @@ pub fn render_time_locked(state: super::time::TimeLockState) -> String {
     <p class="hint">Bookmark this link and try again when the unlock window is active.</p>
 </section>
 "#,
-            heading = heading,
-            message = message,
         ),
     )
 }
@@ -257,10 +255,7 @@ pub fn render_attestation_prompt(
     }
 
     form_inputs.push_str(&format!(
-        "        <input type=\"{field_type}\" name=\"{field_name}\" id=\"{field_name}\" required{attrs} />\n",
-        field_type = field_type,
-        field_name = field_name,
-        attrs = field_attributes,
+        "        <input type=\"{field_type}\" name=\"{field_name}\" id=\"{field_name}\" required{field_attributes} />\n",
     ));
 
     let error = if invalid {

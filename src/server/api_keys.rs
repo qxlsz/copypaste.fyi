@@ -143,7 +143,7 @@ impl std::str::FromStr for ApiScope {
             "read" => Ok(ApiScope::Read),
             "write" => Ok(ApiScope::Write),
             "admin" => Ok(ApiScope::Admin),
-            other => Err(format!("unknown scope: {}", other)),
+            other => Err(format!("unknown scope: {other}")),
         }
     }
 }

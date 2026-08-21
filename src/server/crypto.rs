@@ -172,9 +172,9 @@ fn encrypt_content_sync(
             let mut d_bytes = Zeroizing::new([0u8; 32]);
             let mut z_bytes = Zeroizing::new([0u8; 32]);
             hk.expand(b"ml-kem-768-keygen-d", &mut *d_bytes)
-                .map_err(|e| format!("HKDF expand error (d): {}", e))?;
+                .map_err(|e| format!("HKDF expand error (d): {e}"))?;
             hk.expand(b"ml-kem-768-keygen-z", &mut *z_bytes)
-                .map_err(|e| format!("HKDF expand error (z): {}", e))?;
+                .map_err(|e| format!("HKDF expand error (z): {e}"))?;
             let d: B32 = (*d_bytes).into();
             let z: B32 = (*z_bytes).into();
             let (_, ek) = MlKem768::generate_deterministic(&d, &z);
@@ -190,7 +190,7 @@ fn encrypt_content_sync(
             let hk2 = Hkdf::<Sha256>::new(None, &shared_secret);
             let mut aes_key = Zeroizing::new([0u8; 32]);
             hk2.expand(b"aes-256-gcm-key", &mut *aes_key)
-                .map_err(|e| format!("HKDF expand error (aes-key): {}", e))?;
+                .map_err(|e| format!("HKDF expand error (aes-key): {e}"))?;
 
             let cipher = Aes256Gcm::new_from_slice(&*aes_key)
                 .map_err(|_| "failed to initialise AES cipher".to_string())?;
@@ -238,10 +238,9 @@ pub(crate) fn warn_dual_verification_gap(algorithm: EncryptionAlgorithm) {
     ) {
         DUAL_VERIFY_GAP_WARNING.call_once(|| {
             log::warn!(
-                "{:?} is not covered by the OCaml dual-verification service; \
+                "{algorithm:?} is not covered by the OCaml dual-verification service; \
                  XChaCha20-Poly1305 and ML-KEM-768 hybrid ciphertexts are verified \
-                 by the Rust implementation only (see docs/encryption.md)",
-                algorithm
+                 by the Rust implementation only (see docs/encryption.md)"
             );
         });
     }
@@ -299,7 +298,7 @@ pub fn decrypt_content(content: &StoredContent, key: Option<&str>) -> Result<Str
             ..
         } => {
             let extracted_key = key.ok_or(DecryptError::MissingKey)?;
-            log::info!("Starting decryption for algorithm: {:?}", algorithm);
+            log::info!("Starting decryption for algorithm: {algorithm:?}");
 
             // KyberHybridAes256Gcm uses a different storage layout; handle it separately.
             if matches!(algorithm, EncryptionAlgorithm::KyberHybridAes256Gcm) {
@@ -625,8 +624,7 @@ async fn verify_with_ocaml_crypto_service(
                             Ok(())
                         } else {
                             log::error!(
-                                "OCaml crypto verifier returned valid=false for {}",
-                                verification_type
+                                "OCaml crypto verifier returned valid=false for {verification_type}"
                             );
                             if require_verification {
                                 Err("Crypto verification failed".to_string())
@@ -652,8 +650,7 @@ async fn verify_with_ocaml_crypto_service(
                 );
                 if require_verification {
                     Err(format!(
-                        "Crypto verification service returned HTTP {}",
-                        status
+                        "Crypto verification service returned HTTP {status}"
                     ))
                 } else {
                     Ok(())
@@ -699,7 +696,7 @@ pub async fn verify_encryption_with_ocaml(
     };
 
     let request_body = serde_json::to_string(&request)
-        .map_err(|e| format!("Failed to serialize verification request: {}", e))?;
+        .map_err(|e| format!("Failed to serialize verification request: {e}"))?;
 
     verify_with_ocaml_crypto_service("encryption", request_body).await
 }
@@ -718,7 +715,7 @@ pub async fn verify_signature_with_ocaml(
     };
 
     let request_body = serde_json::to_string(&request)
-        .map_err(|e| format!("Failed to serialize signature verification request: {}", e))?;
+        .map_err(|e| format!("Failed to serialize signature verification request: {e}"))?;
 
     verify_with_ocaml_crypto_service("signature", request_body).await
 }

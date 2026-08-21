@@ -351,7 +351,7 @@ fn kyber_legacy_simulation_blob_decrypts_successfully() {
     assert_eq!(decrypted, plaintext);
 
     // 5-part legacy blob (with trailing ignored component) must also decrypt.
-    let legacy_5part = format!("{}|ZmFrZXByaXZhdGVrZXk=", legacy_4part);
+    let legacy_5part = format!("{legacy_4part}|ZmFrZXByaXZhdGVrZXk=");
     let stored_5 = StoredContent::Encrypted {
         algorithm: EncryptionAlgorithm::KyberHybridAes256Gcm,
         ciphertext: legacy_5part,
