@@ -5159,6 +5159,7 @@ mod tests {
             .body(body)
             .dispatch();
         assert_eq!(resp.status(), Status::TooManyRequests);
+        assert_eq!(resp.headers().get_one("Retry-After"), Some("60"));
     }
 
     // ── Workspace persistence & listing ────────────────────────────────────────

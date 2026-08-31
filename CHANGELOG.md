@@ -7,6 +7,8 @@ All notable changes to copypaste.fyi are documented here. The project follows
 
 ### Added
 
+- Added `copypaste healthcheck` so distroless images can probe `GET /api/health` in Docker exec
+  form without a shell or curl.
 - Added exact-ID, metadata-only moderation at `GET /api/admin/pastes/{id}` and targeted deletion at
   `DELETE /api/admin/pastes/{id}`. The moderation response excludes paste content, ciphertext,
   keys, nonces, salts, raw workspace labels, attestation secrets, ownership tokens, and webhook
@@ -29,8 +31,15 @@ All notable changes to copypaste.fyi are documented here. The project follows
   `--auth-token-file` or `COPYPASTE_AUTH_TOKEN` and encryption keys from
   `--encryption-key-file` or `COPYPASTE_ENCRYPTION_KEY`.
 
+### Fixed
+
+- Docker and Compose now detect an unresponsive `copypaste` process. The distroless image and
+  Compose service probe `GET /api/health` through `copypaste healthcheck` (exec form, no shell).
+
 ### Security
 
+- Rate-limited responses now include `Retry-After: 60` and expose that header to allowlisted CORS
+  origins so clients can wait out the fixed 60-second window.
 - Introduced `X-CopyPaste-Write-Token` to separate service admission from optional signed-session
   identity in `Authorization`. Creation retains a legacy service-credential fallback in
   `Authorization`; current clients use the dedicated header. Live mutations require service

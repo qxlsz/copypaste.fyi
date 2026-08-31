@@ -11,6 +11,10 @@ permissions:
   packages: write
   contents: read
 
+concurrency:
+  group: docker-publish
+  cancel-in-progress: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest
