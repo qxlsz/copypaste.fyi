@@ -1,0 +1,76 @@
+openapi: 3.0.3
+info:
+  title: copypaste.v1
+  version: 1.0.0
+  description: Ephemeral paste layer. No listing. Client-side encryption.
+servers:
+  - url: /
+paths:
+  /health:
+    get:
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+  /api/v1:
+    get:
+      summary: Discovery document
+      responses:
+        "200":
+          description: Protocol metadata
+  /api/v1/pastes:
+    post:
+      summary: Create a paste
+      security:
+        - writeToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                format: { type: string, default: plain_text }
+                encrypted: { type: boolean }
+                algorithm: { type: string, nullable: true }
+                salt: { type: string, nullable: true }
+                nonce: { type: string, nullable: true }
+                burnAfterReading: { type: boolean }
+                retentionMinutes: { type: integer, minimum: 0, maximum: 43200 }
+      responses:
+        "201": { description: Created }
+        "400": { description: Invalid }
+        "401": { description: Write token required }
+        "429": { description: Rate limited }
+  /api/v1/pastes/{id}:
+    get:
+      summary: Fetch paste JSON
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9]{24}$' }
+      responses:
+        "200": { description: OK }
+        "404": { description: Missing }
+        "410": { description: Expired or burned }
+        "429": { description: Rate limited }
+  /api/v1/pastes/{id}/raw:
+    get:
+      summary: Fetch unencrypted plaintext
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: text/plain }
+        "409": { description: Encrypted }
+components:
+  securitySchemes:
+    writeToken:
+      type: apiKey
+      in: header
+      name: X-Write-Token

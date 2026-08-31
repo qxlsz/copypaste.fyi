@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="copypaste.fyi">
-  <!-- quiet terminal: dark tile, prompt chevron, accent block cursor -->
-  <rect width="64" height="64" rx="14" fill="#0a0a0a" />
-  <path d="M17 22 L29 32 L17 42" fill="none" stroke="#ededed" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
-  <rect x="35" y="36.5" width="13" height="8" rx="2" fill="#3b82f6" />
-</svg>

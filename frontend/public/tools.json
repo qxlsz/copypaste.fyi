@@ -1,0 +1,46 @@
+{
+  "protocol": "copypaste.v1",
+  "version": "1.0.0",
+  "description": "Function-calling tools for ephemeral text pastes. No listing. Decrypt only on the client.",
+  "constraints": {
+    "maxBytes": 1048576,
+    "defaultTtlMinutes": 1440,
+    "maxTtlMinutes": 43200,
+    "binaryUploads": false,
+    "listing": false
+  },
+  "tools": [
+    {
+      "name": "copypaste_send",
+      "description": "Create an ephemeral paste. Returns id, url, raw, expiresAt. Never send encryption keys in the body.",
+      "method": "POST",
+      "path": "/api/v1/pastes",
+      "parameters": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string", "description": "UTF-8 paste body, max 1 MiB" },
+          "format": { "type": "string", "default": "plain_text" },
+          "retentionMinutes": { "type": "integer", "minimum": 1, "maximum": 43200, "default": 1440 },
+          "burnAfterReading": { "type": "boolean", "default": false },
+          "encrypted": { "type": "boolean", "default": false },
+          "algorithm": { "type": "string", "nullable": true },
+          "salt": { "type": "string", "nullable": true },
+          "nonce": { "type": "string", "nullable": true }
+        }
+      }
+    },
+    {
+      "name": "copypaste_get",
+      "description": "Fetch a paste as JSON. A burn-after-reading paste is consumed on success.",
+      "method": "GET",
+      "path": "/api/v1/pastes/{id}"
+    },
+    {
+      "name": "copypaste_raw",
+      "description": "Fetch unencrypted plaintext. Encrypted pastes return 409 — use copypaste_get and decrypt locally.",
+      "method": "GET",
+      "path": "/api/v1/pastes/{id}/raw"
+    }
+  ]
+}
