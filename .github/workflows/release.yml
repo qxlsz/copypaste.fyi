@@ -1,0 +1,28 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test cli/copypaste.test.mjs
+      - run: cp cli/copypaste.mjs copypaste && chmod 0755 copypaste
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            copypaste
+            packaging/man/copypaste.1
+            install.sh
+          generate_release_notes: true
+          body: |
+            Architecture-independent Node 22+ CLI (client and server).
+            Install: copy `copypaste` onto PATH, or `brew install --HEAD qxlsz/tap/copypaste`.

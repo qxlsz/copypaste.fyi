@@ -1,0 +1,25 @@
+name: copypaste
+arch: all
+platform: linux
+version: 1.0.0
+section: utils
+priority: optional
+maintainer: copypaste contributors <security@copypaste.fyi>
+description: ephemeral paste layer for humans and agents (copypaste.v1)
+license: Apache-2.0
+homepage: https://github.com/qxlsz/copypaste.fyi
+depends:
+  - nodejs
+contents:
+  - src: cli/copypaste.mjs
+    dst: /usr/bin/copypaste
+    file_info:
+      mode: 0755
+  - src: packaging/man/copypaste.1
+    dst: /usr/share/man/man1/copypaste.1
+  - src: docs/AGENTS.md
+    dst: /usr/share/doc/copypaste/AGENTS.md
+  - src: docs/SECURITY.md
+    dst: /usr/share/doc/copypaste/SECURITY.md
+  - src: ACCEPTABLE_USE.md
+    dst: /usr/share/doc/copypaste/ACCEPTABLE_USE.md

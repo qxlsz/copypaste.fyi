@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_build:
+	chmod +x cli/copypaste.mjs
+
+override_dh_auto_install:
+	dh_auto_install
+	install -D -m 0755 cli/copypaste.mjs debian/copypaste/usr/bin/copypaste

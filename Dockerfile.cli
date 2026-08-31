@@ -1,0 +1,12 @@
+FROM node:22-bookworm-slim
+WORKDIR /app
+COPY cli/copypaste.mjs /usr/local/bin/copypaste
+RUN chmod +x /usr/local/bin/copypaste \
+  && mkdir -p /var/lib/copypaste \
+  && chown node:node /var/lib/copypaste
+ENV COPYPASTE_DATA_DIR=/var/lib/copypaste
+VOLUME ["/var/lib/copypaste"]
+EXPOSE 8787
+USER node
+ENTRYPOINT ["copypaste"]
+CMD ["serve", "--bind", "0.0.0.0", "--port", "8787", "--data-dir", "/var/lib/copypaste"]

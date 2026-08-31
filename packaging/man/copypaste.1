@@ -1,0 +1,53 @@
+.TH COPYPASTE 1 "August 2026" "copypaste 1.0.0" "User Commands"
+.SH NAME
+copypaste \- ephemeral paste layer for humans and AI agents (copypaste.v1)
+.SH SYNOPSIS
+.B copypaste
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B copypaste
+is both a client and a server for short-lived text pastes.
+Encryption is AES-256-GCM in the client. There is no public listing.
+.B copypaste serve
+runs a SQLite-backed API for agents and air-gapped organizations.
+The binary is architecture-independent JavaScript and requires Node.js 22+.
+.SH COMMANDS
+.TP
+.B send, put
+Create a paste from a file or stdin.
+.TP
+.B get, fetch
+Fetch a paste as JSON.
+.TP
+.B raw, cat
+Fetch unencrypted plaintext to stdout.
+.TP
+.B health
+Probe a host.
+.TP
+.B serve
+Run a local ephemeral store.
+.TP
+.B spec, tools, doctor, version
+Protocol document, function-calling schema, environment check, version.
+.SH ETHICS
+No listing, no binaries, 1 MiB cap, default TTL of 24 hours, optional write token.
+Do not use this as malware, credential-dump, or PII warehousing infrastructure.
+.SH ENVIRONMENT
+.TP
+.B COPYPASTE_HOST
+Default server origin.
+.TP
+.B COPYPASTE_WRITE_TOKEN
+Write admission token.
+.TP
+.B COPYPASTE_DATA_DIR
+SQLite directory for
+.B serve
+(default ~/.copypaste).
+.TP
+.B COPYPASTE_BLOCKED_PASTE_IDS
+Comma-separated exact IDs to quarantine.
+.SH SEE ALSO
+docs/AGENTS.md, ACCEPTABLE_USE.md

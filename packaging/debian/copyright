@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: copypaste
+Source: https://github.com/qxlsz/copypaste.fyi
+
+Files: *
+Copyright: 2026 copypaste contributors
+License: Apache-2.0
+ Licensed under the Apache License, Version 2.0.
+ See /usr/share/common-licenses/Apache-2.0

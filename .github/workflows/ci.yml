@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test cli/copypaste.test.mjs
+      - run: node --experimental-strip-types --test src/lib/protocol.test.ts src/lib/formats.test.ts src/lib/paste-id.test.ts src/lib/crypto-paste.test.ts
+      - run: chmod +x cli/copypaste.mjs && cli/copypaste.mjs version && cli/copypaste.mjs doctor
+      - run: test -f packaging/man/copypaste.1
+      - run: test -f packaging/homebrew/copypaste.rb
+      - run: test -f packaging/debian/control
+      - run: test -f flake.nix
+      - run: test -f snapcraft.yaml

@@ -1,0 +1,6 @@
+copypaste (1.0.0) unstable; urgency=low
+
+  * copypaste.v1 CLI: send/put, get/fetch, raw/cat, serve (SQLite WAL),
+    spec, tools, doctor. Agent discovery on serve. Man page.
+
+ -- copypaste contributors <security@copypaste.fyi>  Sun, 31 Aug 2026 00:00:00 +0000

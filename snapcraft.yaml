@@ -1,0 +1,32 @@
+name: copypaste
+base: core24
+version: "1.0.0"
+summary: Ephemeral paste layer for humans and AI agents
+description: |
+  copypaste.v1 is a client and server for short-lived text pastes.
+  Encryption is AES-256-GCM in the client. There is no public listing.
+  `copypaste serve` runs a SQLite-backed API for agents and air-gapped use.
+grade: stable
+confinement: strict
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+apps:
+  copypaste:
+    command: usr/bin/copypaste
+    plugs: [network, network-bind, home]
+
+parts:
+  copypaste:
+    plugin: dump
+    source: .
+    organize:
+      cli/copypaste.mjs: usr/bin/copypaste
+    stage:
+      - usr/bin/copypaste
+    override-prime: |
+      craftctl default
+      chmod 0755 $CRAFT_PRIME/usr/bin/copypaste
+    stage-packages:
+      - nodejs

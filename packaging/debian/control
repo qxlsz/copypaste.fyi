@@ -1,0 +1,17 @@
+Source: copypaste
+Section: utils
+Priority: optional
+Maintainer: copypaste contributors <security@copypaste.fyi>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/qxlsz/copypaste.fyi
+Rules-Requires-Root: no
+
+Package: copypaste
+Architecture: all
+Depends: nodejs (>= 22)
+Description: ephemeral paste layer for humans and agents (copypaste.v1)
+ copypaste is a client and server for short-lived text pastes.
+ Encryption is AES-256-GCM in the client. There is no public listing.
+ The `copypaste serve` command runs a local SQLite-backed API for
+ agents and air-gapped use. The hosted web UI speaks the same protocol.
