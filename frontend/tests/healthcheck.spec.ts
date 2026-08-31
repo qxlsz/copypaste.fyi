@@ -48,7 +48,7 @@ test.describe("Webpage Health Check", () => {
 
     // Check that the submit button is present
     await expect(
-      page.getByRole("button", { name: "Create", exact: true }),
+      page.getByRole("button", { name: "Get link", exact: true }),
     ).toBeVisible();
   });
 
