@@ -14,7 +14,7 @@ import {
   Share2,
 } from "lucide-react";
 
-import { createPaste } from "../api/client";
+import { ApiError, createPaste } from "../api/client";
 import type {
   CreatePastePayload,
   EncryptionAlgorithm,
@@ -86,7 +86,7 @@ const retentionOptions: Array<{ label: string; value: number }> = [
 const fieldLabelClasses = "block text-xs font-medium text-muted-foreground";
 
 const inputClasses =
-  "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-md border-0 bg-surface px-3 py-2 text-sm text-text shadow-soft placeholder:text-muted-foreground focus:outline-none focus:shadow-strong disabled:cursor-not-allowed disabled:opacity-50";
 
 // State passed via `navigate("/", { state })` when forking an existing paste.
 interface ForkState {
@@ -114,7 +114,10 @@ export const PasteFormPage = () => {
   const [retentionMinutes, setRetentionMinutes] = useState<number>(1440);
   const [encryption, setEncryption] = useState<EncryptionAlgorithm>("none");
   const [encryptionKey, setEncryptionKey] = useState("");
-  const [writeCredential, setWriteCredential] = useState("");
+  const [writeCredential, setWriteCredential] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return sessionStorage.getItem("copypaste.write-token") ?? "";
+  });
   const [burnAfterReading, setBurnAfterReading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
@@ -124,6 +127,7 @@ export const PasteFormPage = () => {
     useState<EncryptionAlgorithm>("none");
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState("");
   const [isEncryptionOpen, setEncryptionOpen] = useState(false);
+  const [showWriteToken, setShowWriteToken] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   const mutation = useMutation({
@@ -165,6 +169,11 @@ export const PasteFormPage = () => {
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : "Unknown error";
+      if (error instanceof ApiError && error.status === 401) {
+        setShowWriteToken(true);
+        toast.error("Write token required", { description: message });
+        return;
+      }
       toast.error("Failed to create paste", { description: message });
     },
   });
@@ -307,334 +316,339 @@ export const PasteFormPage = () => {
       className="flex min-h-0 flex-1 flex-col"
       onSubmit={handleSubmit}
     >
-      {shareLink && (
+      {shareLink ? (
         <section
-          className="shrink-0 space-y-3 border-b border-border bg-gutter px-4 py-3 sm:px-5"
+          className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 py-10"
           aria-label="Paste created"
         >
-          <div className="flex items-center gap-2">
-            <Check className="h-4 w-4 text-success" aria-hidden="true" />
-            <h2 className="font-mono text-xs font-semibold tracking-tight text-text">
-              Paste created
-            </h2>
-          </div>
-          <div className="space-y-1.5">
-            <label className={fieldLabelClasses} htmlFor="share-url">
-              share url
-            </label>
+          <div className="w-full max-w-md space-y-6">
+            <div className="space-y-2">
+              <p className="inline-flex items-center gap-2 text-sm font-medium text-success">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                Live
+              </p>
+              <h2 className="text-2xl font-medium tracking-tight text-text">
+                Paste is ready to share
+              </h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Anyone with this link can open it. There is no public listing.
+              </p>
+            </div>
             <div className="flex gap-2">
               <input
                 id="share-url"
                 readOnly
                 value={shareLink}
                 onFocus={(event) => event.target.select()}
-                className={`${inputClasses} min-h-11 font-mono text-xs sm:min-h-9`}
+                className={`${inputClasses} min-h-12 font-mono text-xs sm:min-h-11`}
               />
               <button
                 type="button"
                 onClick={handleCopyShareUrl}
                 disabled={isCopying}
-                className="inline-flex size-11 flex-shrink-0 items-center justify-center border border-border text-muted-foreground transition hover:text-text disabled:opacity-60 sm:size-9"
+                className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60 sm:h-11"
                 aria-label={isCopying ? "Copying link…" : "Copy link"}
-                title="Copy link"
               >
                 <Copy className="h-4 w-4" aria-hidden="true" />
+                {isCopying ? "Copying" : "Copy"}
               </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={handleShareLink}
-                className="inline-flex size-11 flex-shrink-0 items-center justify-center border border-border text-muted-foreground transition hover:text-text sm:size-9"
+                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text"
                 aria-label="Share link"
-                title="Share link"
               >
                 <Share2 className="h-4 w-4" aria-hidden="true" />
+                Share
               </button>
               <button
                 type="button"
                 onClick={() => setShowQr((open) => !open)}
                 aria-pressed={showQr}
-                className={`inline-flex h-11 flex-shrink-0 items-center gap-1.5 border border-border px-2.5 font-mono text-[11px] transition sm:h-9 ${
-                  showQr
-                    ? "bg-text text-background"
-                    : "text-muted-foreground hover:text-text"
+                className={`inline-flex h-11 items-center gap-2 rounded-md px-3 text-sm ${
+                  showQr ? "bg-text text-background" : "bg-muted text-text"
                 }`}
                 aria-label={showQr ? "Hide QR code" : "Show QR code"}
-                title={showQr ? "Hide QR code" : "Show QR code"}
               >
                 <QrCode className="h-4 w-4" aria-hidden="true" />
-                qr
+                QR
               </button>
             </div>
             {showQr && qrDataUrl && (
-              <div className="w-fit border border-border bg-surface p-2">
+              <div className="w-fit rounded-lg bg-surface p-2 shadow-soft">
                 <img
                   src={qrDataUrl}
                   alt="QR code for the paste share link"
                   width={160}
                   height={160}
-                  className="block h-40 w-40"
+                  className="block h-40 w-40 rounded-md"
                 />
               </div>
             )}
-            <a
-              href={shareLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-text hover:underline"
-            >
-              Open paste
-            </a>
+            {pasteEncryption !== "none" && pasteEncryptionKey && (
+              <div className="space-y-1.5">
+                <label className={fieldLabelClasses} htmlFor="share-key">
+                  Encryption key — share out of band
+                </label>
+                <input
+                  id="share-key"
+                  readOnly
+                  value={pasteEncryptionKey}
+                  onFocus={(event) => event.target.select()}
+                  className={`${inputClasses} font-mono text-xs`}
+                />
+              </div>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  setShareUrl(null);
+                  setShowQr(false);
+                }}
+                className="inline-flex h-12 flex-1 items-center justify-center rounded-md bg-muted text-sm font-medium sm:h-11"
+              >
+                New paste
+              </button>
+              <a
+                href={shareLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-12 flex-1 items-center justify-center rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-text sm:h-11"
+              >
+                Open
+              </a>
+            </div>
           </div>
-          {pasteEncryption !== "none" && pasteEncryptionKey && (
-            <div className="space-y-1.5">
-              <label className={fieldLabelClasses} htmlFor="share-key">
-                encryption key — share out of band
+        </section>
+      ) : (
+        <>
+          <label className="sr-only" htmlFor="content">
+            Content
+          </label>
+          <MonacoEditor
+            value={content}
+            onChange={setContent}
+            format={format}
+            height="100%"
+            className="min-h-0 w-full flex-1"
+          />
+        </>
+      )}
+      {!shareLink && (
+        <div className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {(showWriteToken || writeCredential) && (
+            <div className="space-y-1.5 px-3 pt-3 sm:px-4">
+              <label className={fieldLabelClasses} htmlFor="write-credential">
+                Write token
               </label>
               <input
-                id="share-key"
-                readOnly
-                value={pasteEncryptionKey}
-                onFocus={(event) => event.target.select()}
-                className={`${inputClasses} font-mono text-xs`}
+                id="write-credential"
+                type="password"
+                autoComplete="off"
+                value={writeCredential}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setWriteCredential(next);
+                  sessionStorage.setItem("copypaste.write-token", next);
+                }}
+                placeholder="Operator credential for this instance"
+                className={`${inputClasses} min-h-12 sm:min-h-10`}
               />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Sent as X-CopyPaste-Write-Token. Stored only in this browser session.
+              </p>
             </div>
           )}
-        </section>
-      )}
-
-      <div className="shrink-0 border-b border-border bg-gutter px-3 py-2 sm:px-4">
-        <label className={fieldLabelClasses} htmlFor="write-credential">
-          write access credential
-        </label>
-        <input
-          id="write-credential"
-          type="password"
-          value={writeCredential}
-          onChange={(event) => setWriteCredential(event.target.value)}
-          autoComplete="off"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder="Operator-issued token (required on public deploy)"
-          title="Public deployments are closed by default. This credential stays only in this tab's memory and is never saved by the browser app."
-          className="h-11 w-full border-0 bg-transparent px-0 font-mono text-base text-text outline-none placeholder:text-muted-foreground sm:h-8 sm:text-xs"
-        />
-      </div>
-
-      <label className="sr-only" htmlFor="content">
-        Content
-      </label>
-      <MonacoEditor
-        value={content}
-        onChange={setContent}
-        format={format}
-        height="100%"
-        className="min-h-0 w-full flex-1"
-      />
-
-      <div className="shrink-0 border-t border-border bg-gutter pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-[max(0px,env(safe-area-inset-bottom))]">
-        <div className="flex items-center gap-0.5 px-2 sm:h-10 sm:gap-1 sm:px-3">
-          <div className="relative min-w-0 flex-1 sm:flex-none">
-            <label className="sr-only" htmlFor="format">
-              Format
-            </label>
-            <select
-              id="format"
-              value={format}
-              onChange={(event) => setFormat(event.target.value as PasteFormat)}
-              className="h-11 w-full min-w-0 appearance-none bg-transparent py-0 pl-1 pr-5 font-mono text-base text-text outline-none sm:h-8 sm:w-auto sm:text-xs"
-            >
-              {formatOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-          </div>
-
-          <div className="relative min-w-0 flex-1 sm:flex-none">
-            <label className="sr-only" htmlFor="retention">
-              Retention
-            </label>
-            <select
-              id="retention"
-              value={retentionMinutes}
-              onChange={(event) =>
-                setRetentionMinutes(Number(event.target.value))
-              }
-              className="h-11 w-full min-w-0 appearance-none bg-transparent py-0 pl-1 pr-5 font-mono text-base text-text outline-none sm:h-8 sm:w-auto sm:text-xs"
-            >
-              {retentionOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-          </div>
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={burnAfterReading}
-            onClick={() => setBurnAfterReading(!burnAfterReading)}
-            title={
-              burnAfterReading
-                ? "Burn after reading: best-effort deletion after a successful read; concurrent deployments can race"
-                : "Burn after reading is off"
-            }
-            className={`inline-flex size-11 shrink-0 items-center justify-center gap-1.5 font-mono text-xs transition sm:h-8 sm:w-auto sm:px-2 ${
-              burnAfterReading
-                ? "text-danger"
-                : "text-muted-foreground hover:text-text"
-            }`}
-          >
-            <Flame className="h-4 w-4 sm:h-3.5 sm:w-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline">burn</span>
-          </button>
-
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setEncryptionOpen((open) => !open)}
-              aria-expanded={isEncryptionOpen}
-              aria-haspopup="dialog"
-              aria-label="Encryption options"
-              title="Encryption options"
-              className={`inline-flex size-11 items-center justify-center gap-1.5 font-mono text-xs transition sm:h-8 sm:w-auto sm:px-2 ${
-                requiresKey
-                  ? "text-text"
-                  : "text-muted-foreground hover:text-text"
-              }`}
-            >
-              <Lock className="h-4 w-4 sm:h-3.5 sm:w-3.5" aria-hidden="true" />
-              <span className="hidden sm:inline">
-                {requiresKey ? encryptionChipLabel[encryption] : "lock"}
-              </span>
-            </button>
-            {isEncryptionOpen && (
-              <>
-                <button
-                  type="button"
-                  aria-label="Dismiss encryption"
-                  className="fixed inset-0 z-10 bg-background/70 sm:bg-transparent"
-                  onClick={() => setEncryptionOpen(false)}
-                />
-                <div
-                  role="dialog"
-                  aria-label="Encryption settings"
-                  className="fixed inset-x-0 bottom-0 z-20 space-y-4 border-t border-border bg-background p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:absolute sm:inset-auto sm:bottom-full sm:right-0 sm:mb-1 sm:w-[min(20rem,calc(100vw-2rem))] sm:border sm:p-4 sm:pb-4"
+          <div className="flex flex-col gap-2 px-3 pt-3 sm:flex-row sm:items-center sm:gap-3 sm:px-4">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:items-center">
+              <div className="relative min-w-0">
+                <label className="sr-only" htmlFor="format">
+                  Format
+                </label>
+                <select
+                  id="format"
+                  value={format}
+                  onChange={(event) =>
+                    setFormat(event.target.value as PasteFormat)
+                  }
+                  className="h-11 w-full appearance-none rounded-md bg-muted px-3 pr-8 text-sm text-text outline-none sm:h-10 sm:w-auto sm:min-w-36"
                 >
-                  <p className="text-xs text-muted-foreground">
-                    Encryption runs on the server. Keys transit over TLS, are
-                    used in memory, and are not stored.
-                  </p>
-                  <div className="space-y-1.5">
-                    <label className={fieldLabelClasses} htmlFor="encryption">
-                      algorithm
-                    </label>
-                    <select
-                      id="encryption"
-                      value={encryption}
-                      onChange={(event) =>
-                        setEncryption(
-                          event.target.value as EncryptionAlgorithm,
-                        )
-                      }
-                      className={inputClasses}
-                    >
-                      {encryptionOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label
-                      className={fieldLabelClasses}
-                      htmlFor="encryptionKey"
-                    >
-                      encryption key
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        id="encryptionKey"
-                        type="password"
-                        autoComplete="new-password"
-                        value={encryptionKey}
-                        onChange={(event) =>
-                          setEncryptionKey(event.target.value)
-                        }
-                        disabled={!requiresKey}
-                        placeholder={
-                          requiresKey
-                            ? "Shared secret or passphrase"
-                            : "Enable encryption to set a key"
-                        }
-                        className={`${inputClasses} min-h-11 font-mono sm:min-h-9`}
-                        required={requiresKey}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleGenerateEncryptionKey}
-                        className="inline-flex h-11 flex-shrink-0 items-center border border-border px-2.5 text-xs font-medium text-text transition hover:bg-muted sm:h-9"
-                      >
-                        Generate
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            className="ml-auto hidden h-8 items-center gap-1.5 bg-accent px-4 text-xs font-medium text-accent-foreground transition hover:opacity-80 disabled:opacity-60 sm:inline-flex"
-            disabled={mutation.isPending}
-            title="Create paste (⌘⏎)"
-          >
-            {mutation.isPending ? (
-              <>
-                <span
-                  className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+                  {formatOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
                   aria-hidden="true"
                 />
-                Creating…
-              </>
-            ) : (
-              <>
-                Create
+              </div>
+
+              <div className="relative min-w-0">
+                <label className="sr-only" htmlFor="retention">
+                  Retention period
+                </label>
+                <select
+                  id="retention"
+                  value={retentionMinutes}
+                  onChange={(event) =>
+                    setRetentionMinutes(Number(event.target.value))
+                  }
+                  className="h-11 w-full appearance-none rounded-md bg-muted px-3 pr-8 text-sm text-text outline-none sm:h-10 sm:w-auto sm:min-w-36"
+                >
+                  {retentionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={burnAfterReading}
+                onClick={() => setBurnAfterReading(!burnAfterReading)}
+                title={
+                  burnAfterReading
+                    ? "Burn after reading: best-effort deletion after a successful read; concurrent deployments can race"
+                    : "Burn after reading is off"
+                }
+                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
+                  burnAfterReading
+                    ? "bg-muted text-danger"
+                    : "bg-muted text-muted-foreground hover:text-text"
+                }`}
+              >
+                <Flame className="h-3.5 w-3.5" aria-hidden="true" />
+                Burn
+              </button>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setEncryptionOpen((open) => !open)}
+                  aria-expanded={isEncryptionOpen}
+                  aria-haspopup="dialog"
+                  aria-label="Encryption options"
+                  title="Encryption options"
+                  className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
+                    requiresKey
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-muted text-muted-foreground hover:text-text"
+                  }`}
+                >
+                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                  {requiresKey ? encryptionChipLabel[encryption] : "Encrypt"}
+                </button>
+                {isEncryptionOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Dismiss encryption"
+                      className="fixed inset-0 z-10 bg-background/70 sm:bg-transparent"
+                      onClick={() => setEncryptionOpen(false)}
+                    />
+                    <div
+                      role="dialog"
+                      aria-label="Encryption settings"
+                      className="fixed inset-x-0 bottom-0 z-20 space-y-4 rounded-t-xl border-t border-border bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-soft sm:absolute sm:inset-auto sm:bottom-full sm:right-0 sm:mb-2 sm:w-[min(22rem,calc(100vw-2rem))] sm:rounded-xl sm:border sm:p-4 sm:pb-4"
+                    >
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        Encryption runs on the server. Keys transit over TLS,
+                        are used in memory, and are not stored.
+                      </p>
+                      <div className="space-y-1.5">
+                        <label
+                          className={fieldLabelClasses}
+                          htmlFor="encryption"
+                        >
+                          Algorithm
+                        </label>
+                        <select
+                          id="encryption"
+                          value={encryption}
+                          onChange={(event) =>
+                            setEncryption(
+                              event.target.value as EncryptionAlgorithm,
+                            )
+                          }
+                          className={`${inputClasses} min-h-12 sm:min-h-10`}
+                        >
+                          {encryptionOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label
+                          className={fieldLabelClasses}
+                          htmlFor="encryptionKey"
+                        >
+                          Encryption key
+                        </label>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <input
+                            id="encryptionKey"
+                            type="password"
+                            autoComplete="new-password"
+                            value={encryptionKey}
+                            onChange={(event) =>
+                              setEncryptionKey(event.target.value)
+                            }
+                            disabled={!requiresKey}
+                            placeholder={
+                              requiresKey
+                                ? "Shared secret or passphrase"
+                                : "Enable encryption to set a key"
+                            }
+                            className={`${inputClasses} min-h-12 font-mono sm:min-h-10`}
+                            required={requiresKey}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleGenerateEncryptionKey}
+                            className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-md bg-muted px-3 text-sm font-medium text-text hover:bg-border sm:h-10 sm:w-auto"
+                          >
+                            Generate
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-accent px-5 text-base font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60 sm:h-10 sm:w-auto sm:flex-none sm:text-sm"
+              disabled={mutation.isPending}
+              title="Create paste (⌘⏎)"
+            >
+              {mutation.isPending ? "Creating…" : "Create"}
+              {!mutation.isPending && (
                 <kbd
-                  className="font-mono text-[10px] opacity-70"
+                  className="ml-2 hidden font-mono text-[10px] opacity-70 sm:inline"
                   aria-hidden="true"
                 >
                   ⌘⏎
                 </kbd>
-              </>
-            )}
-          </button>
+              )}
+            </button>
+          </div>
         </div>
-
-        <div className="flex px-3 pt-1 sm:hidden">
-          <button
-            type="submit"
-            className="inline-flex h-12 flex-1 items-center justify-center bg-accent text-base font-medium text-accent-foreground transition hover:opacity-80 disabled:opacity-60"
-            disabled={mutation.isPending}
-            title="Create paste (⌘⏎)"
-          >
-            {mutation.isPending ? "Creating…" : "Create"}
-          </button>
-        </div>
-      </div>
+      )}
     </form>
   );
 };
