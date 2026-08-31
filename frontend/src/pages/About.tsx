@@ -20,24 +20,6 @@ interface HealthResponse {
   commit?: string;
 }
 
-const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-    {children}
-  </p>
-);
-
-const HealthChip = ({ label, status }: { label: string; status: string }) => (
-  <span className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 font-mono text-[11px] text-muted-foreground">
-    <span
-      aria-hidden="true"
-      className={`inline-block h-1.5 w-1.5 rounded-full ${
-        status === "ok" ? "bg-success" : "bg-danger"
-      }`}
-    />
-    {label}: {status}
-  </span>
-);
-
 export const AboutPage = () => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -63,45 +45,47 @@ export const AboutPage = () => {
   }, []);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-12 pb-16">
+    <article className="mx-auto max-w-2xl space-y-10 pb-16">
       <header className="space-y-3">
-        <h1 className="font-mono text-xl font-semibold tracking-tight text-text">
-          about
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          copypaste
+        </p>
+        <h1 className="text-3xl font-medium tracking-tight text-text">
+          A paste that disappears
         </h1>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          copypaste.fyi is an open-source paste sharing service built for
-          secrets that should not outlive their purpose. A Rust backend
-          encrypts and enforces retention; an optional OCaml service can
-          independently check supported algorithms; the frontend stays out of
-          the way.
+        <p className="text-base leading-relaxed text-muted-foreground">
+          Open-source paste sharing for secrets that should not outlive their
+          purpose. A Rust backend encrypts and enforces retention. There is no
+          public listing.
         </p>
       </header>
 
-      <section className="space-y-4">
-        <SectionLabel>Features</SectionLabel>
-        <dl className="divide-y divide-border rounded-lg border border-border bg-surface">
-          {features.map(([term, detail]) => (
-            <div
-              key={term}
-              className="flex flex-col gap-0.5 px-4 py-2.5 sm:flex-row sm:items-baseline sm:gap-4"
-            >
-              <dt className="w-40 shrink-0 font-mono text-xs text-text">
-                {term}
-              </dt>
-              <dd className="text-sm text-muted-foreground">{detail}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      <dl className="divide-y divide-border">
+        {features.map(([term, detail]) => (
+          <div
+            key={term}
+            className="flex flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:gap-8"
+          >
+            <dt className="w-40 shrink-0 text-sm font-medium text-text">
+              {term}
+            </dt>
+            <dd className="text-sm leading-relaxed text-muted-foreground">
+              {detail}
+            </dd>
+          </div>
+        ))}
+      </dl>
 
-      <section className="space-y-4">
-        <SectionLabel>How it works</SectionLabel>
-        <pre className="overflow-x-auto rounded-lg border border-border bg-surface p-4 font-mono text-xs leading-6 text-muted-foreground">
+      <section className="space-y-3">
+        <h2 className="text-base font-medium tracking-tight text-text">
+          How it works
+        </h2>
+        <pre className="overflow-x-auto font-mono text-xs leading-6 text-muted-foreground">
           {`browser / cli
-   → POST /api/pastes            content + policy (retention, burn, locks)
-   → encrypt                     Rust (aes-gcm · chacha20 · ml-kem crates)
-   → verify                      optional OCaml check for supported algorithms
-	   → store                       in-memory by default · Redis optional
+   → POST /api/pastes            content + policy
+   → encrypt                     Rust (aes-gcm · chacha20 · ml-kem)
+   → verify                      optional OCaml check
+   → store                       in-memory by default · Redis optional
    → share                       /p/<id> — key travels in the #fragment`}
         </pre>
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -112,7 +96,7 @@ export const AboutPage = () => {
             href="https://github.com/qxlsz/copypaste.fyi/blob/main/docs/encryption.md"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-accent underline-offset-2 hover:underline"
+            className="underline decoration-border underline-offset-4 hover:text-text"
           >
             docs/encryption.md
           </a>
@@ -120,26 +104,28 @@ export const AboutPage = () => {
         </p>
       </section>
 
-      <section className="space-y-4">
-        <SectionLabel>Status</SectionLabel>
-        <div className="rounded-lg border border-border bg-surface p-4">
-          {health ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <HealthChip label="overall" status={health.status} />
-              <span className="font-mono text-[11px] text-muted-foreground">
-                v{health.version}
-                {health.commit ? ` · ${health.commit.slice(0, 7)}` : ""}
-              </span>
-            </div>
-          ) : (
-            <p className="font-mono text-xs text-muted-foreground">
-              {healthError ?? "checking…"}
-            </p>
-          )}
-        </div>
+      <section className="space-y-2">
+        <h2 className="text-base font-medium tracking-tight text-text">Status</h2>
+        {health ? (
+          <p className="font-mono text-xs text-muted-foreground">
+            <span
+              className={
+                health.status === "ok" ? "text-success" : "text-danger"
+              }
+            >
+              {health.status}
+            </span>
+            {" · "}v{health.version}
+            {health.commit ? ` · ${health.commit.slice(0, 7)}` : ""}
+          </p>
+        ) : (
+          <p className="font-mono text-xs text-muted-foreground">
+            {healthError ?? "checking…"}
+          </p>
+        )}
       </section>
 
-      <footer className="flex flex-wrap gap-4 font-mono text-xs text-muted-foreground">
+      <footer className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
         <a
           href="https://github.com/qxlsz/copypaste.fyi"
           target="_blank"
@@ -165,6 +151,6 @@ export const AboutPage = () => {
           security policy
         </a>
       </footer>
-    </div>
+    </article>
   );
 };

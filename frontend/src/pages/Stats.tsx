@@ -4,7 +4,6 @@ import type { StatsSummary } from "../api/types";
 import { format } from "date-fns";
 import { AreaGroupChart } from "../components/charts/AreaGroupChart";
 import { DistributionCard } from "../components/charts/DistributionCard";
-import { Button, Card } from "../components/ui";
 
 export const StatsPage = () => {
   const { data, isLoading, isError, error } = useQuery({
@@ -14,95 +13,79 @@ export const StatsPage = () => {
 
   if (isLoading) {
     return (
-      <Card padding="lg" className="border-dashed">
-        <p className="text-sm text-muted-foreground">Loading stats…</p>
-      </Card>
+      <div
+        className="flex min-h-[40vh] items-center justify-center"
+        role="status"
+        aria-label="Loading stats"
+      >
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-accent" />
+      </div>
     );
   }
 
   if (isError) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return (
-      <Card padding="lg" className="border-danger/30">
-        <p className="text-sm font-medium text-danger">Failed to load stats</p>
-        <p className="mt-2 text-xs text-muted-foreground">{message}</p>
-      </Card>
+      <section className="max-w-md space-y-2">
+        <h1 className="text-2xl font-medium tracking-tight text-text">
+          Could not load stats
+        </h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">{message}</p>
+      </section>
     );
   }
 
   return data ? <StatsContent summary={data} /> : null;
 };
 
-interface StatsContentProps {
-  summary: StatsSummary;
-}
+const StatsContent = ({ summary }: { summary: StatsSummary }) => {
+  const encryptedCount = summary.encryptionUsage.reduce(
+    (acc, item) => acc + item.count,
+    0,
+  );
 
-const StatsContent = ({ summary }: StatsContentProps) => {
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight text-text">
-            Usage insights
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Track paste creation trends, encryption adoption, and
-            burn-after-reading usage over time.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
-            Export report
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => (window.location.href = "/dashboard")}
-          >
-            View dashboard
-          </Button>
-        </div>
+    <div className="mx-auto max-w-3xl space-y-10">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-medium tracking-tight text-text">
+          This instance
+        </h1>
+        <p className="max-w-lg text-sm leading-relaxed text-muted-foreground">
+          Counts for pastes created here. There is still no public listing of
+          individual pastes.
+        </p>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total pastes" value={summary.totalPastes} />
-        <StatCard label="Active" value={summary.activePastes} />
-        <StatCard label="Expired" value={summary.expiredPastes} />
-        <StatCard
-          label="Burn after reading"
-          value={summary.burnAfterReadingCount}
+      <section className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
+        <Stat figure={summary.totalPastes} label="Total" />
+        <Stat figure={summary.activePastes} label="Active" />
+        <Stat figure={summary.expiredPastes} label="Expired" />
+        <Stat figure={summary.burnAfterReadingCount} label="Burn" />
+      </section>
+
+      <section className="grid gap-10 lg:grid-cols-2">
+        <DistributionCard
+          title="Formats"
+          data={summary.formats.map((item) => ({
+            label: item.format,
+            value: item.count,
+          }))}
+          palette="formats"
+        />
+        <DistributionCard
+          title="Encryption"
+          data={summary.encryptionUsage.map((item) => ({
+            label: item.algorithm,
+            value: item.count,
+          }))}
+          palette="encryption"
         />
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card padding="lg">
-          <DistributionCard
-            title="Formats"
-            data={summary.formats.map((item) => ({
-              label: item.format,
-              value: item.count,
-            }))}
-            palette="formats"
-          />
-        </Card>
-        <Card padding="lg">
-          <DistributionCard
-            title="Encryption algorithms"
-            data={summary.encryptionUsage.map((item) => ({
-              label: item.algorithm,
-              value: item.count,
-            }))}
-            palette="encryption"
-          />
-        </Card>
-      </section>
-
-      <Card padding="lg">
-        <h2 className="text-sm font-semibold tracking-tight text-text">
-          Pastes created over time
+      <section className="space-y-3">
+        <h2 className="text-base font-medium tracking-tight text-text">
+          Created over time
         </h2>
-        <p className="mb-4 text-xs text-muted-foreground">
-          Highlight spikes driven by product launches or campaigns.
-        </p>
         <AreaGroupChart
           data={summary.createdByDay.map((item) => ({
             date: item.date,
@@ -110,50 +93,21 @@ const StatsContent = ({ summary }: StatsContentProps) => {
           }))}
           formatLabel={(date) => format(new Date(date), "MMM d")}
         />
-      </Card>
-
-      <section className="grid gap-6 lg:grid-cols-2">
-        <InsightCard
-          title="Encryption adoption"
-          description="See how many pastes use server-side encryption. Encourage secure defaults when usage is low."
-          value={`${summary.encryptionUsage.reduce((acc, item) => acc + item.count, 0)} encrypted pastes`}
-        />
-        <InsightCard
-          title="Time-locked pastes"
-          description="Ensure that time-bound links are being used for sensitive disclosures."
-          value={`${summary.timeLockedCount} pastes have a viewing window`}
-        />
       </section>
+
+      <p className="text-sm text-muted-foreground">
+        {encryptedCount.toLocaleString()} encrypted ·{" "}
+        {summary.timeLockedCount.toLocaleString()} time-locked
+      </p>
     </div>
   );
 };
 
-interface StatCardProps {
-  label: string;
-  value: number;
-}
-
-const StatCard = ({ label, value }: StatCardProps) => (
-  <Card padding="md">
-    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-      {label}
+const Stat = ({ figure, label }: { figure: number; label: string }) => (
+  <div>
+    <p className="font-mono text-3xl font-medium tracking-tight text-text">
+      {figure.toLocaleString()}
     </p>
-    <p className="mt-3 font-mono text-3xl font-semibold tracking-tight text-text">
-      {value.toLocaleString()}
-    </p>
-  </Card>
-);
-
-interface InsightCardProps {
-  title: string;
-  description: string;
-  value: string;
-}
-
-const InsightCard = ({ title, description, value }: InsightCardProps) => (
-  <Card padding="lg">
-    <h3 className="text-sm font-semibold tracking-tight text-text">{title}</h3>
-    <p className="mt-2 text-xs text-muted-foreground">{description}</p>
-    <p className="mt-4 font-mono text-sm font-medium text-accent">{value}</p>
-  </Card>
+    <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+  </div>
 );
