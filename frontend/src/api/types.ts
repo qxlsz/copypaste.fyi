@@ -1,0 +1,96 @@
+export type PasteFormat =
+  | "plain_text"
+  | "markdown"
+  | "code"
+  | "json"
+  | "javascript"
+  | "typescript"
+  | "python"
+  | "rust"
+  | "go"
+  | "cpp"
+  | "kotlin"
+  | "java"
+  | "csharp"
+  | "php"
+  | "ruby"
+  | "bash"
+  | "yaml"
+  | "sql"
+  | "swift"
+  | "html"
+  | "css";
+
+export type EncryptionAlgorithm =
+  | "none"
+  | "aes256_gcm"
+  | "chacha20_poly1305"
+  | "xchacha20_poly1305"
+  | "kyber_hybrid_aes256_gcm";
+
+export interface CreatePastePayload {
+  content: string;
+  format: PasteFormat;
+  retention_minutes?: number;
+  encryption?: {
+    algorithm: Exclude<EncryptionAlgorithm, "none">;
+    key: string;
+  };
+  burn_after_reading?: boolean;
+  time_lock?: {
+    not_before?: string;
+    not_after?: string;
+  };
+}
+
+export interface CreatePasteResponse {
+  id: string;
+  path: string;
+  shareableUrl: string;
+  /** Only present when `live: true` was set in the request. */
+  token?: string;
+  isLive: boolean;
+}
+
+export interface AuthChallengeResponse {
+  challenge: string;
+}
+
+export interface AuthLoginResponse {
+  token: string;
+  pubkeyHash: string;
+}
+
+export interface UserPasteListItem {
+  id: string;
+  url: string;
+  createdAt: number;
+  expiresAt?: number | null;
+  retentionMinutes?: number | null;
+  burnAfterReading: boolean;
+  format: string;
+}
+
+export interface UserPasteListResponse {
+  pastes: UserPasteListItem[];
+}
+
+export interface StatsSummary {
+  totalPastes: number;
+  activePastes: number;
+  expiredPastes: number;
+  formats: Array<{
+    format: PasteFormat;
+    count: number;
+  }>;
+  encryptionUsage: Array<{
+    algorithm: EncryptionAlgorithm;
+    count: number;
+  }>;
+  burnAfterReadingCount: number;
+  timeLockedCount: number;
+  createdByDay: Array<{
+    date: string;
+    count: number;
+  }>;
+}

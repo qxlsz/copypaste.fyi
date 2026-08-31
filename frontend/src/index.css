@@ -1,0 +1,125 @@
+/* Self-hosted variable fonts (no third-party font CDN requests). */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-background: #f4f1ea;
+    --color-background-gradient: none;
+    --color-surface: #faf8f3;
+    --color-gutter: #ebe7dc;
+    --color-border: rgb(28 27 24 / 0.12);
+    --color-text: #1c1b18;
+    --color-primary: #1c1b18;
+    --color-accent: #1c1b18;
+    --color-accent-foreground: #f4f1ea;
+    --color-muted: rgb(28 27 24 / 0.06);
+    --color-muted-foreground: #6f6b62;
+    --color-success: #3f7a55;
+    --color-warning: #9a6b2f;
+    --color-danger: #b94a42;
+    --color-info: #1c1b18;
+    --shadow-soft: 0 0 0 0 rgb(0 0 0 / 0);
+    --shadow-strong: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+
+    color-scheme: light;
+    font-family: theme("fontFamily.sans");
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  [data-theme="dark"] {
+    --color-background: #121211;
+    --color-surface: #191917;
+    --color-gutter: #0d0d0c;
+    --color-border: rgb(236 232 223 / 0.1);
+    --color-text: #ece8df;
+    --color-primary: #ece8df;
+    --color-accent: #ece8df;
+    --color-accent-foreground: #121211;
+    --color-muted: rgb(236 232 223 / 0.06);
+    --color-muted-foreground: #8c877c;
+    --color-success: #8fbf9f;
+    --color-warning: #d4a056;
+    --color-danger: #e07a72;
+    --color-info: #ece8df;
+    --shadow-soft: 0 0 0 0 rgb(0 0 0 / 0);
+    --shadow-strong: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100dvh;
+    background: var(--color-background);
+    color: var(--color-text);
+  }
+
+  body {
+    @apply text-sm antialiased;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  a,
+  select,
+  summary {
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-text) 18%, transparent);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--color-text);
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  textarea {
+    caret-color: var(--color-text);
+    font-variant-ligatures: none;
+  }
+
+  @media (max-width: 768px) {
+    :root {
+      font-size: 16px;
+    }
+
+    textarea,
+    input,
+    select,
+    pre {
+      font-size: 1rem;
+    }
+
+    body {
+      -webkit-text-size-adjust: 100%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
