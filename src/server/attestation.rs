@@ -5,7 +5,7 @@ use hmac::{Hmac, Mac};
 use rocket::serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
+use subtle::{Choice, ConstantTimeEq};
 use utoipa::ToSchema;
 
 use super::models::PasteViewQuery;
@@ -65,17 +65,29 @@ pub fn verify_attestation(
                 Some(value) if !value.is_empty() => value,
                 _ => return AttestationVerdict::Prompt { invalid: false },
             };
-            let mut hasher = Sha256::new();
-            hasher.update(provided.as_bytes());
-            let digest = hasher.finalize();
-            let encoded = base64::engine::general_purpose::STANDARD.encode(digest);
-            if bool::from(encoded.as_bytes().ct_eq(hash.as_bytes())) {
+            let digest: [u8; 32] = Sha256::digest(provided.as_bytes()).into();
+            if sha256_b64_matches(&digest, hash) {
                 AttestationVerdict::Granted
             } else {
                 AttestationVerdict::Prompt { invalid: true }
             }
         }
     }
+}
+
+/// Compare a SHA-256 digest to a standard-base64 stored hash in constant time.
+fn sha256_b64_matches(actual: &[u8], encoded_expected: &str) -> bool {
+    let mut expected = [0u8; 32];
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded_expected)
+        .ok();
+    let valid_len = decoded.as_ref().is_some_and(|bytes| bytes.len() == 32);
+    if let Some(bytes) = decoded.as_deref() {
+        if bytes.len() == 32 {
+            expected.copy_from_slice(bytes);
+        }
+    }
+    valid_len && bool::from(actual.ct_eq(expected.as_slice()))
 }
 
 pub fn requirement_from_request(
@@ -122,9 +134,7 @@ pub fn requirement_from_request(
             if secret.is_empty() {
                 return Err("Shared secret cannot be empty".into());
             }
-            let mut hasher = Sha256::new();
-            hasher.update(secret.as_bytes());
-            let digest = hasher.finalize();
+            let digest = Sha256::digest(secret.as_bytes());
             AttestationRequirement::SharedSecret {
                 hash: base64::engine::general_purpose::STANDARD.encode(digest),
             }
@@ -157,6 +167,9 @@ fn verify_totp(
     let now = now.max(0) as u64;
     let counter = now / step;
 
+    // Compare every allowed window before returning so a correct code in a
+    // later offset cannot be distinguished by an early match.
+    let mut granted = Choice::from(0);
     for offset in -(allowed_drift as i32)..=(allowed_drift as i32) {
         let adjusted_counter = if offset < 0 {
             counter.checked_sub(offset.unsigned_abs() as u64)
@@ -168,13 +181,11 @@ fn verify_totp(
             continue;
         };
         if let Some(candidate) = totp_code(&secret_bytes, candidate_counter, digits) {
-            if bool::from(candidate.as_bytes().ct_eq(sanitized_code.as_bytes())) {
-                return true;
-            }
+            granted |= candidate.as_bytes().ct_eq(sanitized_code.as_bytes());
         }
     }
 
-    false
+    bool::from(granted)
 }
 
 fn decode_totp_secret(secret: &str) -> Option<Vec<u8>> {
@@ -217,6 +228,14 @@ mod tests {
         let counter = (now as u64) / 30;
         let code = totp_code(&bytes, counter, 6).expect("code generation");
         assert!(verify_totp(SECRET, &code, 6, 30, 1, now));
+    }
+
+    #[test]
+    fn totp_verification_accepts_adjacent_window() {
+        let now = 30 * 1_000;
+        let bytes = decode_totp_secret(SECRET).expect("base32 secret");
+        let previous = totp_code(&bytes, (now as u64) / 30 - 1, 6).expect("previous window");
+        assert!(verify_totp(SECRET, &previous, 6, 30, 1, now));
     }
 
     #[test]
@@ -311,5 +330,39 @@ mod tests {
             }
             _ => panic!("unexpected requirement variant"),
         }
+    }
+
+    #[test]
+    fn shared_secret_accepts_matching_attestation() {
+        let requirement = requirement_from_request(&AttestationRequest::SharedSecret {
+            secret: "topsecret".into(),
+        })
+        .expect("hashable");
+        let query = PasteViewQuery {
+            key: None,
+            code: None,
+            attest: Some("topsecret".into()),
+        };
+        assert!(matches!(
+            verify_attestation(&requirement, &query, 0),
+            AttestationVerdict::Granted
+        ));
+    }
+
+    #[test]
+    fn shared_secret_rejects_wrong_attestation() {
+        let requirement = requirement_from_request(&AttestationRequest::SharedSecret {
+            secret: "topsecret".into(),
+        })
+        .expect("hashable");
+        let query = PasteViewQuery {
+            key: None,
+            code: None,
+            attest: Some("nope".into()),
+        };
+        assert!(matches!(
+            verify_attestation(&requirement, &query, 0),
+            AttestationVerdict::Prompt { invalid: true }
+        ));
     }
 }

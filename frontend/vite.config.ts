@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
   const config: UserConfig = {
     plugins: [react()],
     build: {
+      sourcemap: false,
       // Increase chunk size warning limit to 1MB
       chunkSizeWarningLimit: 1000,
     },
