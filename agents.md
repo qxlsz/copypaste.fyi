@@ -73,7 +73,6 @@ copypaste.fyi/
 │   │   │   ├── About.tsx         # Information page
 │   │   │   └── UserPastes.tsx    # User's paste list
 │   │   ├── components/
-│   │   │   ├── PrivacyJourney.tsx # Privacy indicator widget
 │   │   │   ├── Layout.tsx        # Main layout wrapper
 │   │   │   ├── CommandPalette.tsx # Keyboard shortcuts
 │   │   │   ├── editor/           # Monaco editor integration
@@ -256,7 +255,6 @@ echo "log output" | ./target/release/cpaste --stdin --host http://localhost:8000
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| **PrivacyJourney** | `frontend/src/components/PrivacyJourney.tsx` | Real-time privacy status: HTTPS, Tor, VPN, DNT |
 | **Layout** | `frontend/src/components/Layout.tsx` | Main page layout wrapper |
 | **CommandPalette** | `frontend/src/components/CommandPalette.tsx` | Keyboard shortcuts |
 | **MonacoEditor** | `frontend/src/components/editor/` | Rich code editor with syntax highlighting |

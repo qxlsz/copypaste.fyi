@@ -74,13 +74,13 @@ const encryptionChipLabel: Record<EncryptionAlgorithm, string> = {
 };
 
 const retentionOptions: Array<{ label: string; value: number }> = [
-  { label: "1m", value: 1 },
-  { label: "10m", value: 10 },
-  { label: "1h", value: 60 },
-  { label: "3h", value: 180 },
-  { label: "1d", value: 1440 },
-  { label: "7d", value: 10080 },
-  { label: "30d", value: 43200 },
+  { label: "1 minute", value: 1 },
+  { label: "10 minutes", value: 10 },
+  { label: "1 hour", value: 60 },
+  { label: "3 hours", value: 180 },
+  { label: "1 day", value: 1440 },
+  { label: "7 days", value: 10080 },
+  { label: "30 days", value: 43200 },
 ];
 
 const fieldLabelClasses = "block text-xs font-medium text-muted-foreground";
@@ -126,7 +126,6 @@ export const PasteFormPage = () => {
   const [pasteEncryption, setPasteEncryption] =
     useState<EncryptionAlgorithm>("none");
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState("");
-  const [isEncryptionOpen, setEncryptionOpen] = useState(false);
   const [showWriteToken, setShowWriteToken] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -190,7 +189,6 @@ export const PasteFormPage = () => {
         toast.error("Invalid encryption key", {
           description: encryptionKeyError,
         });
-        setEncryptionOpen(true);
         return;
       }
     }
@@ -233,6 +231,18 @@ export const PasteFormPage = () => {
     toast.message("Secure 256-bit encryption key generated", {
       description: "The key was added to the encryption field.",
     });
+  };
+
+  const toggleEncryption = () => {
+    if (encryption === "none") {
+      setEncryption("aes256_gcm");
+      if (!encryptionKey) {
+        const key = createSecureEncryptionKey();
+        if (key) setEncryptionKey(key);
+      }
+      return;
+    }
+    setEncryption("none");
   };
 
   const shareLink = useMemo(() => {
@@ -462,55 +472,85 @@ export const PasteFormPage = () => {
               </p>
             </div>
           )}
-          <div className="flex flex-col gap-2 px-3 pt-3 sm:flex-row sm:items-center sm:gap-3 sm:px-4">
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:items-center">
-              <div className="relative min-w-0">
-                <label className="sr-only" htmlFor="format">
-                  Format
-                </label>
-                <select
-                  id="format"
-                  value={format}
-                  onChange={(event) =>
-                    setFormat(event.target.value as PasteFormat)
-                  }
-                  className="h-11 w-full appearance-none rounded-md bg-muted px-3 pr-8 text-sm text-text outline-none sm:h-10 sm:w-auto sm:min-w-36"
+          {requiresKey && (
+            <div className="space-y-2 px-3 pt-3 sm:px-4">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto] sm:items-end">
+                <div className="min-w-0">
+                  <label className={fieldLabelClasses} htmlFor="encryption">
+                    Algorithm
+                  </label>
+                  <select
+                    id="encryption"
+                    value={encryption}
+                    onChange={(event) =>
+                      setEncryption(event.target.value as EncryptionAlgorithm)
+                    }
+                    className={`${inputClasses} min-h-12 sm:min-h-10`}
+                  >
+                    {encryptionOptions
+                      .filter((option) => option.value !== "none")
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div className="min-w-0">
+                  <label className={fieldLabelClasses} htmlFor="encryptionKey">
+                    Encryption key
+                  </label>
+                  <input
+                    id="encryptionKey"
+                    type="password"
+                    autoComplete="new-password"
+                    value={encryptionKey}
+                    onChange={(event) => setEncryptionKey(event.target.value)}
+                    placeholder="Shared secret or passphrase"
+                    className={`${inputClasses} min-h-12 font-mono sm:min-h-10`}
+                    required
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGenerateEncryptionKey}
+                  className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-md bg-muted px-3 text-sm font-medium text-text hover:bg-border sm:h-10 sm:w-auto"
                 >
-                  {formatOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden="true"
-                />
+                  Generate
+                </button>
               </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Encryption runs on the server. Keys transit over TLS and are not stored.
+              </p>
+            </div>
+          )}
+          <div className="flex flex-col gap-2 px-3 pt-3 sm:flex-row sm:items-end sm:gap-3 sm:px-4">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:items-end">
+              <DockSelect
+                id="format"
+                label="Format"
+                value={format}
+                onChange={(value) => setFormat(value as PasteFormat)}
+              >
+                {formatOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </DockSelect>
 
-              <div className="relative min-w-0">
-                <label className="sr-only" htmlFor="retention">
-                  Retention period
-                </label>
-                <select
-                  id="retention"
-                  value={retentionMinutes}
-                  onChange={(event) =>
-                    setRetentionMinutes(Number(event.target.value))
-                  }
-                  className="h-11 w-full appearance-none rounded-md bg-muted px-3 pr-8 text-sm text-text outline-none sm:h-10 sm:w-auto sm:min-w-36"
-                >
-                  {retentionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden="true"
-                />
-              </div>
+              <DockSelect
+                id="retention"
+                label="Retention period"
+                value={String(retentionMinutes)}
+                onChange={(value) => setRetentionMinutes(Number(value))}
+              >
+                {retentionOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </DockSelect>
 
               <button
                 type="button"
@@ -522,7 +562,7 @@ export const PasteFormPage = () => {
                     ? "Burn after reading: best-effort deletion after a successful read; concurrent deployments can race"
                     : "Burn after reading is off"
                 }
-                className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
+                className={`inline-flex h-11 w-full items-center justify-center gap-2 self-end rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
                   burnAfterReading
                     ? "bg-muted text-danger"
                     : "bg-muted text-muted-foreground hover:text-text"
@@ -532,102 +572,21 @@ export const PasteFormPage = () => {
                 Burn
               </button>
 
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setEncryptionOpen((open) => !open)}
-                  aria-expanded={isEncryptionOpen}
-                  aria-haspopup="dialog"
-                  aria-label="Encryption options"
-                  title="Encryption options"
-                  className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
-                    requiresKey
-                      ? "bg-accent text-accent-foreground"
-                      : "bg-muted text-muted-foreground hover:text-text"
-                  }`}
-                >
-                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-                  {requiresKey ? encryptionChipLabel[encryption] : "Encrypt"}
-                </button>
-                {isEncryptionOpen && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Dismiss encryption"
-                      className="fixed inset-0 z-10 bg-background/70 sm:bg-transparent"
-                      onClick={() => setEncryptionOpen(false)}
-                    />
-                    <div
-                      role="dialog"
-                      aria-label="Encryption settings"
-                      className="fixed inset-x-0 bottom-0 z-20 space-y-4 rounded-t-xl border-t border-border bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-soft sm:absolute sm:inset-auto sm:bottom-full sm:right-0 sm:mb-2 sm:w-[min(22rem,calc(100vw-2rem))] sm:rounded-xl sm:border sm:p-4 sm:pb-4"
-                    >
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        Encryption runs on the server. Keys transit over TLS,
-                        are used in memory, and are not stored.
-                      </p>
-                      <div className="space-y-1.5">
-                        <label
-                          className={fieldLabelClasses}
-                          htmlFor="encryption"
-                        >
-                          Algorithm
-                        </label>
-                        <select
-                          id="encryption"
-                          value={encryption}
-                          onChange={(event) =>
-                            setEncryption(
-                              event.target.value as EncryptionAlgorithm,
-                            )
-                          }
-                          className={`${inputClasses} min-h-12 sm:min-h-10`}
-                        >
-                          {encryptionOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label
-                          className={fieldLabelClasses}
-                          htmlFor="encryptionKey"
-                        >
-                          Encryption key
-                        </label>
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <input
-                            id="encryptionKey"
-                            type="password"
-                            autoComplete="new-password"
-                            value={encryptionKey}
-                            onChange={(event) =>
-                              setEncryptionKey(event.target.value)
-                            }
-                            disabled={!requiresKey}
-                            placeholder={
-                              requiresKey
-                                ? "Shared secret or passphrase"
-                                : "Enable encryption to set a key"
-                            }
-                            className={`${inputClasses} min-h-12 font-mono sm:min-h-10`}
-                            required={requiresKey}
-                          />
-                          <button
-                            type="button"
-                            onClick={handleGenerateEncryptionKey}
-                            className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-md bg-muted px-3 text-sm font-medium text-text hover:bg-border sm:h-10 sm:w-auto"
-                          >
-                            Generate
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={toggleEncryption}
+                aria-pressed={requiresKey}
+                aria-label="Encryption options"
+                title="Encryption options"
+                className={`inline-flex h-11 w-full items-center justify-center gap-2 self-end rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
+                  requiresKey
+                    ? "bg-accent text-accent-foreground"
+                    : "bg-muted text-muted-foreground hover:text-text"
+                }`}
+              >
+                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                {requiresKey ? encryptionChipLabel[encryption] : "Encrypt"}
+              </button>
             </div>
 
             <button
@@ -652,3 +611,42 @@ export const PasteFormPage = () => {
     </form>
   );
 };
+
+function DockSelect({
+  id,
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <label
+        className="mb-1 block text-xs font-medium text-muted-foreground sm:sr-only"
+        htmlFor={id}
+      >
+        {label}
+      </label>
+      <div className="relative">
+        <select
+          id={id}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-11 w-full appearance-none rounded-md bg-muted px-3 pr-8 text-sm text-text outline-none sm:h-10 sm:w-auto sm:min-w-36"
+        >
+          {children}
+        </select>
+        <ChevronDown
+          className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+          aria-hidden="true"
+        />
+      </div>
+    </div>
+  );
+}

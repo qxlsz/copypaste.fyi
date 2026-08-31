@@ -5,7 +5,6 @@ import { BarChart2, Command, Plus } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { CommandPalette } from "./CommandPalette";
 import { useHotkeys } from "../hooks/useHotkeys";
-import { useAuth } from "../stores/auth";
 import { useTheme } from "../theme/ThemeContext";
 
 const iconButtonClasses =
@@ -15,7 +14,6 @@ export const Layout = () => {
   const navigate = useNavigate();
   const [isPaletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
-  const { user, logout } = useAuth();
   const { toggleTheme } = useTheme();
 
   const isEditorPage =
@@ -50,23 +48,8 @@ export const Layout = () => {
         group: "Preferences",
         handler: () => toggleTheme(),
       },
-      {
-        id: "auth",
-        label: user ? "Log out" : "Log in",
-        group: "Account",
-        handler: () => {
-          void (async () => {
-            if (user) {
-              await logout();
-              navigate("/");
-            } else {
-              navigate("/login");
-            }
-          })();
-        },
-      },
     ],
-    [navigate, toggleTheme, user, logout],
+    [navigate, toggleTheme],
   );
 
   useHotkeys({ shortcut: "meta+n", handler: () => navigate("/") });
