@@ -40,7 +40,7 @@ describe("App", () => {
     ).toBeGreaterThan(0);
     // Composer primary action
     expect(
-      screen.getAllByRole("button", { name: "Create" }).length,
+      screen.getAllByRole("button", { name: "Get link" }).length,
     ).toBeGreaterThan(0);
   });
 });

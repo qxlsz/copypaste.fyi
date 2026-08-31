@@ -203,13 +203,18 @@ export const MonacoEditor = ({
 
     return (
       <textarea
-        value={value}
-        onChange={(event) => onChange?.(event.target.value)}
+        id="content"
+        defaultValue={value}
+        onInput={(event) => onChange?.(event.currentTarget.value)}
         className={clsx(
           "h-full w-full resize-none rounded-none border-0 bg-transparent p-4 font-mono text-base text-text placeholder:text-muted-foreground focus:outline-none md:text-sm",
           className,
         )}
-        placeholder="Write or paste"
+        placeholder="Type here, then Get link"
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        autoFocus
         style={{ minHeight: resolvedHeight, height: resolvedHeight }}
       />
     );

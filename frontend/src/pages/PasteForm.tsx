@@ -128,11 +128,27 @@ export const PasteFormPage = () => {
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState("");
   const [showWriteToken, setShowWriteToken] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const contentRef = useRef(content);
+  const idleRef = useRef(0);
+
+  const setLiveContent = (next: string) => {
+    contentRef.current = next;
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 768px)").matches
+    ) {
+      window.clearTimeout(idleRef.current);
+      idleRef.current = window.setTimeout(() => setContent(next), 200);
+      return;
+    }
+    setContent(next);
+  };
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const live = contentRef.current;
       const payload: CreatePastePayload = {
-        content,
+        content: live,
         format,
         retention_minutes: retentionMinutes
           ? Number(retentionMinutes)
@@ -156,10 +172,10 @@ export const PasteFormPage = () => {
       const usedEncryption = encryption;
       const usedEncryptionKey = encryptionKey;
       toast.success("Paste created");
-      // Store the encryption settings used for this paste
       setPasteEncryption(usedEncryption);
       setPasteEncryptionKey(usedEncryptionKey);
       setContent("");
+      contentRef.current = "";
       setShareUrl(result.shareableUrl);
       setEncryptionKey("");
       if (usedEncryption !== "none") {
@@ -179,8 +195,9 @@ export const PasteFormPage = () => {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!content.trim()) {
-      toast.error("Content is required");
+    const live = contentRef.current;
+    if (!live.trim()) {
+      document.getElementById("content")?.focus();
       return;
     }
     if (encryption !== "none") {
@@ -440,7 +457,7 @@ export const PasteFormPage = () => {
           </label>
           <MonacoEditor
             value={content}
-            onChange={setContent}
+            onChange={setLiveContent}
             format={format}
             height="100%"
             className="min-h-0 w-full flex-1"
@@ -524,7 +541,16 @@ export const PasteFormPage = () => {
               </p>
             </div>
           )}
-          <div className="flex flex-col gap-2 px-3 pt-3 sm:flex-row sm:items-end sm:gap-3 sm:px-4">
+          <div className="px-3 pt-3 sm:hidden">
+            <button
+              type="submit"
+              className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-accent px-5 text-base font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
+              disabled={mutation.isPending}
+            >
+              {mutation.isPending ? "Creating…" : "Get link"}
+            </button>
+          </div>
+          <div className="flex flex-col gap-2 px-3 pt-2 sm:flex-row sm:items-end sm:gap-3 sm:px-4 sm:pt-3">
             <div className="grid grid-cols-2 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:items-end">
               <DockSelect
                 id="format"
@@ -591,14 +617,14 @@ export const PasteFormPage = () => {
 
             <button
               type="submit"
-              className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-accent px-5 text-base font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60 sm:h-10 sm:w-auto sm:flex-none sm:text-sm"
+              className="hidden h-10 items-center justify-center rounded-lg bg-accent px-5 text-sm font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60 sm:inline-flex sm:w-auto sm:flex-none"
               disabled={mutation.isPending}
-              title="Create paste (⌘⏎)"
+              title="Get link (⌘⏎)"
             >
-              {mutation.isPending ? "Creating…" : "Create"}
+              {mutation.isPending ? "Creating…" : "Get link"}
               {!mutation.isPending && (
                 <kbd
-                  className="ml-2 hidden font-mono text-[10px] opacity-70 sm:inline"
+                  className="ml-2 font-mono text-[10px] opacity-70"
                   aria-hidden="true"
                 >
                   ⌘⏎
