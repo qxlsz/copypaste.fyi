@@ -23,8 +23,8 @@
     --color-warning: #9a6b2f;
     --color-danger: #b94a42;
     --color-info: #1c1b18;
-    --shadow-soft: 0 0 0 0 rgb(0 0 0 / 0);
-    --shadow-strong: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --shadow-soft: 0 0 0 1px rgb(27 26 23 / 0.06), 0 1px 2px -1px rgb(27 26 23 / 0.06);
+    --shadow-strong: 0 0 0 1px rgb(27 26 23 / 0.08), 0 4px 12px rgb(27 26 23 / 0.06);
 
     color-scheme: light;
     font-family: theme("fontFamily.sans");
@@ -49,8 +49,8 @@
     --color-warning: #d4a056;
     --color-danger: #e07a72;
     --color-info: #ece8df;
-    --shadow-soft: 0 0 0 0 rgb(0 0 0 / 0);
-    --shadow-strong: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    --shadow-soft: 0 0 0 1px rgb(236 232 223 / 0.08);
+    --shadow-strong: 0 0 0 1px rgb(236 232 223 / 0.14);
 
     color-scheme: dark;
   }

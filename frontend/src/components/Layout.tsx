@@ -1,6 +1,6 @@
 import { Suspense, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { BarChart2, Command, Plus, SquareTerminal } from "lucide-react";
+import { BarChart2, Command, Plus } from "lucide-react";
 
 import { ThemeToggle } from "./ThemeToggle";
 import { CommandPalette } from "./CommandPalette";
@@ -9,7 +9,7 @@ import { useAuth } from "../stores/auth";
 import { useTheme } from "../theme/ThemeContext";
 
 const iconButtonClasses =
-  "inline-flex size-11 items-center justify-center text-muted-foreground transition hover:text-text focus-visible:outline-none sm:size-8";
+  "inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none sm:size-10";
 
 export const Layout = () => {
   const navigate = useNavigate();
@@ -50,152 +50,88 @@ export const Layout = () => {
         group: "Preferences",
         handler: () => toggleTheme(),
       },
+      {
+        id: "auth",
+        label: user ? "Log out" : "Log in",
+        group: "Account",
+        handler: () => {
+          void (async () => {
+            if (user) {
+              await logout();
+              navigate("/");
+            } else {
+              navigate("/login");
+            }
+          })();
+        },
+      },
     ],
-    [navigate, toggleTheme],
+    [navigate, toggleTheme, user, logout],
   );
 
   useHotkeys({ shortcut: "meta+n", handler: () => navigate("/") });
   useHotkeys({ shortcut: "ctrl+n", handler: () => navigate("/") });
 
-  const wordmark = (
-    <NavLink
-      to="/"
-      className="inline-flex min-h-11 items-center gap-2 font-mono text-sm font-medium tracking-tight text-text focus-visible:outline-none"
-      aria-label="copypaste.fyi home"
-    >
-      <span className="relative block size-4" aria-hidden="true">
-        <span className="absolute left-0 top-0 size-2.5 border border-current" />
-        <span className="absolute bottom-0 right-0 size-2.5 bg-current" />
-      </span>
-      <span className="sm:sr-only">copypaste</span>
-    </NavLink>
-  );
-
-  const navButtons = (
-    <>
-      <button
-        type="button"
-        onClick={() => navigate("/")}
-        className={iconButtonClasses}
-        aria-label="Create new paste"
-        title="New paste (⌘N)"
-      >
-        <Plus className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => navigate("/stats")}
-        className={iconButtonClasses}
-        aria-label="Service statistics"
-        title="Stats"
-      >
-        <BarChart2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      {user && (
-        <button
-          type="button"
-          onClick={() => navigate("/dashboard")}
-          className={iconButtonClasses}
-          aria-label="Go to dashboard"
-          title="Dashboard"
-        >
-          <SquareTerminal className="h-4 w-4" aria-hidden="true" />
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={() => setPaletteOpen(true)}
-        className={iconButtonClasses}
-        aria-label="Open command menu"
-        title="Command Menu (⌘K)"
-      >
-        <Command className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <ThemeToggle />
-    </>
-  );
-
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background text-text sm:flex-row">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background text-text">
       <CommandPalette
         actions={commandActions}
         isOpen={isPaletteOpen}
         onOpenChange={setPaletteOpen}
       />
 
-      <header className="shrink-0 border-b border-border bg-gutter pt-[env(safe-area-inset-top)] sm:hidden">
-        <div className="flex h-12 items-center gap-1 px-3">
-          {wordmark}
-          <nav className="ml-auto flex items-center" aria-label="Primary">
-            {navButtons}
+      <header className="shrink-0 border-b border-border bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+        <div className="flex h-14 items-center gap-1 px-3 sm:px-4">
+          <NavLink
+            to="/"
+            className="inline-flex min-h-11 items-center gap-2.5 font-medium tracking-tight text-text focus-visible:outline-none"
+            aria-label="copypaste.fyi home"
+          >
+            <span className="relative block size-4" aria-hidden="true">
+              <span className="absolute left-0 top-0 size-2.5 rounded-[2px] border border-current" />
+              <span className="absolute bottom-0 right-0 size-2.5 rounded-[2px] bg-current" />
+            </span>
+            <span className="text-[15px]">copypaste</span>
+          </NavLink>
+          <nav className="ml-auto flex items-center gap-0.5" aria-label="Primary">
             <button
               type="button"
-              onClick={() => {
-                void (async () => {
-                  if (user) {
-                    await logout();
-                    navigate("/");
-                  } else {
-                    navigate("/login");
-                  }
-                })();
-              }}
-              className="ml-1 inline-flex h-11 items-center px-2 font-mono text-xs font-medium text-text"
+              onClick={() => navigate("/")}
+              className={iconButtonClasses}
+              aria-label="Create new paste"
+              title="New paste (⌘N)"
             >
-              {user ? "Logout" : "Login"}
+              <Plus className="h-4 w-4" aria-hidden="true" />
             </button>
+            <button
+              type="button"
+              onClick={() => navigate("/stats")}
+              className={iconButtonClasses}
+              aria-label="Service statistics"
+              title="Stats"
+            >
+              <BarChart2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className={iconButtonClasses}
+              aria-label="Open command menu"
+              title="Command Menu (⌘K)"
+            >
+              <Command className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <ThemeToggle />
           </nav>
         </div>
       </header>
-
-      <nav
-        aria-label="Primary"
-        className="hidden w-14 shrink-0 flex-col items-center border-r border-border bg-gutter pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:flex"
-      >
-        <NavLink
-          to="/"
-          aria-label="copypaste.fyi home"
-          title="copypaste.fyi"
-          className="inline-flex size-14 items-center justify-center text-text"
-        >
-          <span className="relative block size-4" aria-hidden="true">
-            <span className="absolute left-0 top-0 size-2.5 border border-current" />
-            <span className="absolute bottom-0 right-0 size-2.5 bg-current" />
-          </span>
-        </NavLink>
-        {navButtons}
-        <div className="mt-auto flex flex-col items-center gap-1 pb-2">
-          <NavLink
-            to="/about"
-            className="inline-flex size-8 items-center justify-center font-mono text-[10px] text-muted-foreground transition hover:text-text"
-          >
-            about
-          </NavLink>
-          <button
-            type="button"
-            onClick={() => {
-              void (async () => {
-                if (user) {
-                  await logout();
-                  navigate("/");
-                } else {
-                  navigate("/login");
-                }
-              })();
-            }}
-            className="inline-flex h-8 items-center px-2 font-mono text-[10px] text-muted-foreground transition hover:text-text"
-          >
-            {user ? "out" : "in"}
-          </button>
-        </div>
-      </nav>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <main
           className={
             isEditorPage
               ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-              : "min-h-0 flex-1 overflow-auto px-4 py-6 sm:px-6"
+              : "min-h-0 flex-1 overflow-auto px-5 py-10 sm:px-6 sm:py-14"
           }
         >
           <Suspense
