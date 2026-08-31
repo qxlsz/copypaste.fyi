@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 
-if (process.env.VERCEL === "1") {
+if (process.env.VERCEL === "1" || process.env.CI === "true") {
   console.log(
-    "[prepare] Detected Vercel build environment, skipping Playwright install",
+    "[prepare] Detected CI/Vercel build environment, skipping Playwright install",
   );
   process.exit(0);
 }

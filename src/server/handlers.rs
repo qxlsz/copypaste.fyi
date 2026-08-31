@@ -1831,7 +1831,8 @@ async fn create_paste_internal(
 
 /// Verify the live-paste ownership token supplied as `Authorization: Bearer`.
 ///
-/// The stored hash is SHA-256(token); comparison is constant-time.
+/// The stored hash is SHA-256(token) as lowercase hex. Comparison is against
+/// the raw 32-byte digest so encoding differences cannot leak via length.
 fn verify_owner_token(paste: &StoredPaste, token: Option<&str>) -> Result<(), (Status, String)> {
     let expected = paste.owner_token_hash.as_deref().ok_or((
         Status::Conflict,
@@ -1841,10 +1842,16 @@ fn verify_owner_token(paste: &StoredPaste, token: Option<&str>) -> Result<(), (S
         Status::Unauthorized,
         "Ownership token required (Authorization: Bearer <token>)".to_string(),
     ))?;
-    let mut hasher = Sha256::new();
-    hasher.update(token.as_bytes());
-    let actual = format!("{:x}", hasher.finalize());
-    if bool::from(actual.as_bytes().ct_eq(expected.as_bytes())) {
+    let actual: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+    let mut expected_bytes = [0u8; 32];
+    let decoded = hex::decode(expected).ok();
+    let valid_len = decoded.as_ref().is_some_and(|bytes| bytes.len() == 32);
+    if let Some(bytes) = decoded.as_deref() {
+        if bytes.len() == 32 {
+            expected_bytes.copy_from_slice(bytes);
+        }
+    }
+    if valid_len && bool::from(actual.ct_eq(&expected_bytes)) {
         Ok(())
     } else {
         Err((Status::Forbidden, "Invalid ownership token".to_string()))
