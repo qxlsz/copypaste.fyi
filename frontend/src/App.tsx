@@ -5,7 +5,6 @@ import { Toaster } from "sonner";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
-import { PrivacyJourney } from "./components/PrivacyJourney";
 import { PasteFormPage } from "./pages/PasteForm";
 
 import { ThemeProvider } from "./theme/ThemeProvider";
@@ -66,7 +65,6 @@ export function App() {
           </Route>
         </Routes>
       </Suspense>
-      <PrivacyJourney />
     </>
   );
 }
