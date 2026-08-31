@@ -142,7 +142,9 @@ The Vite server listens on <http://127.0.0.1:5173> and proxies API requests to t
 docker compose up --build
 ```
 
-The backend port mapping listens on the host's interfaces at port 8000. The verifier is reachable
+The backend port mapping listens on the host's interfaces at port 8000. Compose and the published
+image probe `GET /api/health` through `copypaste healthcheck` so Docker can mark an unresponsive
+process unhealthy without a shell (the runtime image is distroless). The verifier is reachable
 only on its internal Docker network. Paste storage defaults to memory; the `/data` volume is for the
 SQLite API-key database, not paste content.
 
@@ -378,12 +380,16 @@ short plaintext.
 
 ## CLI
 
-The single `copypaste` binary provides `serve`, `send`, and `config init` subcommands:
+The single `copypaste` binary provides `serve`, `send`, `healthcheck`, and `config init` subcommands:
 
 ```bash
 # Start the server
 ROCKET_ADDRESS=127.0.0.1 copypaste serve
 ROCKET_ADDRESS=127.0.0.1 copypaste serve --config /etc/copypaste/server.toml
+
+# Docker HEALTHCHECK / Compose liveness probe (no shell required)
+copypaste healthcheck
+copypaste healthcheck --host http://127.0.0.1:8000
 
 # Send plaintext
 copypaste send --host https://your-instance.example "notes"
@@ -471,7 +477,7 @@ with `./scripts/setup_git_hooks.sh`.
 ```text
 copypaste.fyi/
 ├── src/lib.rs                    # Store types, cache, and persistence boundary
-├── src/bin/copypaste.rs          # serve, send, and config subcommands
+├── src/bin/copypaste.rs          # serve, send, healthcheck, and config subcommands
 ├── src/server/                   # Rocket handlers and security modules
 ├── frontend/                     # React and Vite application
 ├── ocaml-crypto-verifier/        # Independent supported-algorithm verifier

@@ -20,6 +20,12 @@ enum Command {
         #[arg(long)]
         config: Option<String>,
     },
+    /// Probe a running server (Docker HEALTHCHECK; exec form, no shell)
+    Healthcheck {
+        /// Base URL of the copypaste server.
+        #[arg(long, default_value = "http://127.0.0.1:8000")]
+        host: String,
+    },
     /// Submit text to a copypaste instance and print the resulting URL
     Send(SendArgs),
     /// Config file management
@@ -155,6 +161,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .enable_all()
                 .build()?
                 .block_on(handlers::launch())
+        }
+        Command::Healthcheck { host } => {
+            execute_healthcheck(&host)?;
+            Ok(())
         }
         Command::Send(args) => {
             let url = execute_send(args)?;
@@ -318,6 +328,32 @@ fn validated_base_url(host: &str) -> io::Result<reqwest::Url> {
     let normalized_path = url.path().trim_end_matches('/').to_owned();
     url.set_path(&normalized_path);
     Ok(url)
+}
+
+fn execute_healthcheck(host: &str) -> io::Result<()> {
+    let base_url = validated_base_url(host)?;
+    let url = base_url
+        .join("/api/health")
+        .map_err(|_| io::Error::other("Invalid healthcheck URL."))?;
+    if url.origin() != base_url.origin() {
+        return Err(io::Error::other("Healthcheck URL left the request origin."));
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(io::Error::other)?;
+    let response = client.get(url).send().map_err(io::Error::other)?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "Healthcheck failed with status: {}",
+            response.status()
+        )))
+    }
 }
 
 fn execute_send(args: SendArgs) -> io::Result<String> {
@@ -701,6 +737,58 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::Other);
         assert!(err.to_string().contains("Request failed"));
         mock.assert();
+    }
+
+    #[test]
+    fn healthcheck_accepts_successful_liveness() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/api/health");
+            then.status(200).body(r#"{"status":"ok"}"#);
+        });
+
+        execute_healthcheck(server.base_url().as_str()).expect("healthy");
+        mock.assert();
+    }
+
+    #[test]
+    fn healthcheck_fails_on_non_success_status() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/api/health");
+            then.status(503).body("unavailable");
+        });
+
+        let err = execute_healthcheck(server.base_url().as_str()).expect_err("unhealthy");
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+        assert!(err.to_string().contains("503"));
+        mock.assert();
+    }
+
+    #[test]
+    fn healthcheck_does_not_follow_redirects() {
+        let server = MockServer::start();
+        let redirected_url = format!("{}/capture", server.base_url());
+        let redirect = server.mock(|when, then| {
+            when.method(GET).path("/api/health");
+            then.status(302).header("Location", redirected_url.as_str());
+        });
+        let capture = server.mock(|when, then| {
+            when.method(GET).path("/capture");
+            then.status(200).body(r#"{"status":"ok"}"#);
+        });
+
+        let err = execute_healthcheck(server.base_url().as_str()).expect_err("redirect");
+        assert!(err.to_string().contains("Healthcheck failed"));
+        redirect.assert();
+        assert_eq!(capture.calls(), 0);
+    }
+
+    #[test]
+    fn healthcheck_rejects_remote_plain_http() {
+        let err = execute_healthcheck("http://example.com").expect_err("remote HTTP");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("must use HTTPS"));
     }
 
     #[test]

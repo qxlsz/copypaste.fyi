@@ -9,7 +9,7 @@ const DEFAULT_ALLOWED_ORIGINS: &str = "https://copypaste.fyi,https://www.copypas
 const ALLOWED_METHODS: &str = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 const ALLOWED_HEADERS: &str =
     "Content-Type,Authorization,X-Requested-With,X-Paste-Key,X-CopyPaste-Write-Token";
-const EXPOSED_HEADERS: &str = "Content-Type";
+const EXPOSED_HEADERS: &str = "Content-Type,Retry-After";
 const MAX_AGE_SECONDS: &str = "86400";
 
 // The legacy backend index in `static/index.html` contains inline CSS and
@@ -161,6 +161,14 @@ impl Fairing for Cors {
             response.set_header(Header::new("Pragma", "no-cache"));
         }
 
+        if response.status() == Status::TooManyRequests
+            && response.headers().get_one("Retry-After").is_none()
+        {
+            // Fixed-window limiter uses a 60-second bucket. Advertise that so
+            // clients wait out the window instead of retrying immediately.
+            response.set_header(Header::new("Retry-After", "60"));
+        }
+
         // All responses vary by Origin, including denied requests, so an edge
         // cache can never replay an allowlisted response to a different origin.
         response.adjoin_header(Header::new("Vary", "Origin"));
@@ -251,6 +259,10 @@ mod tests {
                 Some("https://www.copypaste.fyi")
             );
             assert_eq!(response.headers().get_one("Vary"), Some("Origin"));
+            assert_eq!(
+                response.headers().get_one("Access-Control-Expose-Headers"),
+                Some(EXPOSED_HEADERS)
+            );
             assert!(response
                 .headers()
                 .get_one("Access-Control-Allow-Credentials")
@@ -403,5 +415,23 @@ mod tests {
         assert!(is_generated_paste_id("abcdefghij"));
         assert!(is_generated_paste_id("abcdefghijklmnopqrstuvwx"));
         assert!(!is_generated_paste_id("abcdefghijklmnopqrstuvw"));
+    }
+
+    #[get("/limited")]
+    fn limited_route() -> Status {
+        Status::TooManyRequests
+    }
+
+    #[test]
+    fn too_many_requests_advertise_retry_after() {
+        let client = Client::tracked(
+            rocket::build()
+                .attach(Cors)
+                .mount("/", routes![limited_route]),
+        )
+        .expect("client");
+        let response = client.get("/limited").dispatch();
+        assert_eq!(response.status(), Status::TooManyRequests);
+        assert_eq!(response.headers().get_one("Retry-After"), Some("60"));
     }
 }

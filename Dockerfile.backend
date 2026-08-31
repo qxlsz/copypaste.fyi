@@ -117,7 +117,7 @@ ENV COPYPASTE_VERSION=0.1.0-docker
 EXPOSE 8000 8001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -sf http://localhost:8000/api/health || exit 1
+  CMD ["copypaste", "healthcheck"]
 
 USER copypaste
 

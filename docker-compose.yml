@@ -38,6 +38,12 @@ services:
       crypto-verifier:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/copypaste", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     networks:
       - copypaste-net
       - verifier-net

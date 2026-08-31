@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 
 # ─── Stage 1: Build frontend ──────────────────────────────────────────────────
-FROM node:20-slim AS frontend
+FROM node:22-slim AS frontend
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 COPY frontend/scripts/ ./scripts/
@@ -36,7 +36,8 @@ ENV ROCKET_ADDRESS=0.0.0.0 \
     ROCKET_PORT=8000 \
     COPYPASTE_SQLITE_PATH=/data/copypaste.db
 
-# distroless/nonroot sets USER 65532 by default; no shell available so
-# Docker-native HEALTHCHECK is omitted — rely on Fly.io HTTP health checks
-# configured in fly.toml [[services.http_checks]].
+# Exec form: distroless has no shell. The same binary probes GET /api/health.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["/usr/local/bin/copypaste", "healthcheck"]
+
 CMD ["/usr/local/bin/copypaste", "serve"]
