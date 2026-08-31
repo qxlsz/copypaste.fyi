@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  Link,
   useLocation,
   useNavigate,
   useParams,
@@ -103,7 +104,7 @@ const parseHashKey = (hash: string): string | undefined => {
 };
 
 const iconActionClasses =
-  "inline-flex size-11 items-center justify-center text-muted-foreground transition hover:text-text focus-visible:outline-none sm:size-8";
+  "inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none sm:size-10";
 
 // Live "expires in …" countdown for the metadata row. Ticks every second
 // under an hour (seconds are visible), every minute otherwise, and stops
@@ -139,24 +140,34 @@ const ExpiryCountdown = ({ expiresAt }: { expiresAt: number }) => {
 };
 
 const PasteViewSkeleton = () => (
-  <div className="animate-pulse space-y-6" aria-hidden="true">
-    <div className="space-y-2">
-      <div className="h-5 w-48 rounded bg-muted" />
-      <div className="h-3 w-72 rounded bg-muted" />
-    </div>
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <div className="h-64 rounded-md bg-muted" />
-    </div>
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <div className="h-5 w-32 rounded bg-muted" />
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="h-10 rounded bg-muted" />
-        <div className="h-10 rounded bg-muted" />
-        <div className="h-10 rounded bg-muted" />
-        <div className="h-10 rounded bg-muted" />
-      </div>
-    </div>
+  <div
+    className="flex min-h-0 flex-1 items-center justify-center"
+    role="status"
+    aria-label="Loading paste"
+  >
+    <span className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-accent" />
   </div>
+);
+
+const EmptyState = ({
+  title,
+  body,
+}: {
+  title: string;
+  body: string;
+}) => (
+  <section className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
+    <div className="w-full max-w-sm space-y-4">
+      <h1 className="text-2xl font-medium tracking-tight text-text">{title}</h1>
+      <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
+      <Link
+        to="/"
+        className="inline-flex h-11 items-center rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground"
+      >
+        New paste
+      </Link>
+    </div>
+  </section>
 );
 
 export const PasteViewPage = () => {
@@ -254,13 +265,6 @@ export const PasteViewPage = () => {
     };
   }, [queryClient, sensitiveQueryPrefix]);
 
-  const editorHeight = useMemo(() => {
-    const lines = data?.content?.split("\n") ?? [];
-    const lineCount = lines.length > 0 ? lines.length : 12;
-    const clamped = Math.min(Math.max(lineCount, 12), 60);
-    return `${clamped * 20}px`;
-  }, [data?.content]);
-
   const handleCopyContent = async () => {
     if (!data?.content) return;
     try {
@@ -316,14 +320,10 @@ export const PasteViewPage = () => {
 
   if (!id) {
     return (
-      <div className="mx-auto max-w-3xl space-y-4 text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-text">
-          Paste not found
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          The requested paste ID is missing or invalid.
-        </p>
-      </div>
+      <EmptyState
+        title="Paste not found"
+        body="The requested paste ID is missing or invalid."
+      />
     );
   }
 
@@ -350,32 +350,29 @@ export const PasteViewPage = () => {
 
     if (attestationRequired) {
       return (
-        <div className="mx-auto max-w-sm space-y-3 py-8 text-center">
-          <h1 className="text-xl font-semibold tracking-tight text-text">
-            Additional verification required
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            This paste uses a legacy attestation gate that this web client does
-            not submit through URL parameters. Ask the sender for a supported
-            sharing method.
-          </p>
-        </div>
+        <EmptyState
+          title="Additional verification required"
+          body="This paste uses a legacy attestation gate that this web client does not submit through URL parameters. Ask the sender for a supported sharing method."
+        />
       );
     }
 
     if (keyRequired || keyRejected) {
       return (
-        <div className="mx-auto max-w-sm space-y-6 py-8">
-          <div className="space-y-2 text-center">
-            <h1 className="text-xl font-semibold tracking-tight text-text">
-              Encrypted paste
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              This paste requires an encryption key to view.
-            </p>
-          </div>
-
-          <form onSubmit={handleKeySubmit} className="space-y-4">
+        <section className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
+          <form
+            onSubmit={handleKeySubmit}
+            className="w-full max-w-sm space-y-5"
+          >
+            <div className="space-y-2">
+              <h1 className="text-2xl font-medium tracking-tight text-text">
+                Encrypted paste
+              </h1>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Ciphertext is stored without the key. Enter the shared secret,
+                or open the full share URL.
+              </p>
+            </div>
             <div className="space-y-1.5">
               <label
                 className="block text-xs font-medium text-muted-foreground"
@@ -392,174 +389,163 @@ export const PasteViewPage = () => {
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
-                placeholder="Enter the encryption key…"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                placeholder="Shared secret"
+                className="min-h-12 w-full rounded-md bg-surface px-3 font-mono text-base text-text shadow-soft placeholder:text-muted-foreground focus:outline-none focus:shadow-strong sm:min-h-11 sm:text-sm"
                 required
                 autoFocus
               />
               {keyRejected && key && (
-                <p className="text-xs text-danger">
-                  The provided key was rejected. Please double-check and try
-                  again.
+                <p className="text-sm text-danger">
+                  That key does not decrypt this paste.
                 </p>
               )}
             </div>
-
             <button
               type="submit"
-              className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="inline-flex h-12 w-full items-center justify-center rounded-md bg-accent text-sm font-medium text-accent-foreground sm:h-11"
             >
-              View paste
+              Decrypt
             </button>
           </form>
-
-          <div className="text-center text-xs text-muted-foreground">
-            <p>The key was provided when the paste was created.</p>
-            <p>If you don't have the key, the paste cannot be viewed.</p>
-          </div>
-        </div>
+        </section>
       );
     }
 
     return (
-      <div className="space-y-3">
-        <h1 className="text-xl font-semibold tracking-tight text-danger">
-          {isBackendDown ? "Backend unavailable" : "Unable to load paste"}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {isBackendDown
-            ? "The paste service is currently unavailable. Please try again later or contact support if the issue persists."
-            : message}
-        </p>
-        {isBackendDown && (
-          <p className="text-xs text-muted-foreground">
-            Make sure the backend server is running on port 8000.
-          </p>
-        )}
-      </div>
+      <EmptyState
+        title={isBackendDown ? "Could not load this paste" : "Unable to load paste"}
+        body={
+          isBackendDown
+            ? "The store did not respond. Check your connection and try again."
+            : message
+        }
+      />
     );
   }
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="font-mono text-sm font-medium text-text">{data.id}</h1>
-        <p className="flex flex-wrap items-center gap-x-2 font-mono text-xs text-muted-foreground">
-          <span>{formatLabel(data.format)}</span>
-          <span aria-hidden="true">·</span>
-          <span>
-            created {new Date(data.createdAt * 1000).toLocaleString()}
-          </span>
-          <span aria-hidden="true">·</span>
-          {data.expiresAt ? (
-            <ExpiryCountdown expiresAt={data.expiresAt} />
-          ) : (
-            <span>never expires</span>
-          )}
-        </p>
-        {data.burnAfterReading ? (
-          <span className="rounded border border-danger/40 bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] text-danger">
-            burn-after-read
-          </span>
-        ) : null}
-        {data.encryption.requiresKey ? (
-          <span className="rounded border border-accent/40 px-1.5 py-0.5 font-mono text-[10px] text-accent">
-            {formatEncryption(
-              data.encryption.requiresKey,
-              data.encryption.algorithm,
-            ).toLowerCase()}
-          </span>
-        ) : null}
-      </header>
+    <article className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1">
+        <MonacoEditor
+          value={data.content}
+          format={data.format}
+          readOnly
+          height="100%"
+          className="min-h-0 h-full w-full"
+        />
+      </div>
 
-      <section className="overflow-hidden rounded-lg border border-border bg-surface">
-        <div className="flex items-center justify-end gap-1 border-b border-border px-2 py-1.5">
+      <footer className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs text-muted-foreground">
+          <span className="text-text">{formatLabel(data.format)}</span>
+          {data.expiresAt ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <ExpiryCountdown expiresAt={data.expiresAt} />
+            </>
+          ) : (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>no expiry</span>
+            </>
+          )}
+          {data.burnAfterReading ? (
+            <span className="text-danger">burn</span>
+          ) : null}
+          {data.encryption.requiresKey ? (
+            <span>
+              {formatEncryption(
+                data.encryption.requiresKey,
+                data.encryption.algorithm,
+              )}
+            </span>
+          ) : null}
+          {data.timeLock ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{formatTimeLock(data.timeLock)}</span>
+            </>
+          ) : null}
+          <div className="ml-auto hidden items-center sm:flex">
+            <button
+              type="button"
+              onClick={handleCopyContent}
+              className={iconActionClasses}
+              aria-label="Copy content"
+              title="Copy content"
+            >
+              <Copy className="h-4 w-4" aria-hidden="true" />
+            </button>
+            {!data.encryption.requiresKey && !data.burnAfterReading ? (
+              <a
+                href={rawPasteUrl(data.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={iconActionClasses}
+                aria-label="Open raw plaintext"
+                title="Raw"
+              >
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleDownload}
+              className={iconActionClasses}
+              aria-label="Download content"
+              title="Download"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={handleShare}
+              className={iconActionClasses}
+              aria-label="Share link"
+              title="Share"
+            >
+              <Share2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={handleFork}
+              className={iconActionClasses}
+              aria-label="New paste from this content"
+              title="Fork into a new paste"
+            >
+              <GitFork className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 sm:hidden">
           <button
             type="button"
             onClick={handleCopyContent}
-            className={iconActionClasses}
-            aria-label="Copy content"
-            title="Copy content"
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-lg bg-accent text-sm font-medium text-accent-foreground"
           >
             <Copy className="h-4 w-4" aria-hidden="true" />
+            Copy
           </button>
-          {!data.encryption.requiresKey &&
-          !data.burnAfterReading ? (
-            <a
-              href={rawPasteUrl(data.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={iconActionClasses}
-              aria-label="Open raw plaintext"
-              title="Raw"
-            >
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />
-            </a>
-          ) : null}
           <button
             type="button"
-            onClick={handleDownload}
-            className={iconActionClasses}
-            aria-label="Download content"
-            title="Download"
+            onClick={handleFork}
+            className="inline-flex size-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+            aria-label="New paste from this content"
+            title="Fork"
           >
-            <Download className="h-4 w-4" aria-hidden="true" />
+            <GitFork className="h-4 w-4" aria-hidden="true" />
           </button>
           <button
             type="button"
             onClick={handleShare}
-            className={iconActionClasses}
+            className="inline-flex size-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
             aria-label="Share link"
             title="Share"
           >
             <Share2 className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            onClick={handleFork}
-            className={iconActionClasses}
-            aria-label="New paste from this content"
-            title="Fork into a new paste"
-          >
-            <GitFork className="h-4 w-4" aria-hidden="true" />
-          </button>
         </div>
-        <MonacoEditor
-          value={data.content}
-          format={data.format}
-          readOnly
-          height={editorHeight}
-        />
-      </section>
-
-      <details className="group rounded-lg border border-border bg-surface">
-        <summary className="cursor-pointer select-none list-none px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-          details
-        </summary>
-        <dl className="grid gap-3 border-t border-border px-4 py-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Encryption
-            </dt>
-            <dd className="font-mono text-sm text-text">
-              {formatEncryption(
-                data.encryption.requiresKey,
-                data.encryption.algorithm,
-              )}
-            </dd>
-          </div>
-          {data.timeLock ? (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-                Time lock
-              </dt>
-              <dd className="font-mono text-sm text-text">
-                {formatTimeLock(data.timeLock)}
-              </dd>
-            </div>
-          ) : null}
-        </dl>
-      </details>
-    </div>
+      </footer>
+    </article>
   );
 };
