@@ -13,6 +13,28 @@ This document provides comprehensive information for AI agents working on this c
 
 **Key Purpose**: Fast, secure, privacy-focused paste sharing with client-side encryption, burn-after-reading links, and advanced security features like post-quantum cryptography.
 
+## Push / CI — no red builds
+
+Never push or merge a change that would fail GitHub Actions.
+
+Before `git push`:
+
+1. Run the same jobs CI runs for the files you touched.
+2. Do not push known failures, skipped tests, or "CI will catch it".
+3. After push, wait for the PR checks. If anything is red, fix it on the same branch before merge.
+4. Do not merge a red PR. Do not leave `main` red.
+
+CI (`.github/workflows/ci.yml`, Rust **1.88.0**, Node **22**):
+
+- `cargo fmt --all -- --check`
+- `cargo audit`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo nextest run --workspace --all-features`
+- `cargo llvm-cov nextest --workspace --all-features --fail-under-lines 75`
+- `cd frontend && npm ci && npm audit --audit-level=high && npm run lint && npm test -- --run && npm run build && cmp vercel.json frontend/vercel.json`
+
+OCaml verifier changes also need `.github/workflows/ocaml-ci.yml` green. Local shortcut: `./scripts/precommit.sh`.
+
 ---
 
 ## Directory Structure

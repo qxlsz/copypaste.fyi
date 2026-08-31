@@ -31,21 +31,22 @@ cd frontend && npm test -- --run && npm run lint
 
 ## Before Opening a PR
 
-Run these checks locally — CI will enforce them:
+Run these checks locally — CI will enforce them. **Do not push or merge a red build.**
 
 - [ ] `cargo fmt --all -- --check` passes
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes
 - [ ] `cargo nextest run --workspace --all-features` passes
 - [ ] `cargo llvm-cov --workspace --all-features --nextest --fail-under-lines 75` passes
-- [ ] Frontend (if changed): `cd frontend && npm test -- --run && npm run lint` passes
+- [ ] Frontend (if changed): `cd frontend && npm test -- --run && npm run lint && npm run build` passes
 - [ ] New public APIs have at least one test
+- [ ] After push, wait for GitHub Actions on the PR. Fix red checks on the same branch before merge.
 
 ## Submitting a Pull Request
 
 1. Fork the repository and create a feature branch.
-2. Run the full test suite locally before pushing.
+2. Run the full test suite locally before pushing. Do not push known CI failures.
 3. Keep changes focused; add tests for new behavior.
-4. Open a PR against `main`.
+4. Open a PR against `main`. Merge only when every required check is green.
 
 ## Release Process
 
