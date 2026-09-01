@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -24,26 +25,31 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-      <span className="text-muted-foreground">Open with</span>
-      {OPEN_AGENTS.map((agent) => (
-        <a
-          key={agent.id}
-          href={agent.href(prompt)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-text underline-offset-2 hover:underline"
+    <details className="rounded-md bg-muted">
+      <summary className="flex h-12 list-none items-center justify-between gap-2 px-3 text-sm text-text sm:h-11 [&::-webkit-details-marker]:hidden">
+        <span>Open in Grok, Codex, ChatGPT…</span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      </summary>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 pb-3 pt-1 text-sm">
+        {OPEN_AGENTS.map((agent) => (
+          <a
+            key={agent.id}
+            href={agent.href(prompt)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-11 items-center text-text underline-offset-2 hover:underline"
+          >
+            {agent.label}
+          </a>
+        ))}
+        <button
+          type="button"
+          onClick={() => void handleAddToGrok()}
+          className="inline-flex min-h-11 items-center text-text underline-offset-2 hover:underline"
         >
-          {agent.label}
-        </a>
-      ))}
-      <button
-        type="button"
-        onClick={() => void handleAddToGrok()}
-        className="text-text underline-offset-2 hover:underline"
-      >
-        Add to Grok
-      </button>
-    </div>
+          Add to Grok
+        </button>
+      </div>
+    </details>
   );
 };

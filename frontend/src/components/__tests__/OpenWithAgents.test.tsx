@@ -17,5 +17,6 @@ describe("OpenWithAgents", () => {
     expect(codex).toHaveAttribute("href", expect.stringContaining("chatgpt.com"));
     expect(decodeURIComponent(grok.getAttribute("href") ?? "")).not.toContain("dont-leak");
     expect(screen.getByRole("button", { name: "Add to Grok" })).toBeInTheDocument();
+    expect(screen.getByText("Open in Grok, Codex, ChatGPT…")).toBeInTheDocument();
   });
 });

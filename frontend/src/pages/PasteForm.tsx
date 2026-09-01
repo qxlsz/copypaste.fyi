@@ -33,7 +33,7 @@ import {
   renderShareImage,
   shareImageColorsFromDocument,
 } from "../lib/shareImage";
-import { whisperNote } from "../lib/whisper";
+import { whisperNote, sharePayload } from "../lib/whisper";
 import { agentReceipt } from "../lib/agent";
 import { useAuth } from "../stores/auth";
 
@@ -338,10 +338,7 @@ export const PasteFormPage = () => {
     if (!urlToShare) return;
     if (typeof navigator.share === "function") {
       try {
-        await navigator.share({
-          title: "copypaste.fyi paste",
-          url: urlToShare,
-        });
+        await navigator.share(sharePayload(urlToShare));
       } catch (error) {
         // The user dismissing the share sheet is not an error worth surfacing.
         if (error instanceof Error && error.name === "AbortError") return;
@@ -420,7 +417,7 @@ export const PasteFormPage = () => {
     >
       {shareLink ? (
         <section
-          className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 py-10"
+          className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-6 sm:px-5 sm:py-10"
           aria-label="Paste created"
         >
           <div className="w-full max-w-md space-y-6">
@@ -436,7 +433,7 @@ export const PasteFormPage = () => {
                 Anyone with this link can open it. There is no public listing.
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 id="share-url"
                 readOnly
@@ -448,18 +445,18 @@ export const PasteFormPage = () => {
                 type="button"
                 onClick={handleCopyShareUrl}
                 disabled={isCopying}
-                className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60 sm:h-11"
+                className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60 sm:h-11 sm:w-auto"
                 aria-label={isCopying ? "Copying link…" : "Copy link"}
               >
                 <Copy className="h-4 w-4" aria-hidden="true" />
                 {isCopying ? "Copying" : "Copy"}
               </button>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               <button
                 type="button"
                 onClick={handleShareLink}
-                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-muted px-3 text-sm text-text sm:h-11"
                 aria-label="Share link"
               >
                 <Share2 className="h-4 w-4" aria-hidden="true" />
@@ -469,7 +466,7 @@ export const PasteFormPage = () => {
                 type="button"
                 onClick={() => setShowQr((open) => !open)}
                 aria-pressed={showQr}
-                className={`inline-flex h-11 items-center gap-2 rounded-md px-3 text-sm ${
+                className={`inline-flex h-12 items-center justify-center gap-2 rounded-md px-3 text-sm sm:h-11 ${
                   showQr ? "bg-text text-background" : "bg-muted text-text"
                 }`}
                 aria-label={showQr ? "Hide QR code" : "Show QR code"}
@@ -481,7 +478,7 @@ export const PasteFormPage = () => {
                 type="button"
                 onClick={() => void handleSaveImage()}
                 disabled={isSavingImage}
-                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60 sm:h-11"
                 aria-label={isSavingImage ? "Saving share image…" : "Save share image"}
               >
                 <ImageDown className="h-4 w-4" aria-hidden="true" />
@@ -491,7 +488,7 @@ export const PasteFormPage = () => {
                 type="button"
                 onClick={() => void handleCopyWhisper()}
                 disabled={isCopying}
-                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60 sm:h-11"
                 aria-label="Copy a share note"
               >
                 <ScrollText className="h-4 w-4" aria-hidden="true" />
@@ -501,7 +498,7 @@ export const PasteFormPage = () => {
                 type="button"
                 onClick={() => void handleCopyAgent()}
                 disabled={isCopying}
-                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60"
+                className="col-span-2 inline-flex h-12 items-center justify-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60 sm:col-auto sm:h-11"
                 aria-label="Copy agent receipt"
               >
                 <Bot className="h-4 w-4" aria-hidden="true" />

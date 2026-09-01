@@ -77,6 +77,8 @@ fly.toml
 # Documentation and tests
 *.md
 !README.md
+!static/grok-bot.md
+!frontend/public/grok-bot.md
 tests/
 frontend/tests/
 
