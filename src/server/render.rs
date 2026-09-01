@@ -323,17 +323,15 @@ pub fn render_invalid_key(id: &str) -> String {
     )
 }
 
-pub fn render_expired(id: &str) -> String {
+pub fn render_expired(_id: &str) -> String {
     layout(
-        "copypaste.fyi | Paste expired",
-        format!(
-            r#"<section class="notice error">
-    <h2>Paste expired</h2>
-    <p>Paste {id} has reached its retention limit and is no longer available.</p>
+        "copypaste.fyi",
+        r#"<section class="notice">
+    <h2>Either you're lost, or you're chasing a secret that isn't here.</h2>
+    <p>Missing, burned, and expired links look the same on purpose.</p>
 </section>
-"#,
-            id = encode_safe(id),
-        ),
+"#
+        .to_string(),
     )
 }
 
@@ -548,10 +546,11 @@ mod tests {
     }
 
     #[test]
-    fn render_expired_contains_message() {
+    fn render_expired_does_not_reveal_why() {
         let html = render_expired("expired-id");
-        assert!(html.contains("Paste expired"));
-        assert!(html.contains("expired-id"));
+        assert!(html.contains("lost"));
+        assert!(!html.contains("expired-id"));
+        assert!(!html.contains("Paste expired"));
     }
 
     #[test]

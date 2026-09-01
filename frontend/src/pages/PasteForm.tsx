@@ -4,7 +4,17 @@ import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import QRCode from "qrcode";
-import { Check, ChevronDown, Copy, Flame, Lock, QrCode, Share2, ImageDown } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  Flame,
+  ImageDown,
+  Lock,
+  QrCode,
+  ScrollText,
+  Share2,
+} from "lucide-react";
 
 import { ApiError, createPaste } from "../api/client";
 import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat } from "../api/types";
@@ -21,6 +31,7 @@ import {
   renderShareImage,
   shareImageColorsFromDocument,
 } from "../lib/shareImage";
+import { whisperNote } from "../lib/whisper";
 import { useAuth } from "../stores/auth";
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -286,6 +297,21 @@ export const PasteFormPage = () => {
     }
   };
 
+  const handleCopyWhisper = async () => {
+    const urlToCopy = shareLink;
+    if (!urlToCopy) return;
+    try {
+      setIsCopying(true);
+      await navigator.clipboard.writeText(whisperNote(urlToCopy));
+      toast.success("Share note copied");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error("Unable to copy note", { description: message });
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
   const handleShareLink = async () => {
     const urlToShare = shareLink;
     if (!urlToShare) return;
@@ -439,6 +465,16 @@ export const PasteFormPage = () => {
               >
                 <ImageDown className="h-4 w-4" aria-hidden="true" />
                 {isSavingImage ? "Saving" : "Image"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCopyWhisper()}
+                disabled={isCopying}
+                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60"
+                aria-label="Copy a share note"
+              >
+                <ScrollText className="h-4 w-4" aria-hidden="true" />
+                Note
               </button>
             </div>
             {showQr && qrDataUrl && (

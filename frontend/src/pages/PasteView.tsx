@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import {
-  Link,
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, ExternalLink, GitFork, Share2 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +7,7 @@ import { toast } from "sonner";
 import { ApiError, fetchPaste, rawPasteUrl } from "../api/client";
 import type { PasteViewResponse } from "../server/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
+import { LostPaste } from "../components/LostPaste";
 import { formatCountdown } from "../lib/countdown";
 
 const formatLabel = (format: string) => {
@@ -119,10 +114,7 @@ const ExpiryCountdown = ({ expiresAt }: { expiresAt: number }) => {
     if (expired) {
       return;
     }
-    const intervalId = window.setInterval(
-      () => setNow(Date.now()),
-      underHour ? 1_000 : 60_000,
-    );
+    const intervalId = window.setInterval(() => setNow(Date.now()), underHour ? 1_000 : 60_000);
     return () => window.clearInterval(intervalId);
   }, [expired, underHour]);
 
@@ -134,9 +126,7 @@ const ExpiryCountdown = ({ expiresAt }: { expiresAt: number }) => {
       </span>
     );
   }
-  return (
-    <span title={absolute}>expires in {formatCountdown(remainingMs)}</span>
-  );
+  return <span title={absolute}>expires in {formatCountdown(remainingMs)}</span>;
 };
 
 const PasteViewSkeleton = () => (
@@ -149,13 +139,7 @@ const PasteViewSkeleton = () => (
   </div>
 );
 
-const EmptyState = ({
-  title,
-  body,
-}: {
-  title: string;
-  body: string;
-}) => (
+const EmptyState = ({ title, body }: { title: string; body: string }) => (
   <section className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
     <div className="w-full max-w-sm space-y-4">
       <h1 className="text-2xl font-medium tracking-tight text-text">{title}</h1>
@@ -228,10 +212,7 @@ export const PasteViewPage = () => {
 
   const sensitiveQueryPrefix = useMemo(() => ["paste", id] as const, [id]);
   const queryKey = useMemo(
-    () => [
-      ...sensitiveQueryPrefix,
-      key ? `key-attempt:${location.key}` : "without-key",
-    ],
+    () => [...sensitiveQueryPrefix, key ? `key-attempt:${location.key}` : "without-key"],
     [key, location.key, sensitiveQueryPrefix],
   );
 
@@ -319,12 +300,7 @@ export const PasteViewPage = () => {
   };
 
   if (!id) {
-    return (
-      <EmptyState
-        title="Paste not found"
-        body="The requested paste ID is missing or invalid."
-      />
-    );
+    return <LostPaste />;
   }
 
   if (isLoading) {
@@ -333,20 +309,16 @@ export const PasteViewPage = () => {
 
   if (isError || !data) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    const isBackendDown =
-      message.includes("timed out") || message.includes("Failed to fetch");
+    const isBackendDown = message.includes("timed out") || message.includes("Failed to fetch");
     const attestationRequired =
       error instanceof ApiError &&
-      (error.code === "attestation_required" ||
-        error.code === "attestation_invalid");
+      (error.code === "attestation_required" || error.code === "attestation_invalid");
     const keyRequired =
       error instanceof ApiError &&
-      (error.code === "key_required" ||
-        (error.status === 401 && !error.code));
+      (error.code === "key_required" || (error.status === 401 && !error.code));
     const keyRejected =
       error instanceof ApiError &&
-      (error.code === "invalid_key" ||
-        (error.status === 403 && !error.code));
+      (error.code === "invalid_key" || (error.status === 403 && !error.code));
 
     if (attestationRequired) {
       return (
@@ -360,24 +332,16 @@ export const PasteViewPage = () => {
     if (keyRequired || keyRejected) {
       return (
         <section className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
-          <form
-            onSubmit={handleKeySubmit}
-            className="w-full max-w-sm space-y-5"
-          >
+          <form onSubmit={handleKeySubmit} className="w-full max-w-sm space-y-5">
             <div className="space-y-2">
-              <h1 className="text-2xl font-medium tracking-tight text-text">
-                Encrypted paste
-              </h1>
+              <h1 className="text-2xl font-medium tracking-tight text-text">Encrypted paste</h1>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Ciphertext is stored without the key. Enter the shared secret,
-                or open the full share URL.
+                Ciphertext is stored without the key. Enter the shared secret, or open the full
+                share URL.
               </p>
             </div>
             <div className="space-y-1.5">
-              <label
-                className="block text-xs font-medium text-muted-foreground"
-                htmlFor="pasteKey"
-              >
+              <label className="block text-xs font-medium text-muted-foreground" htmlFor="pasteKey">
                 encryption key
               </label>
               <input
@@ -395,9 +359,7 @@ export const PasteViewPage = () => {
                 autoFocus
               />
               {keyRejected && key && (
-                <p className="text-sm text-danger">
-                  That key does not decrypt this paste.
-                </p>
+                <p className="text-sm text-danger">That key does not decrypt this paste.</p>
               )}
             </div>
             <button
@@ -409,6 +371,16 @@ export const PasteViewPage = () => {
           </form>
         </section>
       );
+    }
+
+    const isAbsence =
+      error instanceof ApiError &&
+      (error.status === 404 ||
+        error.status === 410 ||
+        error.code === "paste_not_found" ||
+        error.code === "gone");
+    if (isAbsence) {
+      return <LostPaste seed={id} />;
     }
 
     return (
@@ -449,16 +421,9 @@ export const PasteViewPage = () => {
               <span>no expiry</span>
             </>
           )}
-          {data.burnAfterReading ? (
-            <span className="text-danger">burn</span>
-          ) : null}
+          {data.burnAfterReading ? <span className="text-danger">burn</span> : null}
           {data.encryption.requiresKey ? (
-            <span>
-              {formatEncryption(
-                data.encryption.requiresKey,
-                data.encryption.algorithm,
-              )}
-            </span>
+            <span>{formatEncryption(data.encryption.requiresKey, data.encryption.algorithm)}</span>
           ) : null}
           {data.timeLock ? (
             <>

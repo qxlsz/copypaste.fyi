@@ -56,6 +56,10 @@ struct SendArgs {
     #[arg(long)]
     stdin: bool,
 
+    /// Read the OS clipboard (pbpaste / wl-paste / xclip / Get-Clipboard).
+    #[arg(long, conflicts_with_all = ["text", "stdin"])]
+    clipboard: bool,
+
     /// Base URL of the copypaste server (e.g. http://127.0.0.1:8000).
     #[arg(long, default_value = "http://127.0.0.1:8000")]
     host: String,
@@ -356,10 +360,42 @@ fn execute_healthcheck(host: &str) -> io::Result<()> {
     }
 }
 
+fn read_os_clipboard() -> io::Result<String> {
+    let candidates: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+        &[("pbpaste", &[])]
+    } else if cfg!(target_os = "windows") {
+        &[("powershell", &["-NoProfile", "-Command", "Get-Clipboard"])]
+    } else {
+        &[
+            ("wl-paste", &["--no-newline"]),
+            ("xclip", &["-selection", "clipboard", "-o"]),
+        ]
+    };
+
+    let mut last_error = String::from("clipboard tool not found");
+    for (command, args) in candidates {
+        match std::process::Command::new(command).args(*args).output() {
+            Ok(output) if output.status.success() => {
+                return String::from_utf8(output.stdout)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error));
+            }
+            Ok(output) => {
+                last_error = format!(
+                    "{command} failed ({})",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+            Err(error) => last_error = format!("{command}: {error}"),
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::NotFound, last_error))
+}
+
 fn execute_send(args: SendArgs) -> io::Result<String> {
     let SendArgs {
         text,
         stdin,
+        clipboard,
         host,
         auth_token_file,
         format,
@@ -372,6 +408,8 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
 
     let content = if let Some(t) = text {
         t
+    } else if clipboard {
+        read_os_clipboard()?.trim().to_owned()
     } else if stdin || !io::stdin().is_terminal() {
         let mut buffer = String::new();
         io::stdin().read_to_string(&mut buffer)?;
@@ -379,7 +417,7 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
     } else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "No input provided. Pass text as an argument or pipe it via stdin.",
+            "No input provided. Pass text as an argument, --clipboard, or pipe stdin.",
         ));
     };
 
@@ -721,6 +759,12 @@ mod tests {
         let args = SendArgs::parse_from(["copypaste-send", " "]);
         let err = execute_send(args).expect_err("empty input should fail");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn send_clipboard_conflicts_with_text() {
+        let err = SendArgs::try_parse_from(["copypaste-send", "--clipboard", "hello"]);
+        assert!(err.is_err());
     }
 
     #[test]

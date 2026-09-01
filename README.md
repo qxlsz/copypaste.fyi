@@ -34,46 +34,65 @@ flowchart LR
 | | |
 |---|---|
 | **Web** | [copypaste.fyi](https://www.copypaste.fyi) — phones keep **Get link** in the thumb zone, above the keyboard |
-| **CLI** | `cargo install copypaste` then `copypaste send "text"` |
+| **CLI** | `brew install copypaste` or `cargo install copypaste` then `copypaste send "text"` |
+| **Mac** | Select text → Services → Send to copypaste, or `copypaste send --clipboard` |
 | **curl** | `POST /api/pastes` with `{"content":"hello","format":"plain_text"}` |
 
 Public writes are open. Pastes on the public instance live in that machine’s memory (one Fly VM, always on). Self-host if you need a lock, Redis, or your own retention.
 
 ## Self-host
 
+Same binary as the public site. Website **or** a box on your LAN.
+
+**Docker** (anonymous, in-memory — fine on a private host):
+
 ```bash
 docker compose up --build
-# open http://127.0.0.1:8000
+# http://127.0.0.1:8000
 ```
 
-Compose is anonymous and in-memory. Use it on a private host. For a closed company instance:
+**Homebrew** (Mac server + CLI):
 
 ```bash
-COPYPASTE_REQUIRE_WRITE_AUTH=true
-COPYPASTE_AUTH_TOKEN=<43–128 base64url chars>
+brew tap qxlsz/copypaste https://github.com/qxlsz/copypaste.fyi
+brew install copypaste
+copypaste send --host https://www.copypaste.fyi "from this Mac"
+brew services start copypaste          # listens on 127.0.0.1
 ```
 
-Clients then send:
+From the clone: `brew install --HEAD --formula Formula/copypaste.rb`
 
-```http
-X-CopyPaste-Write-Token: <credential>
-```
-
-From source (Rust **1.88+**, Node **22**):
-
-```bash
-./scripts/install_deps.sh
-ROCKET_ADDRESS=127.0.0.1 ./scripts/run_both.sh   # API :8000, Vite :5173
-```
+**Cargo:**
 
 ```bash
 cargo install copypaste
 ROCKET_ADDRESS=127.0.0.1 copypaste serve
 ```
 
+**From source** (Rust **1.88+**, Node **22**):
+
 ```bash
-brew install qxlsz/tap/copypaste
+./scripts/install_deps.sh
+ROCKET_ADDRESS=127.0.0.1 ./scripts/run_both.sh   # API :8000, Vite :5173
 ```
+
+Closed company instance:
+
+```bash
+COPYPASTE_REQUIRE_WRITE_AUTH=true
+COPYPASTE_AUTH_TOKEN=<43–128 base64url chars>
+```
+
+Clients send `X-CopyPaste-Write-Token: <credential>`. Never put the token on argv.
+
+**Mac Quick Action** (right-click selected text):
+
+```bash
+chmod +x contrib/macos/*.sh
+./contrib/macos/install-quick-action.sh
+```
+
+Then Services → Send to copypaste. `COPYPASTE_HOST=http://127.0.0.1:8000` points it at your instance.
 
 ## What it does
 
@@ -105,9 +124,13 @@ Run **one** `app` instance. Sessions, stats, and burn consume are process-local.
 
 ## Security
 
-Encryption happens in the Rust service. TLS to the edge is required; plaintext and the key can still exist in the app (and, for AES/ChaCha, in the OCaml verifier) while a paste is written. Keys are not stored on purpose. This is **not** zero-knowledge.
+There is **no paste listing**. IDs are 24 random characters. Missing, burned, and expired reads all return the same `404 paste_not_found` so probing IDs does not leak whether a secret once existed. Create/read are process-local rate limited; put an edge quota in front of a public box.
+
+Encryption happens in the Rust service (AES-256-GCM / ChaCha20-Poly1305). TLS to the edge is required; plaintext and the key can still exist in the app (and, for AES/ChaCha, in the OCaml verifier) while a paste is written. Keys are not stored on purpose. This is **not** zero-knowledge.
 
 Burn-after-reading is best-effort. Link previews can consume a burn paste.
+
+Hiding bytes in an image is not a security boundary. Server steganography stays off.
 
 Read [SECURITY.md](SECURITY.md) and the [abuse runbook](docs/abuse-response.md) before putting an instance on the internet.
 
@@ -128,13 +151,14 @@ curl -sS -X POST https://www.copypaste.fyi/api/pastes \
   -d '{"content":"hello from curl","format":"plain_text"}'
 ```
 
-`401` missing key · `403` bad key · `404` missing/burned · `410` expired (while still cached) · `423` time-lock · `503` storage down.
+`401` missing key · `403` bad key · `404` missing, burned, or expired · `423` time-lock · `503` storage down.
 
 ## CLI
 
 ```bash
 copypaste send "notes"
 echo "log" | copypaste send --stdin --host https://www.copypaste.fyi
+copypaste send --clipboard --host https://www.copypaste.fyi
 copypaste send --auth-token-file ./write-token "closed instance"
 copypaste send --encryption-mode aes256_gcm --encryption-key-file ./paste-key "secret"
 copypaste healthcheck --host http://127.0.0.1:8000

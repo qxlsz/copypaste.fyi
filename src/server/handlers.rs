@@ -51,8 +51,8 @@ use super::models::{
 };
 use super::rate_limit::{CreateRateLimit, PasteRateLimiter, ReadRateLimit};
 use super::render::{
-    render_attestation_prompt, render_expired, render_invalid_key, render_key_prompt,
-    render_paste_view, render_time_locked, StoredPasteView,
+    render_attestation_prompt, render_invalid_key, render_key_prompt, render_paste_view,
+    render_time_locked, StoredPasteView,
 };
 use super::sessions::{BearerToken, RequireUserSession, SessionStore, SharedSessionStore};
 use super::stego::{embed_payload, parse_data_uri, StegoCarrierSource};
@@ -853,6 +853,14 @@ fn to_api_err(status: Status, message: String) -> (Status, Json<ApiError>) {
     (status, Json(ApiError::new(status_to_code(status), message)))
 }
 
+/// Missing, burned, and expired reads look the same so IDs cannot be fished.
+fn public_paste_absence() -> (Status, Json<ApiError>) {
+    (
+        Status::NotFound,
+        Json(ApiError::new("paste_not_found", "Paste not found")),
+    )
+}
+
 /// Infallible guard extracting the optional `X-Paste-Key` request header.
 ///
 /// Passing decryption keys via header keeps them out of server/proxy access
@@ -888,8 +896,7 @@ impl<'r> FromRequest<'r> for PasteKeyHeader {
         (status = 200, description = "Paste content", body = PasteViewResponse),
         (status = 401, description = "Key required", body = ApiError),
         (status = 403, description = "Invalid key", body = ApiError),
-        (status = 404, description = "Paste not found", body = ApiError),
-        (status = 410, description = "Paste expired", body = ApiError),
+        (status = 404, description = "Paste not found, burned, or expired", body = ApiError),
         (status = 503, description = "Paste storage unavailable", body = ApiError),
     )
 )]
@@ -915,17 +922,8 @@ async fn show_api(
 
     let paste = match store.get_paste(&id).await {
         Ok(paste) => paste,
-        Err(PasteError::NotFound(_)) => {
-            return Err((
-                Status::NotFound,
-                Json(ApiError::new(
-                    "paste_not_found",
-                    format!("Paste '{id}' not found"),
-                )),
-            ));
-        }
-        Err(PasteError::Expired(_)) => {
-            return Err(to_api_err(Status::Gone, "Paste expired".to_string()));
+        Err(PasteError::NotFound(_)) | Err(PasteError::Expired(_)) => {
+            return Err(public_paste_absence());
         }
         Err(PasteError::Persistence(_)) => {
             return Err(to_api_err(
@@ -1335,8 +1333,7 @@ async fn show_html_core(
                 Err(DecryptError::InvalidKey) => Ok(content::RawHtml(render_invalid_key(&id))),
             }
         }
-        Err(PasteError::NotFound(_)) => Err(Status::NotFound),
-        Err(PasteError::Expired(_)) => Ok(content::RawHtml(render_expired(&id))),
+        Err(PasteError::NotFound(_) | PasteError::Expired(_)) => Err(Status::NotFound),
         Err(PasteError::Persistence(_)) => Err(Status::ServiceUnavailable),
     }
 }
@@ -1431,8 +1428,7 @@ async fn show_raw(
                 Err(DecryptError::InvalidKey) => Err(Status::Forbidden),
             }
         }
-        Err(PasteError::NotFound(_)) => Err(Status::NotFound),
-        Err(PasteError::Expired(_)) => Err(Status::Gone),
+        Err(PasteError::NotFound(_) | PasteError::Expired(_)) => Err(Status::NotFound),
         Err(PasteError::Persistence(_)) => Err(Status::ServiceUnavailable),
     }
 }
@@ -3016,6 +3012,48 @@ mod tests {
 
         let response = client.get("/api/pastes/nonexistent-id").dispatch();
         assert_eq!(response.status(), Status::NotFound);
+        let missing_body = response.into_string().expect("body");
+        assert!(missing_body.contains("paste_not_found"));
+        assert!(!missing_body.contains("nonexistent-id"));
+    }
+
+    #[test]
+    fn show_api_expired_paste_matches_missing_paste() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let paste = StoredPaste {
+            content: StoredContent::Plain {
+                text: "gone".to_string(),
+            },
+            format: PasteFormat::PlainText,
+            created_at: 1,
+            expires_at: Some(1),
+            burn_after_reading: false,
+            bundle: None,
+            bundle_parent: None,
+            bundle_label: None,
+            not_before: None,
+            not_after: None,
+            persistence: None,
+            webhook: None,
+            metadata: PasteMetadata::default(),
+            is_live: false,
+            owner_token_hash: None,
+        };
+        let id = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(store.create_paste(paste))
+            .expect("create expired paste");
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let expired = client.get(format!("/api/pastes/{id}")).dispatch();
+        let missing = client.get("/api/pastes/no-such-paste").dispatch();
+        assert_eq!(expired.status(), Status::NotFound);
+        assert_eq!(missing.status(), Status::NotFound);
+        assert_eq!(
+            expired.into_string().expect("expired body"),
+            missing.into_string().expect("missing body")
+        );
     }
 
     #[test]
