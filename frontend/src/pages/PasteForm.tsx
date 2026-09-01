@@ -340,7 +340,7 @@ export const PasteFormPage = () => {
   return (
     <form
       ref={formRef}
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
       onSubmit={handleSubmit}
     >
       {shareLink ? (
@@ -455,13 +455,15 @@ export const PasteFormPage = () => {
           <label className="sr-only" htmlFor="content">
             Content
           </label>
-          <MonacoEditor
-            value={content}
-            onChange={setLiveContent}
-            format={format}
-            height="100%"
-            className="min-h-0 w-full flex-1"
-          />
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <MonacoEditor
+              value={content}
+              onChange={setLiveContent}
+              format={format}
+              height="100%"
+              className="absolute inset-0 h-full min-h-0 w-full"
+            />
+          </div>
         </>
       )}
       {!shareLink && (
@@ -541,16 +543,7 @@ export const PasteFormPage = () => {
               </p>
             </div>
           )}
-          <div className="px-3 pt-3 sm:hidden">
-            <button
-              type="submit"
-              className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-accent px-5 text-base font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending ? "Creating…" : "Get link"}
-            </button>
-          </div>
-          <div className="flex flex-col gap-2 px-3 pt-2 sm:flex-row sm:items-end sm:gap-3 sm:px-4 sm:pt-3">
+          <div className="flex flex-col gap-2 px-3 pt-3 sm:flex-row sm:items-end sm:gap-3 sm:px-4">
             <div className="grid grid-cols-2 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:items-end">
               <DockSelect
                 id="format"
@@ -630,6 +623,15 @@ export const PasteFormPage = () => {
                   ⌘⏎
                 </kbd>
               )}
+            </button>
+          </div>
+          <div className="px-3 pt-1 sm:hidden">
+            <button
+              type="submit"
+              className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-accent px-5 text-base font-medium text-accent-foreground transition hover:opacity-90 disabled:opacity-60"
+              disabled={mutation.isPending}
+            >
+              {mutation.isPending ? "Creating…" : "Get link"}
             </button>
           </div>
         </div>

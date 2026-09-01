@@ -144,7 +144,12 @@ export const MonacoEditor = ({
     },
     [onChange],
   );
-  const resolvedHeight = useMemo(() => height, [height]);
+  const resolvedHeight = height;
+  const isFillHeight =
+    typeof resolvedHeight === "string" && resolvedHeight.includes("%");
+  const fillStyle = isFillHeight
+    ? { minHeight: 0, height: "100%" as const }
+    : { minHeight: resolvedHeight, height: resolvedHeight, maxHeight: resolvedHeight };
   const handleBeforeMount = useCallback((monaco: Monaco) => {
     monaco.editor.defineTheme("copypaste-dark", {
       base: "vs-dark",
@@ -190,11 +195,7 @@ export const MonacoEditor = ({
             "overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-surface p-4 font-mono text-base text-text md:text-sm",
             className,
           )}
-          style={{
-            minHeight: resolvedHeight,
-            maxHeight: resolvedHeight,
-            height: resolvedHeight,
-          }}
+          style={fillStyle}
         >
           {value}
         </pre>
@@ -215,7 +216,7 @@ export const MonacoEditor = ({
         autoCapitalize="off"
         autoCorrect="off"
         autoFocus
-        style={{ minHeight: resolvedHeight, height: resolvedHeight }}
+        style={fillStyle}
       />
     );
   }
