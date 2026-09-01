@@ -5,6 +5,7 @@ import { BarChart2, Command, Plus } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { CommandPalette } from "./CommandPalette";
 import { useHotkeys } from "../hooks/useHotkeys";
+import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useTheme } from "../theme/ThemeContext";
 
 const iconButtonClasses =
@@ -15,6 +16,7 @@ export const Layout = () => {
   const [isPaletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
   const { toggleTheme } = useTheme();
+  useKeyboardInset();
 
   const isEditorPage =
     location.pathname === "/" || location.pathname.startsWith("/p/");
@@ -89,7 +91,7 @@ export const Layout = () => {
             <button
               type="button"
               onClick={() => navigate("/stats")}
-              className={iconButtonClasses}
+              className={`${iconButtonClasses} max-sm:hidden`}
               aria-label="Service statistics"
               title="Stats"
             >

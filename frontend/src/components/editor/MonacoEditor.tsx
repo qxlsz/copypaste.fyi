@@ -216,6 +216,7 @@ export const MonacoEditor = ({
         autoCapitalize="off"
         autoCorrect="off"
         autoFocus
+        enterKeyHint="send"
         style={fillStyle}
       />
     );
