@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { BarChart2, Command, Plus } from "lucide-react";
 
 import { CommandPalette } from "./CommandPalette";
+import { BrandMark } from "./BrandMark";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useTheme } from "../theme/ThemeContext";
@@ -72,12 +73,12 @@ export const Layout = () => {
             aria-label="copypaste.fyi home"
             title="copypaste.fyi"
           >
-            <span className="relative block size-5" aria-hidden="true">
-              <span className="absolute left-0 top-0 size-3 rounded-[2px] border border-current" />
-              <span className="absolute bottom-0 right-0 size-3 rounded-[2px] bg-current" />
-            </span>
+            <BrandMark className="size-8" />
           </NavLink>
-          <nav className="ml-auto flex items-center gap-0.5" aria-label="Primary">
+          <nav
+            className="ml-auto hidden items-center gap-0.5 sm:flex"
+            aria-label="Primary"
+          >
             {location.pathname !== "/" && (
               <button
                 type="button"
