@@ -1,3 +1,4 @@
+# Only runs when ocaml-crypto-verifier/ changes.
 name: OCaml Crypto Verifier CI
 
 on:
