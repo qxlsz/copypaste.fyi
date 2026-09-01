@@ -4,6 +4,7 @@ import { BarChart2, Command, Plus } from "lucide-react";
 
 import { CommandPalette } from "./CommandPalette";
 import { BrandMark } from "./BrandMark";
+import { ThemeToggle } from "./ThemeToggle";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useTheme } from "../theme/ThemeContext";
@@ -18,16 +19,14 @@ export const Layout = () => {
   const { toggleTheme } = useTheme();
   useKeyboardInset();
 
-  const isEditorPage =
-    location.pathname === "/" || location.pathname.startsWith("/p/");
+  const isEditorPage = location.pathname === "/" || location.pathname.startsWith("/p/");
 
   const commandActions = useMemo(
     () => [
       {
         id: "create-paste",
         label: "Create new paste",
-        description:
-          "Jump straight to the composer with default retention and encryption.",
+        description: "Jump straight to the composer with default retention and encryption.",
         shortcut: "⌘N",
         group: "Primary",
         handler: () => navigate("/"),
@@ -73,17 +72,14 @@ export const Layout = () => {
             aria-label="copypaste.fyi home"
             title="copypaste.fyi"
           >
-            <BrandMark className="size-8" />
+            <BrandMark />
           </NavLink>
-          <nav
-            className="ml-auto hidden items-center gap-0.5 sm:flex"
-            aria-label="Primary"
-          >
+          <nav className="ml-auto flex items-center gap-0.5" aria-label="Primary">
             {location.pathname !== "/" && (
               <button
                 type="button"
                 onClick={() => navigate("/")}
-                className={iconButtonClasses}
+                className={`${iconButtonClasses} max-sm:hidden`}
                 aria-label="Create new paste"
                 title="New paste (⌘N)"
               >
@@ -102,12 +98,13 @@ export const Layout = () => {
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className={iconButtonClasses}
+              className={`${iconButtonClasses} max-sm:hidden`}
               aria-label="Open command menu"
               title="Command Menu (⌘K)"
             >
               <Command className="h-4 w-4" aria-hidden="true" />
             </button>
+            <ThemeToggle />
           </nav>
         </div>
       </header>

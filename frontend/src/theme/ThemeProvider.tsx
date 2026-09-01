@@ -19,6 +19,18 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       root.classList.remove("dark");
     }
     root.dataset.theme = theme;
+    const themeColor = theme === "dark" ? "#121211" : "#f4f1ea";
+    let themeMeta = document.querySelector('meta[name="theme-color"]:not([media])');
+    if (!themeMeta) {
+      themeMeta = document.createElement("meta");
+      themeMeta.setAttribute("name", "theme-color");
+      document.head.appendChild(themeMeta);
+    }
+    themeMeta.setAttribute("content", themeColor);
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (icon) {
+      icon.href = theme === "dark" ? "/copypaste-dark.svg" : "/copypaste-light.svg";
+    }
     try {
       window.localStorage.setItem(STORAGE_KEY, theme);
     } catch {
@@ -27,10 +39,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   }, [theme]);
 
   useEffect(() => {
-    if (
-      typeof window === "undefined" ||
-      typeof window.matchMedia !== "function"
-    ) {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
 
@@ -67,13 +76,10 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     () => ({
       theme,
       setTheme,
-      toggleTheme: () =>
-        setTheme((prev) => (prev === "dark" ? "light" : "dark")),
+      toggleTheme: () => setTheme((prev) => (prev === "dark" ? "light" : "dark")),
     }),
     [theme],
   );
 
-  return (
-    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };
