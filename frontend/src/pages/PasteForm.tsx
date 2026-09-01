@@ -4,22 +4,10 @@ import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import QRCode from "qrcode";
-import {
-  Check,
-  ChevronDown,
-  Copy,
-  Flame,
-  Lock,
-  QrCode,
-  Share2,
-} from "lucide-react";
+import { Check, ChevronDown, Copy, Flame, Lock, QrCode, Share2, ImageDown } from "lucide-react";
 
 import { ApiError, createPaste } from "../api/client";
-import type {
-  CreatePastePayload,
-  EncryptionAlgorithm,
-  PasteFormat,
-} from "../api/types";
+import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat } from "../api/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
 import { useHotkeys } from "../hooks/useHotkeys";
 import {
@@ -27,6 +15,12 @@ import {
   generateEncryptionKey,
   validateEncryptionKey,
 } from "../lib/pasteSecurity";
+import {
+  downloadBlob,
+  pasteIdFromShareUrl,
+  renderShareImage,
+  shareImageColorsFromDocument,
+} from "../lib/shareImage";
 import { useAuth } from "../stores/auth";
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -53,17 +47,16 @@ const formatOptions: Array<{ label: string; value: PasteFormat }> = [
   { label: "CSS", value: "css" },
 ];
 
-const encryptionOptions: Array<{ label: string; value: EncryptionAlgorithm }> =
-  [
-    { label: "None", value: "none" },
-    { label: "AES-256-GCM", value: "aes256_gcm" },
-    { label: "ChaCha20-Poly1305", value: "chacha20_poly1305" },
-    { label: "XChaCha20-Poly1305", value: "xchacha20_poly1305" },
-    {
-      label: "Kyber Hybrid AES-256-GCM (Post-Quantum)",
-      value: "kyber_hybrid_aes256_gcm",
-    },
-  ];
+const encryptionOptions: Array<{ label: string; value: EncryptionAlgorithm }> = [
+  { label: "None", value: "none" },
+  { label: "AES-256-GCM", value: "aes256_gcm" },
+  { label: "ChaCha20-Poly1305", value: "chacha20_poly1305" },
+  { label: "XChaCha20-Poly1305", value: "xchacha20_poly1305" },
+  {
+    label: "Kyber Hybrid AES-256-GCM (Post-Quantum)",
+    value: "kyber_hybrid_aes256_gcm",
+  },
+];
 
 const encryptionChipLabel: Record<EncryptionAlgorithm, string> = {
   none: "",
@@ -95,8 +88,7 @@ interface ForkState {
 }
 
 const isPasteFormat = (value: unknown): value is PasteFormat =>
-  typeof value === "string" &&
-  formatOptions.some((option) => option.value === value);
+  typeof value === "string" && formatOptions.some((option) => option.value === value);
 
 export const PasteFormPage = () => {
   const { token } = useAuth();
@@ -121,10 +113,10 @@ export const PasteFormPage = () => {
   const [burnAfterReading, setBurnAfterReading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
+  const [isSavingImage, setIsSavingImage] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [pasteEncryption, setPasteEncryption] =
-    useState<EncryptionAlgorithm>("none");
+  const [pasteEncryption, setPasteEncryption] = useState<EncryptionAlgorithm>("none");
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState("");
   const [showWriteToken, setShowWriteToken] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -134,10 +126,7 @@ export const PasteFormPage = () => {
 
   const setLiveContent = (next: string) => {
     contentRef.current = next;
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 768px)").matches
-    ) {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches) {
       window.clearTimeout(idleRef.current);
       idleRef.current = window.setTimeout(() => setContent(next), 200);
       return;
@@ -151,9 +140,7 @@ export const PasteFormPage = () => {
       const payload: CreatePastePayload = {
         content: live,
         format,
-        retention_minutes: retentionMinutes
-          ? Number(retentionMinutes)
-          : undefined,
+        retention_minutes: retentionMinutes ? Number(retentionMinutes) : undefined,
         burn_after_reading: burnAfterReading || undefined,
       };
 
@@ -311,13 +298,45 @@ export const PasteFormPage = () => {
       } catch (error) {
         // The user dismissing the share sheet is not an error worth surfacing.
         if (error instanceof Error && error.name === "AbortError") return;
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
+        const message = error instanceof Error ? error.message : "Unknown error";
         toast.error("Unable to share link", { description: message });
       }
       return;
     }
     await handleCopyShareUrl();
+  };
+
+  const handleSaveImage = async () => {
+    const urlToShare = shareLink;
+    if (!urlToShare) return;
+    try {
+      setIsSavingImage(true);
+      const blob = await renderShareImage(urlToShare, shareImageColorsFromDocument());
+      const file = new File([blob], `copypaste-${pasteIdFromShareUrl(urlToShare)}.png`, {
+        type: "image/png",
+      });
+      const canShareFile =
+        typeof navigator.share === "function" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare({ files: [file] });
+      if (canShareFile) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: "copypaste.fyi",
+          });
+          return;
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") return;
+        }
+      }
+      downloadBlob(file, file.name);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error("Unable to make share image", { description: message });
+    } finally {
+      setIsSavingImage(false);
+    }
   };
 
   useEffect(() => {
@@ -338,8 +357,7 @@ export const PasteFormPage = () => {
       .catch((error: unknown) => {
         if (cancelled) return;
         setQrDataUrl(null);
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
+        const message = error instanceof Error ? error.message : "Unknown error";
         toast.error("Unable to generate QR code", { description: message });
       });
     return () => {
@@ -411,6 +429,16 @@ export const PasteFormPage = () => {
               >
                 <QrCode className="h-4 w-4" aria-hidden="true" />
                 QR
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveImage()}
+                disabled={isSavingImage}
+                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60"
+                aria-label={isSavingImage ? "Saving share image…" : "Save share image"}
+              >
+                <ImageDown className="h-4 w-4" aria-hidden="true" />
+                {isSavingImage ? "Saving" : "Image"}
               </button>
             </div>
             {showQr && qrDataUrl && (
@@ -511,9 +539,7 @@ export const PasteFormPage = () => {
                   <select
                     id="encryption"
                     value={encryption}
-                    onChange={(event) =>
-                      setEncryption(event.target.value as EncryptionAlgorithm)
-                    }
+                    onChange={(event) => setEncryption(event.target.value as EncryptionAlgorithm)}
                     className={`${inputClasses} min-h-12 sm:min-h-10`}
                   >
                     {encryptionOptions
@@ -654,10 +680,7 @@ export const PasteFormPage = () => {
             >
               {mutation.isPending ? "Creating…" : "Get link"}
               {!mutation.isPending && (
-                <kbd
-                  className="ml-2 font-mono text-[10px] opacity-70"
-                  aria-hidden="true"
-                >
+                <kbd className="ml-2 font-mono text-[10px] opacity-70" aria-hidden="true">
                   ⌘⏎
                 </kbd>
               )}
