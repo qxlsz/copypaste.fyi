@@ -35,12 +35,12 @@ describe("App", () => {
     renderApp();
 
     // Header wordmark links home
+    expect(screen.getAllByRole("link", { name: /copypaste\.fyi home/i }).length).toBeGreaterThan(0);
+    // Theme switch is in the header on mobile and desktop
     expect(
-      screen.getAllByRole("link", { name: /copypaste\.fyi home/i }).length,
-    ).toBeGreaterThan(0);
+      screen.getByRole("button", { name: /switch to (light|dark) mode/i }),
+    ).toBeInTheDocument();
     // Composer primary action
-    expect(
-      screen.getAllByRole("button", { name: "Get link" }).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Get link" }).length).toBeGreaterThan(0);
   });
 });

@@ -11,9 +11,7 @@ export const LoginPage = () => {
   const [useExisting, setUseExisting] = useState(false);
 
   // Check for HTTPS in production
-  const isHttps =
-    window.location.protocol === "https:" ||
-    window.location.hostname === "localhost";
+  const isHttps = window.location.protocol === "https:" || window.location.hostname === "localhost";
   const showHttpsWarning = !isHttps && window.location.hostname !== "localhost";
 
   const handleGenerateKeys = async () => {
@@ -54,22 +52,20 @@ export const LoginPage = () => {
             className="inline-flex items-center justify-center text-text focus-visible:outline-none"
             aria-label="copypaste.fyi home"
           >
-            <BrandMark className="size-10" />
+            <BrandMark className="size-9" />
           </Link>
-          <h1 className="pt-2 text-xl font-semibold tracking-tight text-text">
-            Sign in
-          </h1>
+          <h1 className="pt-2 text-xl font-semibold tracking-tight text-text">Sign in</h1>
           <p className="text-sm text-muted-foreground">
-            Ed25519 identity for your dashboard; posting may also require an
-            operator-issued write credential
+            Ed25519 identity for your dashboard; posting may also require an operator-issued write
+            credential
           </p>
         </div>
 
         {showHttpsWarning && (
           <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
             <p className="text-xs text-text">
-              HTTPS Required: Cryptographic operations require a secure
-              connection. Please ensure you're accessing this site via HTTPS.
+              HTTPS Required: Cryptographic operations require a secure connection. Please ensure
+              you're accessing this site via HTTPS.
             </p>
           </div>
         )}
@@ -89,10 +85,7 @@ export const LoginPage = () => {
                   onChange={() => setUseExisting(false)}
                   className="h-4 w-4 border-border text-accent focus:ring-accent"
                 />
-                <label
-                  htmlFor="generate-new"
-                  className="ml-2.5 block text-sm text-text"
-                >
+                <label htmlFor="generate-new" className="ml-2.5 block text-sm text-text">
                   Generate new keypair
                 </label>
               </div>
@@ -105,10 +98,7 @@ export const LoginPage = () => {
                   onChange={() => setUseExisting(true)}
                   className="h-4 w-4 border-border text-accent focus:ring-accent"
                 />
-                <label
-                  htmlFor="use-existing"
-                  className="ml-2.5 block text-sm text-text"
-                >
+                <label htmlFor="use-existing" className="ml-2.5 block text-sm text-text">
                   Use existing private key
                 </label>
               </div>
@@ -146,12 +136,9 @@ export const LoginPage = () => {
                   className="block w-full appearance-none rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs text-text placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   placeholder="Enter your base64-encoded private key…"
                 />
-                <p
-                  id="privkey-memory-warning"
-                  className="text-xs text-muted-foreground"
-                >
-                  Kept only in this tab&apos;s memory and cleared on reload.
-                  Save a secure copy before signing in.
+                <p id="privkey-memory-warning" className="text-xs text-muted-foreground">
+                  Kept only in this tab&apos;s memory and cleared on reload. Save a secure copy
+                  before signing in.
                 </p>
               </div>
             )}
