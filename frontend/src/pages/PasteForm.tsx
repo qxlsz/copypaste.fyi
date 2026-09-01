@@ -20,6 +20,7 @@ import {
 import { ApiError, createPaste } from "../api/client";
 import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat } from "../api/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
+import { OpenWithAgents } from "../components/OpenWithAgents";
 import { useHotkeys } from "../hooks/useHotkeys";
 import {
   buildPasteShareUrl,
@@ -507,6 +508,7 @@ export const PasteFormPage = () => {
                 Agent
               </button>
             </div>
+            <OpenWithAgents url={shareLink} />
             {showQr && qrDataUrl && (
               <div className="w-fit rounded-lg bg-surface p-2 shadow-soft">
                 <img

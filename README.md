@@ -181,7 +181,13 @@ copypaste send --agent --host https://www.copypaste.fyi "task for B"
 curl -sS -H "X-Paste-Key: $KEY" "$GET"
 ```
 
-On the site: Get link → **Agent**. Encrypted pastes stay ciphertext for anyone who only has the URL. This is still **server-side** encryption, not E2E.
+On the site: Get link → **Agent**, then **Open with Grok / Codex / ChatGPT / Claude**. Keys never go in those URLs. **Add to Grok** copies a Grok Bot skill and opens Grok.
+
+- [llms.txt](https://www.copypaste.fyi/llms.txt)
+- [Grok Bot](https://www.copypaste.fyi/grok-bot.md)
+- [Discovery](https://www.copypaste.fyi/.well-known/copypaste.json)
+
+Encrypted pastes stay ciphertext for anyone who only has the URL. This is still **server-side** encryption, not E2E.
 
 Verify a local install:
 
