@@ -1,3 +1,5 @@
+# Manual competitor briefing. NEVER add schedule: — daily runs flooded issues.
+# Agents must not treat this as a merge gate that should run on every push.
 name: Auto Research
 
 on:

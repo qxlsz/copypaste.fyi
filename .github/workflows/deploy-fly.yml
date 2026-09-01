@@ -1,3 +1,5 @@
+# Public backend. Do not set REQUIRE_WRITE_AUTH=true or drop FORCE_MEMORY without
+# proving Get link still works on copypaste.fyi.
 name: Deploy backend to Fly.io
 
 on:

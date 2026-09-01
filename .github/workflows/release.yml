@@ -1,3 +1,4 @@
+# CLI binaries on version tags (v*).
 name: Release
 
 on:

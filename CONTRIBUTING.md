@@ -1,6 +1,6 @@
 # Contributing to copypaste.fyi
 
-Thank you for contributing! This document covers development setup, coding standards, and the release process.
+Thank you for contributing. Agents should read [AGENTS.md](AGENTS.md) first.
 
 ## Development Setup
 

@@ -1,7 +1,8 @@
 # CLAUDE.md: copypaste.fyi
 
-copypaste.fyi is a Rust and React paste service with controlled writes, server-side authenticated
-encryption, metadata-only moderation, optional Upstash REST persistence, and an OCaml verifier.
+Start with [AGENTS.md](AGENTS.md) (product, CI, Grok workflow). This file is extra route, auth, and storage detail.
+
+copypaste.fyi is a Rust and React paste service. The public site is anonymous Get link; closed self-hosts can require a write token. Encryption is server-side. Optional Upstash REST persistence and an OCaml verifier.
 
 ## Security facts
 

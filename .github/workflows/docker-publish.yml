@@ -1,3 +1,4 @@
+# GHCR image. Concurrency cancels older publishes — not a failure for agents to chase.
 name: Docker publish
 
 on:
