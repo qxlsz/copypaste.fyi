@@ -2,14 +2,13 @@ import { Suspense, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { BarChart2, Command, Plus } from "lucide-react";
 
-import { ThemeToggle } from "./ThemeToggle";
 import { CommandPalette } from "./CommandPalette";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useTheme } from "../theme/ThemeContext";
 
 const iconButtonClasses =
-  "inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none sm:size-10";
+  "inline-flex size-11 appearance-none items-center justify-center rounded-lg bg-transparent text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none sm:size-10";
 
 export const Layout = () => {
   const navigate = useNavigate();
@@ -69,25 +68,27 @@ export const Layout = () => {
         <div className="flex h-14 items-center gap-1 px-3 sm:px-4">
           <NavLink
             to="/"
-            className="inline-flex min-h-11 items-center gap-2.5 font-medium tracking-tight text-text focus-visible:outline-none"
+            className="inline-flex size-11 items-center justify-center text-text focus-visible:outline-none"
             aria-label="copypaste.fyi home"
+            title="copypaste.fyi"
           >
-            <span className="relative block size-4" aria-hidden="true">
-              <span className="absolute left-0 top-0 size-2.5 rounded-[2px] border border-current" />
-              <span className="absolute bottom-0 right-0 size-2.5 rounded-[2px] bg-current" />
+            <span className="relative block size-5" aria-hidden="true">
+              <span className="absolute left-0 top-0 size-3 rounded-[2px] border border-current" />
+              <span className="absolute bottom-0 right-0 size-3 rounded-[2px] bg-current" />
             </span>
-            <span className="text-[15px]">copypaste</span>
           </NavLink>
           <nav className="ml-auto flex items-center gap-0.5" aria-label="Primary">
-            <button
-              type="button"
-              onClick={() => navigate("/")}
-              className={iconButtonClasses}
-              aria-label="Create new paste"
-              title="New paste (⌘N)"
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-            </button>
+            {location.pathname !== "/" && (
+              <button
+                type="button"
+                onClick={() => navigate("/")}
+                className={iconButtonClasses}
+                aria-label="Create new paste"
+                title="New paste (⌘N)"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => navigate("/stats")}
@@ -106,7 +107,6 @@ export const Layout = () => {
             >
               <Command className="h-4 w-4" aria-hidden="true" />
             </button>
-            <ThemeToggle />
           </nav>
         </div>
       </header>
