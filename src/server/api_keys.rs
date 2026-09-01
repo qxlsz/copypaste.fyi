@@ -930,7 +930,10 @@ async fn write_policy(req: &Request<'_>) -> Result<(bool, bool), Status> {
         Outcome::Success(tokens) => tokens,
         _ => return Err(Status::InternalServerError),
     };
-    let closed = tokens.write_token.is_some() || tokens.require_write_auth;
+    // COPYPASTE_REQUIRE_WRITE_AUTH is the lock. A configured write token is a
+    // valid credential, not an implicit lock — otherwise setting
+    // COPYPASTE_AUTH_TOKEN on the public pastebin silently breaks Get link.
+    let closed = tokens.require_write_auth;
     Ok((closed, tokens.allow_session_writes))
 }
 

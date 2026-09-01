@@ -18,13 +18,18 @@ primary_region = 'iad'
   COPYPASTE_RATE_LIMIT_CREATES = '10'
   COPYPASTE_RATE_LIMIT_READS = '120'
   COPYPASTE_MAX_PASTE_SIZE = '1048576'
-  COPYPASTE_REQUIRE_WRITE_AUTH = 'true'
+  # Public pastebin: Get link must work without an operator token.
+  # Self-hosters close writes with COPYPASTE_REQUIRE_WRITE_AUTH=true.
+  COPYPASTE_REQUIRE_WRITE_AUTH = 'false'
   COPYPASTE_ALLOW_SESSION_WRITES = 'false'
   COPYPASTE_ALLOW_WEBHOOKS = 'false'
   COPYPASTE_ALLOW_ATTESTATIONS = 'false'
   COPYPASTE_ALLOW_UPLOADED_STEGO = 'false'
   COPYPASTE_ALLOW_STEGO = 'false'
-  COPYPASTE_PERSISTENCE_BACKEND = 'redis'
+  # Upstash GET/SET currently 503s ("Paste storage is temporarily unavailable").
+  # Use process memory until Redis is healthy; keep one machine running so
+  # share links survive idle.
+  COPYPASTE_PERSISTENCE_BACKEND = 'memory'
   COPYPASTE_REQUIRE_CRYPTO_VERIFICATION = 'true'
   # crypto-verifier runs in its own process group (separate VM) — reach it via
   # Fly's per-process-group private DNS, not localhost.
@@ -33,7 +38,7 @@ primary_region = 'iad'
 [[services]]
   internal_port = 8000
   protocol = "tcp"
-  auto_stop_machines = 'stop'
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]

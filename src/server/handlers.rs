@@ -2,6 +2,7 @@ use std::{collections::HashSet, path::PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use rocket::{
+    catch, catchers,
     data::{Limits, ToByteUnit},
     delete,
     fs::FileServer,
@@ -232,6 +233,7 @@ fn build_rocket_with_components(
         .manage(session_store)
         .manage(paste_rate_limiter)
         .attach(Cors)
+        .register("/", catchers![unauthorized_api])
         .mount(
             "/",
             routes![
@@ -390,6 +392,14 @@ async fn health_detailed_api() -> Json<HealthResponse> {
     // paste counts, internal URLs, and upstream errors belong in protected
     // telemetry rather than an unauthenticated response.
     Json(public_health_response())
+}
+
+#[catch(401)]
+fn unauthorized_api() -> (Status, Json<ApiError>) {
+    (
+        Status::Unauthorized,
+        Json(ApiError::new("unauthorized", "Authentication required.")),
+    )
 }
 
 #[utoipa::path(
@@ -3901,7 +3911,8 @@ mod tests {
             store,
             api_key_store,
             PasteRateLimiter::new(None, None),
-            StaticAuthTokens::new(Some("private-write-token".to_string()), None),
+            StaticAuthTokens::new(Some("private-write-token".to_string()), None)
+                .with_required_write_auth(true),
             FeaturePolicy::default(),
             BlockedPasteIds::default(),
             None,
@@ -3937,6 +3948,43 @@ mod tests {
                 .status(),
             Status::Ok
         );
+    }
+
+    #[test]
+    fn public_create_read_and_stats_work_when_write_token_is_not_required() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(None, None),
+            StaticAuthTokens::new(Some("private-write-token".to_string()), None),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let created = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(json!({"content": "public get link", "format": "plain_text"}).to_string())
+            .dispatch();
+        assert_eq!(created.status(), Status::Ok);
+        let body: CreatePasteResponse =
+            serde_json::from_str(&created.into_string().unwrap()).unwrap();
+
+        let view = client.get(format!("/api/pastes/{}", body.id)).dispatch();
+        assert_eq!(view.status(), Status::Ok);
+        let paste: PasteViewResponse = serde_json::from_str(&view.into_string().unwrap()).unwrap();
+        assert_eq!(paste.content, "public get link");
+
+        let stats_resp = client.get("/api/stats/summary").dispatch();
+        assert_eq!(stats_resp.status(), Status::Ok);
+        let stats: StatsSummaryResponse =
+            serde_json::from_str(&stats_resp.into_string().unwrap()).unwrap();
+        assert!(stats.total_pastes >= 1);
+        assert!(stats.active_pastes >= 1);
     }
 
     #[test]
@@ -4094,7 +4142,8 @@ mod tests {
             Arc::clone(&store),
             api_key_store,
             PasteRateLimiter::new(None, None),
-            StaticAuthTokens::new(Some("service-write-token".to_string()), None),
+            StaticAuthTokens::new(Some("service-write-token".to_string()), None)
+                .with_required_write_auth(true),
             FeaturePolicy::default(),
             BlockedPasteIds::default(),
             None,
@@ -5318,7 +5367,8 @@ mod tests {
             store,
             api_key_store,
             PasteRateLimiter::new(None, None),
-            StaticAuthTokens::new(Some("service-write-token".to_string()), None),
+            StaticAuthTokens::new(Some("service-write-token".to_string()), None)
+                .with_required_write_auth(true),
             FeaturePolicy::default(),
             BlockedPasteIds::default(),
             None,
@@ -5417,7 +5467,8 @@ mod tests {
             store,
             api_key_store,
             PasteRateLimiter::new(None, None),
-            StaticAuthTokens::new(Some("service-write-token".to_string()), None),
+            StaticAuthTokens::new(Some("service-write-token".to_string()), None)
+                .with_required_write_auth(true),
             FeaturePolicy::default(),
             BlockedPasteIds::default(),
             None,

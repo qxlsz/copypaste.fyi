@@ -56,6 +56,12 @@ const StatsContent = ({ summary }: { summary: StatsSummary }) => {
         </p>
       </header>
 
+      {summary.totalPastes === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No pastes on this instance yet.
+        </p>
+      ) : (
+        <>
       <section className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
         <Stat figure={summary.totalPastes} label="Total" />
         <Stat figure={summary.activePastes} label="Active" />
@@ -99,6 +105,8 @@ const StatsContent = ({ summary }: { summary: StatsSummary }) => {
         {encryptedCount.toLocaleString()} encrypted ·{" "}
         {summary.timeLockedCount.toLocaleString()} time-locked
       </p>
+        </>
+      )}
     </div>
   );
 };
