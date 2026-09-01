@@ -1,9 +1,11 @@
 name: Auto Research
 
 on:
-  schedule:
-    - cron: '17 9 * * *' # Daily at 9:17am UTC
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch: # Manual only — daily dumps were filling the issue tracker
+
+permissions:
+  contents: read
+  issues: write
 
 permissions:
   contents: read
