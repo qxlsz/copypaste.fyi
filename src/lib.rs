@@ -690,6 +690,11 @@ pub enum PasteStoreInitError {
 }
 
 pub fn create_paste_store() -> Result<SharedPasteStore, PasteStoreInitError> {
+    // Fly secrets override fly.toml [env]. A dedicated force switch lets the
+    // public site stay on process memory even when a redis secret is still set.
+    if env_flag_enabled("COPYPASTE_FORCE_MEMORY") {
+        return Ok(Arc::new(MemoryPasteStore::new()));
+    }
     let configured = match env::var("COPYPASTE_PERSISTENCE_BACKEND") {
         Ok(configured) => configured,
         Err(env::VarError::NotPresent) => "memory".to_string(),
@@ -715,6 +720,18 @@ pub fn create_paste_store() -> Result<SharedPasteStore, PasteStoreInitError> {
         "memory" | "" => Ok(Arc::new(MemoryPasteStore::new())),
         _ => Err(PasteStoreInitError::UnsupportedBackend(configured)),
     }
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    env::var(name)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 pub mod vault {
@@ -929,12 +946,31 @@ mod tests {
     #[test]
     fn unconfigured_or_explicit_memory_backend_initializes_in_memory_store() {
         let _lock = STORE_ENV_LOCK.lock().unwrap();
-        let _env = EnvSnapshot::capture(&["COPYPASTE_PERSISTENCE_BACKEND"]);
+        let _env =
+            EnvSnapshot::capture(&["COPYPASTE_PERSISTENCE_BACKEND", "COPYPASTE_FORCE_MEMORY"]);
 
         std::env::remove_var("COPYPASTE_PERSISTENCE_BACKEND");
+        std::env::remove_var("COPYPASTE_FORCE_MEMORY");
         assert!(create_paste_store().is_ok());
 
         std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "memory");
+        assert!(create_paste_store().is_ok());
+    }
+
+    #[test]
+    fn force_memory_overrides_a_redis_secret() {
+        let _lock = STORE_ENV_LOCK.lock().unwrap();
+        let _env = EnvSnapshot::capture(&[
+            "COPYPASTE_PERSISTENCE_BACKEND",
+            "COPYPASTE_FORCE_MEMORY",
+            "UPSTASH_REDIS_REST_URL",
+            "UPSTASH_REDIS_REST_TOKEN",
+        ]);
+
+        std::env::remove_var("UPSTASH_REDIS_REST_URL");
+        std::env::remove_var("UPSTASH_REDIS_REST_TOKEN");
+        std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "redis");
+        std::env::set_var("COPYPASTE_FORCE_MEMORY", "true");
         assert!(create_paste_store().is_ok());
     }
 
@@ -943,12 +979,14 @@ mod tests {
         let _lock = STORE_ENV_LOCK.lock().unwrap();
         let _env = EnvSnapshot::capture(&[
             "COPYPASTE_PERSISTENCE_BACKEND",
+            "COPYPASTE_FORCE_MEMORY",
             "UPSTASH_REDIS_REST_URL",
             "UPSTASH_REDIS_REST_TOKEN",
             "COPYPASTE_VAULT_ADDR",
             "COPYPASTE_VAULT_TOKEN",
         ]);
 
+        std::env::remove_var("COPYPASTE_FORCE_MEMORY");
         std::env::remove_var("UPSTASH_REDIS_REST_URL");
         std::env::remove_var("UPSTASH_REDIS_REST_TOKEN");
         std::env::set_var("COPYPASTE_PERSISTENCE_BACKEND", "redis");

@@ -28,8 +28,9 @@ primary_region = 'iad'
   COPYPASTE_ALLOW_STEGO = 'false'
   # Upstash GET/SET currently 503s ("Paste storage is temporarily unavailable").
   # Use process memory until Redis is healthy; keep one machine running so
-  # share links survive idle.
+  # share links survive idle. FORCE_MEMORY beats a leftover redis Fly secret.
   COPYPASTE_PERSISTENCE_BACKEND = 'memory'
+  COPYPASTE_FORCE_MEMORY = 'true'
   COPYPASTE_REQUIRE_CRYPTO_VERIFICATION = 'true'
   # crypto-verifier runs in its own process group (separate VM) — reach it via
   # Fly's per-process-group private DNS, not localhost.
