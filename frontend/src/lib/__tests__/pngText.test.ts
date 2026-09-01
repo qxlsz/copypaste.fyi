@@ -23,4 +23,15 @@ describe("pngText", () => {
   it("rejects a non-PNG", () => {
     expect(() => injectPngText(new Uint8Array([0, 1, 2]), "URL", "x")).toThrow(/Not a PNG/);
   });
+
+  it("stacks Software and URL chunks", () => {
+    const once = injectPngText(TINY_PNG, "Software", "copypaste.fyi");
+    const twice = injectPngText(once, "URL", "https://www.copypaste.fyi/p/x");
+    expect(readPngText(twice, "Software")).toBe("copypaste.fyi");
+    expect(readPngText(twice, "URL")).toBe("https://www.copypaste.fyi/p/x");
+  });
+
+  it("rejects an empty keyword", () => {
+    expect(() => injectPngText(TINY_PNG, "", "x")).toThrow(/keyword/);
+  });
 });

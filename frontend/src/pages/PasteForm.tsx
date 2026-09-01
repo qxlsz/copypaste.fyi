@@ -5,6 +5,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import {
+  Bot,
   Check,
   ChevronDown,
   Copy,
@@ -32,6 +33,7 @@ import {
   shareImageColorsFromDocument,
 } from "../lib/shareImage";
 import { whisperNote } from "../lib/whisper";
+import { agentReceipt } from "../lib/agent";
 import { useAuth } from "../stores/auth";
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -312,6 +314,24 @@ export const PasteFormPage = () => {
     }
   };
 
+  const handleCopyAgent = async () => {
+    const urlToCopy = shareLink;
+    if (!urlToCopy) return;
+    try {
+      setIsCopying(true);
+      const key = pasteEncryption !== "none" && pasteEncryptionKey ? pasteEncryptionKey : undefined;
+      await navigator.clipboard.writeText(
+        agentReceipt(urlToCopy, key, pasteEncryption !== "none" ? pasteEncryption : undefined),
+      );
+      toast.success("Agent receipt copied");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error("Unable to copy agent receipt", { description: message });
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
   const handleShareLink = async () => {
     const urlToShare = shareLink;
     if (!urlToShare) return;
@@ -475,6 +495,16 @@ export const PasteFormPage = () => {
               >
                 <ScrollText className="h-4 w-4" aria-hidden="true" />
                 Note
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCopyAgent()}
+                disabled={isCopying}
+                className="inline-flex h-11 items-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60"
+                aria-label="Copy agent receipt"
+              >
+                <Bot className="h-4 w-4" aria-hidden="true" />
+                Agent
               </button>
             </div>
             {showQr && qrDataUrl && (

@@ -143,7 +143,7 @@ Read [SECURITY.md](SECURITY.md) and the [abuse runbook](docs/abuse-response.md) 
 | `GET` | `/p/{id}` | Share page |
 | `GET` | `/raw/{id}` | Raw body |
 | `GET` | `/api/stats/summary` | This-instance counts |
-| `GET` | `/health`, `/api/health` | Liveness only — not Redis/verifier |
+| `GET` | `/.well-known/copypaste.json` | Agent discovery (tokens, encrypt, 404 sameness) |
 
 ```bash
 curl -sS -X POST https://www.copypaste.fyi/api/pastes \
@@ -159,12 +159,35 @@ curl -sS -X POST https://www.copypaste.fyi/api/pastes \
 copypaste send "notes"
 echo "log" | copypaste send --stdin --host https://www.copypaste.fyi
 copypaste send --clipboard --host https://www.copypaste.fyi
+copypaste send --json "plain receipt for an agent"
+copypaste send --agent "only the other agent can read this"
 copypaste send --auth-token-file ./write-token "closed instance"
 copypaste send --encryption-mode aes256_gcm --encryption-key-file ./paste-key "secret"
 copypaste healthcheck --host http://127.0.0.1:8000
 ```
 
-The CLI never takes a token or encryption key as a flag value. Remote hosts must be HTTPS. It prints the key-free share URL the server returned.
+The CLI never takes a token or encryption key as a flag value. Remote hosts must be HTTPS. Human mode prints the key-free share URL. `--json` / `--agent` print a receipt with the tokens the other side needs.
+
+## Agents
+
+Another model only needs the receipt. `GET /.well-known/copypaste.json` is the map.
+
+```bash
+# Agent A
+copypaste send --agent --host https://www.copypaste.fyi "task for B"
+# → {"copypaste":1,"url":"https://…/p/…","key":"…","headers":{"X-Paste-Key":"…"}}
+
+# Agent B
+curl -sS -H "X-Paste-Key: $KEY" "$GET"
+```
+
+On the site: Get link → **Agent**. Encrypted pastes stay ciphertext for anyone who only has the URL. This is still **server-side** encryption, not E2E.
+
+Verify a local install:
+
+```bash
+./scripts/verify-install.sh
+```
 
 ## Configure
 

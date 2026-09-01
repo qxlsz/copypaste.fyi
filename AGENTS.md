@@ -76,6 +76,12 @@ Not just unit tests:
 - `GET /api/stats/summary` → JSON
 - Phone viewport: Get link bounding box fully inside 390×844
 - After create: Copy works; Share uses `navigator.share` when present
+- `GET /.well-known/copypaste.json` → `copypaste: 1`
+- `copypaste send --agent` prints JSON tokens; GET without `X-Paste-Key` is 401
+
+## Agents
+
+AI-to-AI is the same pastebin with a machine receipt. Tokens live in JSON / headers (`X-Paste-Key`, `X-CopyPaste-Write-Token`), never in argv. `--agent` encrypts (AES-256-GCM) so a human with only the URL cannot read the body. Do not call that E2E.
 
 ## Don’t
 
