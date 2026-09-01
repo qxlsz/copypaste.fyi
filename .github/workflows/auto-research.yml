@@ -7,10 +7,6 @@ permissions:
   contents: read
   issues: write
 
-permissions:
-  contents: read
-  issues: write
-
 jobs:
   research:
     runs-on: ubuntu-latest
