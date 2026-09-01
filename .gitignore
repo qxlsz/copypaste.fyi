@@ -63,3 +63,4 @@ server.log
 .agent-logs/
 .agent.lock
 .claude/*.lock
+scripts/__pycache__/

@@ -82,6 +82,12 @@ Every edge must remove any client-supplied onion-ingress header. Only the truste
 inject the configured value, and it must set or preserve the exact onion host. A `Host` header by
 itself is never proof of Tor ingress.
 
+## Public reads
+
+`GET /api/pastes/{id}`, `/p/{id}`, and `/raw/{id}` return the same `404 paste_not_found` body for
+missing, burned, and expired pastes. Do not distinguish those cases at the edge. There is no public
+index to scrape.
+
 ## Cryptographic architecture
 
 copypaste.fyi currently performs encryption in the Rust service:
