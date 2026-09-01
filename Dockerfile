@@ -14,9 +14,9 @@ FROM rust:1.88-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
-# Copy built frontend assets for embedding in static/
+COPY static/ ./static/
+# Frontend dist overlays static/dist; skills in static/ stay for include_str!.
 COPY --from=frontend /app/frontend/dist ./static/dist/
-COPY static/index.html ./static/
 # Cache deps layer
 RUN cargo build --release --locked --bin copypaste
 # Prepare /data with correct ownership for distroless nonroot (UID 65532)

@@ -88,6 +88,7 @@ AI-to-AI is the same pastebin with a machine receipt. Tokens live in JSON / head
 
 - Invent a second UI language or a new pastebin product around the composer
 - Put secrets in CLI flags, URLs, or commit messages
+- Add `include_str!` of a file that `Dockerfile` / `.dockerignore` drop. GHCR copies `static/`; `*.md` in `.dockerignore` must un-ignore `static/grok-bot.md`
 - Scale `app` past one Fly machine
 - Describe `/health` as a Redis/verifier probe
 - Close GitHub issues as “fixed” without the code on `main`
