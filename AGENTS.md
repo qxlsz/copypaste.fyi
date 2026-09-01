@@ -30,7 +30,7 @@ Rust 1.88 / Rocket 0.5 · React 19 / Vite 7 / TypeScript · OCaml 5.2 verifier �
 2. Change the smallest surface that fixes the request.
 3. Run the CI jobs that cover what you touched (table below). Workflow YAML: `python3 scripts/lint-workflows.py`. Duplicate top-level keys (`permissions:` twice) make GitHub fail as a **0-job** run named `.github/workflows/<file>.yml` on every push.
 4. Push a branch, open a PR.
-5. **Wait for every Actions run on that SHA.** `ci.yml` green is not enough. Invalid workflows, Auto Research, Docker publish, Fly deploy all count. A cancelled-by-newer Docker publish is fine.
+5. **Wait for every Actions run on that SHA.** `ci.yml` green is not enough. Invalid workflows, Auto Research, Docker publish, Fly deploy all count. A cancelled-by-newer Docker publish is fine. `npm audit --audit-level=high` is part of Frontend; a new GHSA on a lockfile is a red CI, not a fluke.
 6. If anything is red: fix on the same branch, push, wait again. Do not merge red. Do not leave `main` red.
 7. Merge only when the PR checks are green. After merge, confirm `CI` on `main` succeeded and Auto Research did **not** fail.
 
