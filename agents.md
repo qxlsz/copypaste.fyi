@@ -21,12 +21,12 @@ Before `git push`:
 
 1. Run the same jobs CI runs for the files you touched.
 2. Do not push known failures, skipped tests, or "CI will catch it".
-3. After push, wait for the PR checks. If anything is red, fix it on the same branch before merge.
+3. After push, wait for **every** GitHub Actions run on that SHA — not just `ci.yml`. Invalid workflow YAML fails as a 0-job run named `.github/workflows/<file>.yml`.
 4. Do not merge a red PR. Do not leave `main` red.
 
 CI (`.github/workflows/ci.yml`, Rust **1.88.0**, Node **22**):
 
-- `cargo fmt --all -- --check`
+- `python3 scripts/lint-workflows.py`
 - `cargo audit`
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo nextest run --workspace --all-features`
