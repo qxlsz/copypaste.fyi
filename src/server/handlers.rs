@@ -264,6 +264,7 @@ fn build_rocket_with_components(
                 admin_get_paste_api,
                 admin_delete_paste_api,
                 openapi_json,
+                agent_discovery,
                 spa_fallback
             ],
         )
@@ -307,6 +308,7 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         user_paste_list_api,
         workspace_pastes_api,
         health_detailed_api,
+        agent_discovery,
         admin_get_paste_api,
         admin_delete_paste_api,
     ),
@@ -335,6 +337,7 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         AdminPasteMetadataResponse,
         AdminDeletePasteResponse,
         TimeLockRequest,
+        AgentDiscovery,
         ApiError,
         super::models::EncryptionRequest,
         crate::PasteFormat,
@@ -365,6 +368,40 @@ struct HealthResponse {
     version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     commit: Option<String>,
+}
+
+/// How another agent sends and reads pastes. Tokens go in headers, not argv.
+#[derive(Serialize, Deserialize, ToSchema)]
+struct AgentDiscovery {
+    copypaste: u8,
+    create: String,
+    read: String,
+    write_header: String,
+    key_header: String,
+    encryption: Vec<String>,
+    note: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/.well-known/copypaste.json",
+    responses((status = 200, description = "Agent discovery document", body = AgentDiscovery))
+)]
+#[get("/.well-known/copypaste.json")]
+fn agent_discovery() -> Json<AgentDiscovery> {
+    Json(AgentDiscovery {
+        copypaste: 1,
+        create: "/api/pastes".to_string(),
+        read: "/api/pastes/{id}".to_string(),
+        write_header: "X-CopyPaste-Write-Token".to_string(),
+        key_header: "X-Paste-Key".to_string(),
+        encryption: vec![
+            "aes256_gcm".to_string(),
+            "chacha20_poly1305".to_string(),
+            "xchacha20_poly1305".to_string(),
+        ],
+        note: "Without X-Paste-Key the body stays ciphertext. Missing, burned, and expired reads are the same 404.".to_string(),
+    })
 }
 
 #[get("/health")]
@@ -2975,6 +3012,51 @@ mod tests {
         assert!(health["timestamp"].as_i64().is_some_and(|value| value > 0));
         assert!(health.get("services").is_none());
         assert!(health.get("commit_message").is_none());
+    }
+
+    #[test]
+    fn well_known_tells_agents_how_to_send_and_read() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client.get("/.well-known/copypaste.json").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let body: serde_json::Value =
+            serde_json::from_str(&response.into_string().expect("body")).expect("json");
+        assert_eq!(body["copypaste"], 1);
+        assert_eq!(body["create"], "/api/pastes");
+        assert_eq!(body["key_header"], "X-Paste-Key");
+        assert_eq!(body["write_header"], "X-CopyPaste-Write-Token");
+        assert!(body["encryption"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("aes256_gcm")));
+        assert!(body["note"].as_str().unwrap().contains("ciphertext"));
+    }
+
+    #[test]
+    fn plaintext_send_roundtrip_is_readable_then_gone_when_missing() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let created = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(json!({ "content": "agent ping", "format": "plain_text" }).to_string())
+            .dispatch();
+        assert_eq!(created.status(), Status::Ok);
+        let path = created.into_string().expect("path");
+        let id = path.trim().trim_start_matches('/');
+        let fetched = client.get(format!("/api/pastes/{id}")).dispatch();
+        assert_eq!(fetched.status(), Status::Ok);
+        let body: serde_json::Value =
+            serde_json::from_str(&fetched.into_string().expect("body")).expect("json");
+        assert_eq!(body["content"], "agent ping");
+
+        let missing = client.get("/api/pastes/no-such-id").dispatch();
+        assert_eq!(missing.status(), Status::NotFound);
     }
 
     #[test]

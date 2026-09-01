@@ -10,4 +10,10 @@ describe("quipFor", () => {
   it("defaults when there is no seed", () => {
     expect(quipFor()).toMatch(/lost|chasing/i);
   });
+
+  it("stays within the joke list", () => {
+    for (const seed of ["a", "b", "zzzz", "paste-id-24chars-here"]) {
+      expect(quipFor(seed).length).toBeGreaterThan(12);
+    }
+  });
 });

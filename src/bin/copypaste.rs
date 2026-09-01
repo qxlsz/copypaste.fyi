@@ -93,6 +93,15 @@ struct SendArgs {
     /// Request best-effort deletion after a successful view.
     #[arg(long, alias = "burn")]
     burn_after_reading: bool,
+
+    /// Print a JSON receipt (url, id, and tokens). For agents.
+    #[arg(long)]
+    json: bool,
+
+    /// Agent-to-agent: encrypt with AES-256-GCM if unset, print JSON tokens.
+    /// A human opening the URL without the key cannot read the body.
+    #[arg(long, alias = "encode")]
+    agent: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq, Default)]
@@ -171,11 +180,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Command::Send(args) => {
-            let url = execute_send(args)?;
-            if io::stdout().is_terminal() {
-                println!("Paste link: {url}");
+            let machine = args.json || args.agent;
+            let receipt = execute_send_receipt(args)?;
+            if machine {
+                println!("{}", receipt.to_json()?);
+            } else if io::stdout().is_terminal() {
+                println!("Paste link: {}", receipt.url);
             } else {
-                println!("{url}");
+                println!("{}", receipt.url);
             }
             Ok(())
         }
@@ -391,7 +403,73 @@ fn read_os_clipboard() -> io::Result<String> {
     Err(io::Error::new(io::ErrorKind::NotFound, last_error))
 }
 
+fn generate_agent_key() -> String {
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    data_encoding::BASE64URL_NOPAD.encode(&bytes)
+}
+
+#[derive(Debug, Serialize)]
+struct SendReceipt {
+    url: String,
+    id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    algorithm: Option<String>,
+}
+
+impl SendReceipt {
+    fn to_json(&self) -> io::Result<String> {
+        let get = if self.url.contains("/p/") {
+            self.url.replacen("/p/", "/api/pastes/", 1)
+        } else {
+            self.url.clone()
+        };
+        let mut headers = serde_json::Map::new();
+        if let Some(key) = &self.key {
+            headers.insert(
+                "X-Paste-Key".to_string(),
+                serde_json::Value::String(key.clone()),
+            );
+        }
+        let mut body = serde_json::Map::new();
+        body.insert("copypaste".into(), serde_json::json!(1));
+        body.insert("url".into(), serde_json::Value::String(self.url.clone()));
+        body.insert("id".into(), serde_json::Value::String(self.id.clone()));
+        body.insert("get".into(), serde_json::Value::String(get));
+        if let Some(algorithm) = &self.algorithm {
+            body.insert(
+                "algorithm".into(),
+                serde_json::Value::String(algorithm.clone()),
+            );
+        }
+        if let Some(key) = &self.key {
+            body.insert("key".into(), serde_json::Value::String(key.clone()));
+        }
+        if !headers.is_empty() {
+            body.insert("headers".into(), serde_json::Value::Object(headers));
+        }
+        serde_json::to_string(&body).map_err(io::Error::other)
+    }
+}
+
+fn paste_id_from_url(url: &str) -> String {
+    url.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("paste")
+        .to_string()
+}
+
+#[cfg(test)]
 fn execute_send(args: SendArgs) -> io::Result<String> {
+    Ok(execute_send_receipt(args)?.url)
+}
+
+fn execute_send_receipt(args: SendArgs) -> io::Result<SendReceipt> {
     let SendArgs {
         text,
         stdin,
@@ -401,9 +479,11 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
         format,
         ttl,
         retention,
-        encryption_mode,
+        mut encryption_mode,
         encryption_key_file,
         burn_after_reading,
+        json: _,
+        agent,
     } = args;
 
     let content = if let Some(t) = text {
@@ -441,12 +521,18 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
         Some(retention)
     };
 
-    let encryption_key = load_secret(
+    let mut encryption_key = load_secret(
         encryption_key_file.as_deref(),
         "COPYPASTE_ENCRYPTION_KEY",
         "Encryption key",
         1024,
     )?;
+    if agent && encryption_mode == CliEncryption::None {
+        encryption_mode = CliEncryption::Aes256Gcm;
+    }
+    if agent && encryption_key.is_none() && encryption_mode != CliEncryption::None {
+        encryption_key = Some(generate_agent_key());
+    }
     let key_ref = encryption_key.as_deref();
     let encryption = match encryption_mode {
         CliEncryption::None => None,
@@ -563,7 +649,14 @@ fn execute_send(args: SendArgs) -> io::Result<String> {
     }
     let full_url = returned.to_string();
 
-    Ok(full_url)
+    Ok(SendReceipt {
+        id: paste_id_from_url(&full_url),
+        url: full_url,
+        key: encryption.as_ref().map(|payload| payload.key.to_string()),
+        algorithm: encryption
+            .as_ref()
+            .map(|payload| payload.algorithm.to_string()),
+    })
 }
 
 #[cfg(test)]
@@ -765,6 +858,82 @@ mod tests {
     fn send_clipboard_conflicts_with_text() {
         let err = SendArgs::try_parse_from(["copypaste-send", "--clipboard", "hello"]);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn send_agent_encrypts_and_puts_key_in_json_not_url() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/").json_body_includes(
+                json!({ "encryption": { "algorithm": "aes256_gcm" } }).to_string(),
+            );
+            then.status(200).body("/p/agentId01");
+        });
+        let base = server.base_url();
+        let args = SendArgs::parse_from([
+            "copypaste-send",
+            "payload for another agent",
+            "--host",
+            base.as_str(),
+            "--agent",
+        ]);
+        let receipt = execute_send_receipt(args).expect("agent send");
+        mock.assert();
+        assert_eq!(receipt.url, format!("{base}/p/agentId01"));
+        assert!(!receipt.url.contains('='), "key must not leak into the URL");
+        assert_eq!(receipt.id, "agentId01");
+        assert_eq!(receipt.algorithm.as_deref(), Some("aes256_gcm"));
+        let key = receipt.key.clone().expect("generated key");
+        assert!(key.len() >= 32);
+        let json = receipt.to_json().expect("json");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert_eq!(parsed["copypaste"], 1);
+        assert_eq!(parsed["key"], key);
+        assert_eq!(parsed["headers"]["X-Paste-Key"], key);
+        assert!(parsed["get"].as_str().unwrap().contains("/api/pastes/"));
+        assert!(!parsed["url"].as_str().unwrap().contains(&key));
+    }
+
+    #[test]
+    fn send_json_plain_omits_key() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200).body("/p/plain01");
+        });
+        let base = server.base_url();
+        let args =
+            SendArgs::parse_from(["copypaste-send", "hello", "--host", base.as_str(), "--json"]);
+        let receipt = execute_send_receipt(args).expect("json send");
+        mock.assert();
+        assert!(receipt.key.is_none());
+        let json = receipt.to_json().expect("json");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert_eq!(parsed["copypaste"], 1);
+        assert!(parsed.get("key").is_none());
+        assert!(parsed.get("headers").is_none());
+    }
+
+    #[test]
+    fn paste_id_from_url_reads_last_segment() {
+        assert_eq!(
+            paste_id_from_url("https://www.copypaste.fyi/p/AbCdEf"),
+            "AbCdEf"
+        );
+        assert_eq!(paste_id_from_url("/p/x/"), "x");
+    }
+
+    #[test]
+    fn generate_agent_key_is_32_bytes_base64url() {
+        let key = generate_agent_key();
+        assert!(key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        let decoded = data_encoding::BASE64URL_NOPAD
+            .decode(key.as_bytes())
+            .expect("base64url");
+        assert_eq!(decoded.len(), 32);
+        assert_ne!(key, generate_agent_key());
     }
 
     #[test]
