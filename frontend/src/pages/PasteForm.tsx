@@ -127,6 +127,7 @@ export const PasteFormPage = () => {
     useState<EncryptionAlgorithm>("none");
   const [pasteEncryptionKey, setPasteEncryptionKey] = useState("");
   const [showWriteToken, setShowWriteToken] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const contentRef = useRef(content);
   const idleRef = useRef(0);
@@ -172,6 +173,11 @@ export const PasteFormPage = () => {
       const usedEncryption = encryption;
       const usedEncryptionKey = encryptionKey;
       toast.success("Paste created");
+      try {
+        navigator.vibrate?.(16);
+      } catch {
+        /* ignore */
+      }
       setPasteEncryption(usedEncryption);
       setPasteEncryptionKey(usedEncryptionKey);
       setContent("");
@@ -313,6 +319,10 @@ export const PasteFormPage = () => {
     }
     await handleCopyShareUrl();
   };
+
+  useEffect(() => {
+    if (requiresKey) setOptionsOpen(true);
+  }, [requiresKey]);
 
   // Render the QR code lazily — only once the toggle is opened.
   useEffect(() => {
@@ -467,7 +477,7 @@ export const PasteFormPage = () => {
         </>
       )}
       {!shareLink && (
-        <div className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,calc(var(--keyboard-inset,0px)+env(safe-area-inset-bottom)))]">
           {(showWriteToken || writeCredential) && (
             <div className="space-y-1.5 px-3 pt-3 sm:px-4">
               <label className={fieldLabelClasses} htmlFor="write-credential">
@@ -543,8 +553,36 @@ export const PasteFormPage = () => {
               </p>
             </div>
           )}
-          <div className="flex flex-col gap-2 px-3 pt-3 sm:flex-row sm:items-end sm:gap-3 sm:px-4">
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:items-end">
+          <div className="px-3 pt-3 sm:hidden">
+            <button
+              type="button"
+              aria-expanded={optionsOpen}
+              onClick={() => setOptionsOpen((value) => !value)}
+              className="flex h-11 w-full items-center justify-between rounded-md bg-muted px-3 text-left text-sm text-text transition active:scale-[0.96]"
+            >
+              <span className="min-w-0 truncate">
+                {[
+                  formatOptions.find((item) => item.value === format)?.label,
+                  retentionOptions.find((item) => item.value === retentionMinutes)?.label,
+                  burnAfterReading ? "Burn" : null,
+                  requiresKey ? encryptionChipLabel[encryption] : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                  optionsOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+          </div>
+          <div className="flex flex-col gap-2 px-3 pt-2 sm:flex-row sm:items-end sm:gap-3 sm:px-4 sm:pt-3">
+            <div
+              className={`grid grid-cols-2 gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:items-end ${
+                optionsOpen ? "" : "max-sm:hidden"
+              }`}
+            >
               <DockSelect
                 id="format"
                 label="Format"
