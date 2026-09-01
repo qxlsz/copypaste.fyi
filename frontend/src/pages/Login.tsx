@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 import { toast } from "sonner";
+import { BrandMark } from "../components/BrandMark";
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -50,14 +51,10 @@ export const LoginPage = () => {
         <div className="space-y-1 text-center">
           <Link
             to="/"
-            className="inline-flex items-baseline gap-px rounded-md font-mono text-sm font-medium lowercase text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="inline-flex items-center justify-center text-text focus-visible:outline-none"
             aria-label="copypaste.fyi home"
           >
-            copypaste
-            <span
-              aria-hidden="true"
-              className="ml-0.5 inline-block h-[0.9em] w-[0.5em] translate-y-px bg-accent"
-            />
+            <BrandMark className="size-10" />
           </Link>
           <h1 className="pt-2 text-xl font-semibold tracking-tight text-text">
             Sign in
