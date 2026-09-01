@@ -265,6 +265,8 @@ fn build_rocket_with_components(
                 admin_delete_paste_api,
                 openapi_json,
                 agent_discovery,
+                llms_txt,
+                grok_bot_md,
                 spa_fallback
             ],
         )
@@ -379,6 +381,8 @@ struct AgentDiscovery {
     write_header: String,
     key_header: String,
     encryption: Vec<String>,
+    llms: String,
+    grok_bot: String,
     note: String,
 }
 
@@ -400,8 +404,20 @@ fn agent_discovery() -> Json<AgentDiscovery> {
             "chacha20_poly1305".to_string(),
             "xchacha20_poly1305".to_string(),
         ],
-        note: "Without X-Paste-Key the body stays ciphertext. Missing, burned, and expired reads are the same 404.".to_string(),
+        llms: "/llms.txt".to_string(),
+        grok_bot: "/grok-bot.md".to_string(),
+        note: "Without X-Paste-Key the body stays ciphertext. Missing, burned, and expired reads are the same 404. Never put keys in Open-with URLs.".to_string(),
     })
+}
+
+#[get("/llms.txt")]
+fn llms_txt() -> content::RawText<&'static str> {
+    content::RawText(include_str!("../../static/llms.txt"))
+}
+
+#[get("/grok-bot.md")]
+fn grok_bot_md() -> content::RawText<&'static str> {
+    content::RawText(include_str!("../../static/grok-bot.md"))
 }
 
 #[get("/health")]
@@ -3032,7 +3048,27 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&json!("aes256_gcm")));
+        assert_eq!(body["llms"], "/llms.txt");
+        assert_eq!(body["grok_bot"], "/grok-bot.md");
         assert!(body["note"].as_str().unwrap().contains("ciphertext"));
+    }
+
+    #[test]
+    fn llms_and_grok_bot_are_plain_text_skills() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let llms = client.get("/llms.txt").dispatch();
+        assert_eq!(llms.status(), Status::Ok);
+        let llms_body = llms.into_string().expect("llms");
+        assert!(llms_body.contains("/api/pastes"));
+
+        let bot = client.get("/grok-bot.md").dispatch();
+        assert_eq!(bot.status(), Status::Ok);
+        let bot_body = bot.into_string().expect("bot");
+        assert!(bot_body.contains("X-Paste-Key"));
+        assert!(bot_body.to_lowercase().contains("never put tokens"));
     }
 
     #[test]

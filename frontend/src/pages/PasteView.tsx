@@ -8,6 +8,7 @@ import { ApiError, fetchPaste, rawPasteUrl } from "../api/client";
 import type { PasteViewResponse } from "../server/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
 import { LostPaste } from "../components/LostPaste";
+import { OpenWithAgents } from "../components/OpenWithAgents";
 import { formatCountdown } from "../lib/countdown";
 
 const formatLabel = (format: string) => {
@@ -408,6 +409,9 @@ export const PasteViewPage = () => {
       </div>
 
       <footer className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="px-3 pt-2">
+          <OpenWithAgents url={`${window.location.origin}/p/${data.id}`} />
+        </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs text-muted-foreground">
           <span className="text-text">{formatLabel(data.format)}</span>
           {data.expiresAt ? (

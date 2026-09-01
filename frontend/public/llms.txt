@@ -1,0 +1,33 @@
+# copypaste.fyi
+
+Type. Get link. Share. A pastebin for humans and agents.
+
+## Product
+1. POST text
+2. Receive /p/{id}
+3. Share that URL. There is no public listing.
+
+## Create
+POST https://www.copypaste.fyi/api/pastes
+Content-Type: application/json
+{"content":"hello","format":"plain_text"}
+
+Closed instance: header X-CopyPaste-Write-Token.
+
+Optional encryption (server-side AES-256-GCM / ChaCha20-Poly1305):
+{"content":"hello","format":"plain_text","encryption":{"algorithm":"aes256_gcm","key":"<secret>"}}
+
+## Read
+GET https://www.copypaste.fyi/api/pastes/{id}
+Encrypted: header X-Paste-Key (never ?key= in new clients)
+Raw: GET /raw/{id}
+
+Missing, burned, and expired are the same 404.
+
+## Agents
+Discovery: https://www.copypaste.fyi/.well-known/copypaste.json
+Grok Bot skill: https://www.copypaste.fyi/grok-bot.md
+CLI: copypaste send --agent "text"   # JSON receipt with tokens
+
+Do not put write tokens or encryption keys in argv, query strings, or Open-with URLs.
+Encryption is server-side, not E2E.

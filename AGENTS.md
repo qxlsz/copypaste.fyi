@@ -78,6 +78,7 @@ Not just unit tests:
 - After create: Copy works; Share uses `navigator.share` when present
 - `GET /.well-known/copypaste.json` → `copypaste: 1`
 - `copypaste send --agent` prints JSON tokens; GET without `X-Paste-Key` is 401
+- Open-with Grok/Codex/ChatGPT/Claude must strip `#key=`; never send secrets to a third-party chat URL
 
 ## Agents
 

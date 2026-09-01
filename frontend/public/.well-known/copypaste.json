@@ -1,0 +1,21 @@
+{
+  "copypaste": 1,
+  "create": "/api/pastes",
+  "read": "/api/pastes/{id}",
+  "write_header": "X-CopyPaste-Write-Token",
+  "key_header": "X-Paste-Key",
+  "encryption": [
+    "aes256_gcm",
+    "chacha20_poly1305",
+    "xchacha20_poly1305"
+  ],
+  "llms": "/llms.txt",
+  "grok_bot": "/grok-bot.md",
+  "open": {
+    "grok": "https://grok.com/?q=",
+    "codex": "https://chatgpt.com/?q=",
+    "chatgpt": "https://chatgpt.com/?q=",
+    "claude": "https://claude.ai/new?q="
+  },
+  "note": "Without X-Paste-Key the body stays ciphertext. Missing, burned, and expired reads are the same 404. Never put keys in Open-with URLs."
+}
