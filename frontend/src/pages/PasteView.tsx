@@ -10,6 +10,8 @@ import { MonacoEditor } from "../components/editor/MonacoEditor";
 import { LostPaste } from "../components/LostPaste";
 import { OpenWithAgents } from "../components/OpenWithAgents";
 import { formatCountdown } from "../lib/countdown";
+import { publicPasteUrl } from "../lib/openAgents";
+import { sharePayload } from "../lib/whisper";
 
 const formatLabel = (format: string) => {
   switch (format) {
@@ -259,10 +261,10 @@ export const PasteViewPage = () => {
   };
 
   const handleShare = async () => {
-    const url = window.location.href;
+    const url = publicPasteUrl(`${window.location.origin}/p/${id}`);
     if (typeof navigator.share === "function") {
       try {
-        await navigator.share({ title: `copypaste.fyi — ${id}`, url });
+        await navigator.share(sharePayload(url));
       } catch (err) {
         // The user dismissing the share sheet is not an error worth surfacing.
         if (err instanceof Error && err.name === "AbortError") return;
@@ -409,9 +411,6 @@ export const PasteViewPage = () => {
       </div>
 
       <footer className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="px-3 pt-2">
-          <OpenWithAgents url={`${window.location.origin}/p/${data.id}`} />
-        </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs text-muted-foreground">
           <span className="text-text">{formatLabel(data.format)}</span>
           {data.expiresAt ? (
@@ -486,7 +485,7 @@ export const PasteViewPage = () => {
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-3 sm:hidden">
+        <div className="flex items-center gap-2 px-3 pb-2 sm:hidden">
           <button
             type="button"
             onClick={handleCopyContent}
@@ -497,6 +496,15 @@ export const PasteViewPage = () => {
           </button>
           <button
             type="button"
+            onClick={handleShare}
+            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-lg bg-muted text-sm font-medium text-text"
+            aria-label="Share link"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+            Share
+          </button>
+          <button
+            type="button"
             onClick={handleFork}
             className="inline-flex size-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
             aria-label="New paste from this content"
@@ -504,15 +512,9 @@ export const PasteViewPage = () => {
           >
             <GitFork className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            onClick={handleShare}
-            className="inline-flex size-12 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
-            aria-label="Share link"
-            title="Share"
-          >
-            <Share2 className="h-4 w-4" aria-hidden="true" />
-          </button>
+        </div>
+        <div className="px-3 pb-2">
+          <OpenWithAgents url={`${window.location.origin}/p/${data.id}`} />
         </div>
       </footer>
     </article>
