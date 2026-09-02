@@ -16,7 +16,9 @@ describe("hostRecipe", () => {
     expect(recipe.commands).toMatch(/agent-setup\.sh/);
   });
 
-  it("keeps Apple on brew", () => {
-    expect(hostRecipe("local", "apple").commands).toMatch(/brew install/);
+  it("sends Ubuntu to agent-setup, not a brew URL", () => {
+    const recipe = hostRecipe("local", "ubuntu");
+    expect(recipe.commands).toMatch(/agent-setup\.sh/);
+    expect(recipe.commands).not.toMatch(/brew install/);
   });
 });
