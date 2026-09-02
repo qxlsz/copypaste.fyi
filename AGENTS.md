@@ -42,7 +42,7 @@ Auto Research is **manual** (`workflow_dispatch` only). It writes a competitor b
 
 | Job | Command |
 |---|---|
-| Workflow lint | `python3 scripts/lint-workflows.py` |
+| Workflow lint | `python3 scripts/lint-workflows.py` · `bash scripts/__tests__/bump-homebrew.test.sh` |
 | Rust fmt | `cargo fmt --all -- --check` |
 | Rust clippy + tests | `cargo audit` · `cargo clippy --all-targets --all-features -- -D warnings` · `cargo nextest run --workspace --all-features` |
 | Coverage | `cargo llvm-cov nextest --workspace --all-features --fail-under-lines 75` |

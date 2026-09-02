@@ -29,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
       - run: python3 scripts/lint-workflows.py
+      - run: bash scripts/__tests__/bump-homebrew.test.sh
 
   fmt:
     name: Rust fmt
