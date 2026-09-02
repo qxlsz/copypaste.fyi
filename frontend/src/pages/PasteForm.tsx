@@ -35,6 +35,7 @@ import {
 } from "../lib/shareImage";
 import { whisperNote, sharePayload } from "../lib/whisper";
 import { agentReceipt } from "../lib/agent";
+import { sniffFormatFromText } from "../lib/sniffFormat";
 import { useAuth } from "../stores/auth";
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -117,6 +118,8 @@ export const PasteFormPage = () => {
     const state = location.state as ForkState | null;
     return isPasteFormat(state?.format) ? state.format : "plain_text";
   });
+  const formatLocked = useRef(isPasteFormat((location.state as ForkState | null)?.format));
+  const [autoFormat, setAutoFormat] = useState(!formatLocked.current);
   const [retentionMinutes, setRetentionMinutes] = useState<number>(1440);
   const [encryption, setEncryption] = useState<EncryptionAlgorithm>("none");
   const [encryptionKey, setEncryptionKey] = useState("");
@@ -147,6 +150,15 @@ export const PasteFormPage = () => {
     }
     setContent(next);
   };
+
+  useEffect(() => {
+    if (formatLocked.current) return;
+    const sniffed = sniffFormatFromText(content);
+    if (sniffed && sniffed !== format) {
+      setFormat(sniffed);
+      setAutoFormat(true);
+    }
+  }, [content, format]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -355,7 +367,11 @@ export const PasteFormPage = () => {
     if (!urlToShare) return;
     try {
       setIsSavingImage(true);
-      const blob = await renderShareImage(urlToShare, shareImageColorsFromDocument());
+      const blob = await renderShareImage(urlToShare, shareImageColorsFromDocument(), {
+        burn: burnAfterReading,
+        encryptionLabel:
+          pasteEncryption !== "none" ? encryptionChipLabel[pasteEncryption] : undefined,
+      });
       const file = new File([blob], `copypaste-${pasteIdFromShareUrl(urlToShare)}.png`, {
         type: "image/png",
       });
@@ -676,9 +692,13 @@ export const PasteFormPage = () => {
             >
               <DockSelect
                 id="format"
-                label="Format"
+                label={autoFormat ? "Format · auto" : "Format"}
                 value={format}
-                onChange={(value) => setFormat(value as PasteFormat)}
+                onChange={(value) => {
+                  formatLocked.current = true;
+                  setAutoFormat(false);
+                  setFormat(value as PasteFormat);
+                }}
               >
                 {formatOptions.map((option) => (
                   <option key={option.value} value={option.value}>

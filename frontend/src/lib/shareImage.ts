@@ -52,8 +52,19 @@ const canvasPng = (canvas: HTMLCanvasElement): Promise<Uint8Array> =>
     }, "image/png");
   });
 
-/** Square share card: mark + QR of the link. The image is a carrier, not a vault. */
-export const renderShareImage = async (url: string, colors: ShareImageColors): Promise<Blob> => {
+export interface ShareImageOptions {
+  url: string;
+  colors: ShareImageColors;
+  burn?: boolean;
+  encryptionLabel?: string;
+}
+
+/** Square share card: mark + QR. Burn and encrypt print under the code. The image is a carrier, not a vault. */
+export const renderShareImage = async (
+  url: string,
+  colors: ShareImageColors,
+  extras: { burn?: boolean; encryptionLabel?: string } = {},
+): Promise<Blob> => {
   const canvas = document.createElement("canvas");
   canvas.width = SIZE;
   canvas.height = SIZE;
@@ -76,11 +87,24 @@ export const renderShareImage = async (url: string, colors: ShareImageColors): P
   const qr = await loadImage(qrDataUrl);
   ctx.drawImage(qr, (SIZE - QR) / 2, 220, QR, QR);
 
+  const notes = [
+    extras.burn ? "BURN AFTER READ" : "",
+    extras.encryptionLabel ? extras.encryptionLabel.toUpperCase() : "",
+  ].filter(Boolean);
+  if (notes.length > 0) {
+    ctx.fillStyle = colors.ink;
+    ctx.font = "600 28px ui-sans-serif, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(notes.join("  ·  "), SIZE / 2, 900);
+  }
+
   const png = await canvasPng(canvas);
   const withSoftware = injectPngText(png, "Software", "copypaste.fyi");
   const withUrl = injectPngText(withSoftware, "URL", url);
-  const copy = new ArrayBuffer(withUrl.byteLength);
-  new Uint8Array(copy).set(withUrl);
+  const comment = notes.length > 0 ? notes.join(" ") : "copypaste share card";
+  const withComment = injectPngText(withUrl, "Comment", comment);
+  const copy = new ArrayBuffer(withComment.byteLength);
+  new Uint8Array(copy).set(withComment);
   return new Blob([copy], { type: "image/png" });
 };
 
