@@ -31,6 +31,7 @@ jobs:
       - run: python3 scripts/lint-workflows.py
       - run: bash scripts/__tests__/bump-homebrew.test.sh
       - run: bash scripts/__tests__/install.test.sh
+      - run: bash scripts/__tests__/agent-setup.test.sh
 
   fmt:
     name: Rust fmt

@@ -47,8 +47,9 @@ Pick one row. Ignore the rest. Cookbook: [docs/self-host.md](docs/self-host.md).
 | I am... | Follow |
 |---|---|
 | Grok / Grokbot VM or Cursor cloud agent | `./scripts/agent-setup.sh --serve` |
+| Ubuntu / Debian | same `agent-setup.sh` (apt + rust + serve) |
 | Apple | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` |
-| Ubuntu / Debian / Fedora | `curl -fsSL https://www.copypaste.fyi/install.sh \| sh` then `copypaste serve` |
+| Fedora | `curl -fsSL https://www.copypaste.fyi/install.sh \| sh` then `copypaste serve` |
 | Windows | `irm https://www.copypaste.fyi/install.ps1 \| iex` then `copypaste serve` |
 | Docker | `docker compose up --build` |
 | I only want the public site | `copypaste send --host https://www.copypaste.fyi "notes"` |

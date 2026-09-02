@@ -44,12 +44,10 @@ const installFor = (machine: HostMachine): { follow: string; install: string } =
       };
     case "ubuntu":
       return {
-        follow: "Ubuntu / Debian",
-        install: `curl -fsSL https://www.copypaste.fyi/install.sh | sh
-# if that cannot find a release:
-sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install copypaste`,
+        follow: "Ubuntu / Debian (same as a Grok VM)",
+        install: `git clone https://github.com/qxlsz/copypaste.fyi.git
+cd copypaste.fyi
+./scripts/agent-setup.sh`,
       };
     case "fedora":
       return {

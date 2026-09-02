@@ -8,8 +8,9 @@ Pick one row. Ignore the rest.
 
 | I am... | I want... | Follow |
 |---|---|---|
-| Grok / Grokbot VM | a server on this VM | `./scripts/agent-setup.sh` then `--serve` |
-| Cursor cloud agent | a server on this VM | same `agent-setup.sh` path |
+| Grok / Grokbot VM on Ubuntu | a server on this VM | `./scripts/agent-setup.sh --serve` |
+| Cursor cloud agent | a server on this VM | same script |
+| Ubuntu / Debian laptop | a server on this box | same `agent-setup.sh` path |
 | Apple | a server on this Mac | brew, then `brew services start copypaste` |
 | Ubuntu / Debian / Fedora | a server on this box | `install.sh` or cargo, then `copypaste serve` |
 | Windows | a server on this PC | `install.ps1`, then `copypaste serve` |
