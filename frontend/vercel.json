@@ -6,7 +6,7 @@
   "installCommand": "npm ci",
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/((?!assets/|llms\\.txt|grok-bot\\.md|install\\.sh|install\\.ps1|\\.well-known/).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|llms\\.txt|grok-bot\\.md|install\\.sh|install\\.ps1|theme-boot\\.js|\\.well-known/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
@@ -39,7 +39,14 @@
       ]
     },
     {
-      "source": "/assets/(.*)",
+      "source": "/theme-boot.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    },
       "headers": [
         {
           "key": "Cache-Control",

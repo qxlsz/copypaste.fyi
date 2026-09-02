@@ -17,8 +17,26 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     build: {
       sourcemap: false,
-      // Increase chunk size warning limit to 1MB
       chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes("node_modules/monaco-editor") || id.includes("@monaco-editor")) {
+              return "monaco";
+            }
+            if (id.includes("node_modules/qrcode")) {
+              return "qr";
+            }
+            if (
+              id.includes("node_modules/react-dom") ||
+              id.includes("node_modules/react/") ||
+              id.includes("node_modules/react-router")
+            ) {
+              return "react";
+            }
+          },
+        },
+      },
     },
   };
 

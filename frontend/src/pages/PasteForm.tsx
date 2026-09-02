@@ -3,7 +3,6 @@ import type { FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import QRCode from "qrcode";
 import {
   Bot,
   Check,
@@ -410,7 +409,8 @@ export const PasteFormPage = () => {
       return;
     }
     let cancelled = false;
-    QRCode.toDataURL(shareLink, { margin: 1, width: 160 })
+    void import("qrcode")
+      .then((QRCode) => QRCode.toDataURL(shareLink, { margin: 1, width: 160 }))
       .then((dataUrl) => {
         if (!cancelled) setQrDataUrl(dataUrl);
       })

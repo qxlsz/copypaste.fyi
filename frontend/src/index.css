@@ -1,6 +1,5 @@
-/* Self-hosted variable fonts (no third-party font CDN requests). */
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/jetbrains-mono";
+/* Weight axis only. Italic/opsz faces stay off the first paint. */
+@import "@fontsource-variable/inter/wght.css";
 
 @tailwind base;
 @tailwind components;
