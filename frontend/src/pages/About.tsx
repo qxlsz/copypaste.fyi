@@ -50,13 +50,10 @@ export const AboutPage = () => {
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
           copypaste
         </p>
-        <h1 className="text-3xl font-medium tracking-tight text-text">
-          A paste that disappears
-        </h1>
+        <h1 className="text-3xl font-medium tracking-tight text-text">A paste that disappears</h1>
         <p className="text-base leading-relaxed text-muted-foreground">
-          Open-source paste sharing for secrets that should not outlive their
-          purpose. A Rust backend encrypts and enforces retention. There is no
-          public listing.
+          Open-source paste sharing for secrets that should not outlive their purpose. A Rust
+          backend encrypts and enforces retention. There is no public listing.
         </p>
       </header>
 
@@ -66,20 +63,38 @@ export const AboutPage = () => {
             key={term}
             className="flex flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:gap-8"
           >
-            <dt className="w-40 shrink-0 text-sm font-medium text-text">
-              {term}
-            </dt>
-            <dd className="text-sm leading-relaxed text-muted-foreground">
-              {detail}
-            </dd>
+            <dt className="w-40 shrink-0 text-sm font-medium text-text">{term}</dt>
+            <dd className="text-sm leading-relaxed text-muted-foreground">{detail}</dd>
           </div>
         ))}
       </dl>
 
       <section className="space-y-3">
-        <h2 className="text-base font-medium tracking-tight text-text">
-          How it works
-        </h2>
+        <h2 className="text-base font-medium tracking-tight text-text">Run your own</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Same binary as this site. Install, bind localhost, Get link on your box. Full steps in the
+          repo{" "}
+          <a
+            href="https://github.com/qxlsz/copypaste.fyi/blob/main/docs/self-host.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-border underline-offset-4 hover:text-text"
+          >
+            docs/self-host.md
+          </a>
+          .
+        </p>
+        <pre className="overflow-x-auto font-mono text-xs leading-6 text-muted-foreground">
+          {`brew install qxlsz/copypaste/copypaste
+ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
+# http://127.0.0.1:8000
+
+copypaste send --host http://127.0.0.1:8000 "notes from this box"`}
+        </pre>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-medium tracking-tight text-text">How it works</h2>
         <pre className="overflow-x-auto font-mono text-xs leading-6 text-muted-foreground">
           {`browser / cli
    → POST /api/pastes            content + policy
@@ -89,9 +104,9 @@ export const AboutPage = () => {
    → share                       /p/<id> — key travels in the #fragment`}
         </pre>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Plain honesty: when you supply an encryption key, the server performs
-          the encryption — the key transits over TLS and is never stored. Share
-          keys out of band for anything sensitive. Full details in{" "}
+          Plain honesty: when you supply an encryption key, the server performs the encryption — the
+          key transits over TLS and is never stored. Share keys out of band for anything sensitive.
+          Full details in{" "}
           <a
             href="https://github.com/qxlsz/copypaste.fyi/blob/main/docs/encryption.md"
             target="_blank"
@@ -108,20 +123,14 @@ export const AboutPage = () => {
         <h2 className="text-base font-medium tracking-tight text-text">Status</h2>
         {health ? (
           <p className="font-mono text-xs text-muted-foreground">
-            <span
-              className={
-                health.status === "ok" ? "text-success" : "text-danger"
-              }
-            >
+            <span className={health.status === "ok" ? "text-success" : "text-danger"}>
               {health.status}
             </span>
             {" · "}v{health.version}
             {health.commit ? ` · ${health.commit.slice(0, 7)}` : ""}
           </p>
         ) : (
-          <p className="font-mono text-xs text-muted-foreground">
-            {healthError ?? "checking…"}
-          </p>
+          <p className="font-mono text-xs text-muted-foreground">{healthError ?? "checking…"}</p>
         )}
       </section>
 

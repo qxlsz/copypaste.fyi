@@ -16,7 +16,7 @@ If a visitor cannot find Get link, the change is wrong. Phones (~390×844) must 
 
 Do **not** bring back: encryption popups, a floating privacy chip, command-palette login, always-on write-token fields on the public composer, dashboard chrome on About/Stats, or a 100% min-height editor that pushes the dock below the fold.
 
-Public [copypaste.fyi](https://www.copypaste.fyi) is anonymous. `fly.toml` has `COPYPASTE_REQUIRE_WRITE_AUTH=false` and `COPYPASTE_FORCE_MEMORY=true` on purpose. Do not “fix” that back to a locked 401 or Redis 503. Self-hosters lock writes with `COPYPASTE_REQUIRE_WRITE_AUTH=true`.
+Public [copypaste.fyi](https://www.copypaste.fyi) is anonymous. `fly.toml` has `COPYPASTE_REQUIRE_WRITE_AUTH=false` and `COPYPASTE_FORCE_MEMORY=true` on purpose. Do not “fix” that back to a locked 401 or Redis 503. Self-hosters lock writes with `COPYPASTE_REQUIRE_WRITE_AUTH=true`. Cookbook: [docs/self-host.md](docs/self-host.md).
 
 Encryption is **server-side**. Never call it E2E, client-side, or zero-knowledge. Keys may exist in Rocket (and the OCaml verifier) during create/read.
 

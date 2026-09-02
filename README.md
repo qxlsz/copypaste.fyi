@@ -42,71 +42,48 @@ Public writes are open. Pastes on the public instance live in that machine’s m
 
 ## Self-host
 
-Same binary as the public site. Website or a box on your LAN.
+Step-by-step: [docs/self-host.md](docs/self-host.md).
+
+**Install**
 
 ```bash
+brew install qxlsz/copypaste/copypaste          # Apple, Linuxbrew
+cargo install copypaste                         # any OS with Rust
 curl -fsSL https://www.copypaste.fyi/install.sh | sh
-curl -fsSL https://www.copypaste.fyi/install.sh | sh -s -- --serve
 ```
 
-The script picks an installer for this machine:
+Windows: `irm https://www.copypaste.fyi/install.ps1 | iex`
 
-| System | What it uses |
-|---|---|
-| Apple | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` |
-| Homebrew Linux | same brew line |
-| Ubuntu / Debian | release tarball if a `v*` tag exists, else cargo or Docker |
-| Fedora | same, with `dnf` hints |
-| Windows | `irm https://www.copypaste.fyi/install.ps1 \| iex` or Docker Desktop |
-
-Internal host after install:
+**Run on this machine**
 
 ```bash
-ROCKET_ADDRESS=127.0.0.1 copypaste serve          # any OS
-brew services start copypaste                     # Apple / Linuxbrew
-sudo systemctl enable --now copypaste             # systemd unit in contrib/systemd/
-docker compose up --build                         # http://127.0.0.1:8000
+ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
 ```
 
-**Docker** (anonymous, in-memory, fine on a private host):
+Open http://127.0.0.1:8000
 
 ```bash
-docker compose up --build
-# http://127.0.0.1:8000
+brew services start copypaste                   # Apple / Linuxbrew
+sudo systemctl enable --now copypaste           # Linux, see contrib/systemd/
+docker compose up --build                       # from a clone
 ```
 
-**Homebrew:**
+**Talk to your instance**
 
 ```bash
-brew install qxlsz/copypaste/copypaste
-copypaste send --host https://www.copypaste.fyi "from this machine"
-brew services start copypaste
+copypaste send --host http://127.0.0.1:8000 "notes from this box"
 ```
 
-The tap is a pointer at this `main`. From the clone: `brew install --HEAD --formula Formula/copypaste.rb`
-
-**Cargo:**
-
-```bash
-cargo install copypaste
-ROCKET_ADDRESS=127.0.0.1 copypaste serve
-```
-
-**From source** (Rust **1.88+**, Node **22**):
-
-```bash
-./scripts/install_deps.sh
-ROCKET_ADDRESS=127.0.0.1 ./scripts/run_both.sh   # API :8000, Vite :5173
-```
-
-Closed company instance:
+**Lock it**
 
 ```bash
 COPYPASTE_REQUIRE_WRITE_AUTH=true
-COPYPASTE_AUTH_TOKEN=<43–128 base64url chars>
+COPYPASTE_AUTH_TOKEN=<43-128 base64url chars>
 ```
 
-Clients send `X-CopyPaste-Write-Token: <credential>`. Never put the token on argv.
+Clients send `X-CopyPaste-Write-Token`. Never put the token on argv.
+
+Dev UI + API from a clone: `./scripts/install_deps.sh` then `ROCKET_ADDRESS=127.0.0.1 ./scripts/run_both.sh`.
 
 **Mac Quick Action** (right-click selected text):
 
