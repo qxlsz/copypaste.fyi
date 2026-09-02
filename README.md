@@ -57,9 +57,10 @@ docker compose up --build
 brew install qxlsz/copypaste/copypaste
 copypaste send --host https://www.copypaste.fyi "from this Mac"
 brew services start copypaste
+brew reinstall --fetch-HEAD qxlsz/copypaste/copypaste   # after main moves
 ```
 
-That tap is [qxlsz/homebrew-copypaste](https://github.com/qxlsz/homebrew-copypaste). A `v*` tag on this repo builds binaries and CI copies the formula over.
+The tap repo is only a pointer. It does not fork the app. `head` compiles [this repo’s `main`](https://github.com/qxlsz/copypaste.fyi). A job on the tap recopies `Formula/copypaste.rb` from here every six hours. Crate version is **0.2.0**; there is no `v*` tag yet, so brew has no bottled number until we tag.
 
 From this clone: `brew install --HEAD --formula Formula/copypaste.rb`
 

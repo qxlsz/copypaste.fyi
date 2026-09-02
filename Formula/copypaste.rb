@@ -1,4 +1,5 @@
-# Official tap: brew install qxlsz/copypaste/copypaste
+# Pointer only. The app is qxlsz/copypaste.fyi main.
+# brew install qxlsz/copypaste/copypaste
 class Copypaste < Formula
   desc "Pastebin CLI and self-hostable server — type, get link, share"
   homepage "https://www.copypaste.fyi"
