@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { API_BASE } from "../api/client";
+import { SelfHostHelper } from "../components/SelfHostHelper";
 
 const features = [
   ["encryption", "AES-256-GCM · ChaCha20 · XChaCha20 · experimental ML-KEM hybrid"],
@@ -72,8 +73,7 @@ export const AboutPage = () => {
       <section className="space-y-3">
         <h2 className="text-base font-medium tracking-tight text-text">Run your own</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Same binary as this site. Install, bind localhost, Get link on your box. Full steps in the
-          repo{" "}
+          Same binary as this site. The helper below picks one recipe. Cookbook:{" "}
           <a
             href="https://github.com/qxlsz/copypaste.fyi/blob/main/docs/self-host.md"
             target="_blank"
@@ -84,13 +84,7 @@ export const AboutPage = () => {
           </a>
           .
         </p>
-        <pre className="overflow-x-auto font-mono text-xs leading-6 text-muted-foreground">
-          {`brew install qxlsz/copypaste/copypaste
-ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
-# http://127.0.0.1:8000
-
-copypaste send --host http://127.0.0.1:8000 "notes from this box"`}
-        </pre>
+        <SelfHostHelper />
       </section>
 
       <section className="space-y-3">

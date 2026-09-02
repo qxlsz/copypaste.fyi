@@ -1,8 +1,25 @@
 # Self-host copypaste
 
-You run the same binary as [copypaste.fyi](https://www.copypaste.fyi). It listens on your machine or LAN. Nothing is uploaded to us.
+You run the same binary as [copypaste.fyi](https://www.copypaste.fyi). Nothing is uploaded to us.
+
+## Which instructions?
+
+Pick one row. Ignore the rest.
+
+| I am... | I want... | Follow |
+|---|---|---|
+| Grok / Grokbot VM | a server on this VM | `./scripts/agent-setup.sh` then `--serve` |
+| Cursor cloud agent | a server on this VM | same `agent-setup.sh` path |
+| Apple | a server on this Mac | brew, then `brew services start copypaste` |
+| Ubuntu / Debian / Fedora | a server on this box | `install.sh` or cargo, then `copypaste serve` |
+| Windows | a server on this PC | `install.ps1`, then `copypaste serve` |
+| I have Docker | a container | `docker compose up --build` |
+| Any of the above | only send to copypaste.fyi | CLI `send --host https://www.copypaste.fyi`. No serve. |
+
+The site About page has the same picker.
 
 ## 1. Pick one install
+
 
 Apple / Linux with Homebrew:
 
@@ -28,13 +45,15 @@ Or the detector:
 curl -fsSL https://www.copypaste.fyi/install.sh | sh
 ```
 
-From this repo (API + Vite UI):
+From a Grok VM or Cursor cloud agent:
 
 ```bash
 git clone https://github.com/qxlsz/copypaste.fyi.git
 cd copypaste.fyi
-./scripts/install_deps.sh
+./scripts/agent-setup.sh
+./scripts/agent-setup.sh --serve
 ```
+
 
 ## 2. Start a local server
 

@@ -42,17 +42,16 @@ Public writes are open. Pastes on the public instance live in that machine’s m
 
 ## Self-host
 
-Step-by-step: [docs/self-host.md](docs/self-host.md).
+Pick one row. Ignore the rest. Cookbook: [docs/self-host.md](docs/self-host.md). About on the site is the same helper.
 
-**Install**
-
-```bash
-brew install qxlsz/copypaste/copypaste          # Apple, Linuxbrew
-cargo install copypaste                         # any OS with Rust
-curl -fsSL https://www.copypaste.fyi/install.sh | sh
-```
-
-Windows: `irm https://www.copypaste.fyi/install.ps1 | iex`
+| I am... | Follow |
+|---|---|
+| Grok / Grokbot VM or Cursor cloud agent | `./scripts/agent-setup.sh --serve` |
+| Apple | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` |
+| Ubuntu / Debian / Fedora | `curl -fsSL https://www.copypaste.fyi/install.sh \| sh` then `copypaste serve` |
+| Windows | `irm https://www.copypaste.fyi/install.ps1 \| iex` then `copypaste serve` |
+| Docker | `docker compose up --build` |
+| I only want the public site | `copypaste send --host https://www.copypaste.fyi "notes"` |
 
 **Run on this machine**
 
@@ -61,12 +60,6 @@ ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
 ```
 
 Open http://127.0.0.1:8000
-
-```bash
-brew services start copypaste                   # Apple / Linuxbrew
-sudo systemctl enable --now copypaste           # Linux, see contrib/systemd/
-docker compose up --build                       # from a clone
-```
 
 **Talk to your instance**
 
