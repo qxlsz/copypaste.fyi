@@ -34,7 +34,7 @@ flowchart LR
 | | |
 |---|---|
 | **Web** | [copypaste.fyi](https://www.copypaste.fyi) — phones keep **Get link** in the thumb zone, above the keyboard |
-| **CLI** | `brew install copypaste` or `cargo install copypaste` then `copypaste send "text"` |
+| **CLI** | `brew install qxlsz/copypaste/copypaste` then `copypaste send "text"` |
 | **Mac** | Select text → Services → Send to copypaste, or `copypaste send --clipboard` |
 | **curl** | `POST /api/pastes` with `{"content":"hello","format":"plain_text"}` |
 
@@ -51,19 +51,17 @@ docker compose up --build
 # http://127.0.0.1:8000
 ```
 
-**Homebrew** (Mac server + CLI):
+**Homebrew** (official tap `qxlsz/copypaste`):
 
 ```bash
-brew tap qxlsz/copypaste https://github.com/qxlsz/copypaste.fyi
-brew install copypaste                 # release tarball after a v* tag
-brew install --HEAD copypaste          # compile main
+brew install qxlsz/copypaste/copypaste
 copypaste send --host https://www.copypaste.fyi "from this Mac"
-brew services start copypaste          # listens on 127.0.0.1
+brew services start copypaste
 ```
 
-CI: push a `v*` tag → `.github/workflows/release.yml` builds darwin/linux tarballs, attaches them to the GitHub Release, then commits sha256s into `Formula/copypaste.rb`. There is no bun package. Homebrew/core is not submitted automatically.
+That tap is [qxlsz/homebrew-copypaste](https://github.com/qxlsz/homebrew-copypaste). A `v*` tag on this repo builds binaries and CI copies the formula over.
 
-From the clone: `brew install --HEAD --formula Formula/copypaste.rb`
+From this clone: `brew install --HEAD --formula Formula/copypaste.rb`
 
 **Cargo:**
 

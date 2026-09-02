@@ -25,11 +25,7 @@ AMD_LINUX="$(sha_of copypaste-linux-amd64.tar.gz)"
 ARM_LINUX="$(sha_of copypaste-linux-arm64.tar.gz)"
 
 cat >"$FORMULA" <<EOF
-# Homebrew formula for the copypaste CLI + local server.
-#   brew tap qxlsz/copypaste https://github.com/qxlsz/copypaste.fyi
-#   brew install copypaste
-#   brew services start copypaste
-#
+# Official tap: brew install qxlsz/copypaste/copypaste
 # Stable URLs are GitHub Release tarballs written by scripts/bump-homebrew.sh
 # on a v* tag. head: still compiles from main.
 class Copypaste < Formula

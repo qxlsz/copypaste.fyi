@@ -7,7 +7,7 @@ HOST="${COPYPASTE_HOST:-https://www.copypaste.fyi}"
 BIN="${COPYPASTE_BIN:-copypaste}"
 
 if ! command -v "$BIN" >/dev/null 2>&1; then
-  osascript -e 'display alert "copypaste is not installed" message "brew tap qxlsz/copypaste https://github.com/qxlsz/copypaste.fyi && brew install copypaste"'
+  osascript -e 'display alert "copypaste is not installed" message "brew install qxlsz/copypaste/copypaste"'
   exit 1
 fi
 
