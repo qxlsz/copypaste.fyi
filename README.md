@@ -4,7 +4,7 @@
 
 **Type. Get link. Share.**
 
-A pastebin that stays out of the way — on a phone, in a terminal, or on your own box.
+A pastebin that stays out of the way on a phone, in a terminal, or on your own box.
 
 [copypaste.fyi](https://www.copypaste.fyi) · [API](#api) · [Self-host](#self-host) · [Security](#security)
 
@@ -33,7 +33,7 @@ flowchart LR
 
 | | |
 |---|---|
-| **Web** | [copypaste.fyi](https://www.copypaste.fyi) — phones keep **Get link** in the thumb zone, above the keyboard |
+| **Web** | [copypaste.fyi](https://www.copypaste.fyi). Phones keep **Get link** in the thumb zone, above the keyboard |
 | **CLI** | `brew install qxlsz/copypaste/copypaste` then `copypaste send "text"` |
 | **Mac** | Select text → Services → Send to copypaste, or `copypaste send --clipboard` |
 | **curl** | `POST /api/pastes` with `{"content":"hello","format":"plain_text"}` |
@@ -44,7 +44,7 @@ Public writes are open. Pastes on the public instance live in that machine’s m
 
 Same binary as the public site. Website **or** a box on your LAN.
 
-**Docker** (anonymous, in-memory — fine on a private host):
+**Docker** (anonymous, in-memory, fine on a private host):
 
 ```bash
 docker compose up --build
@@ -211,7 +211,7 @@ Verify a local install:
 | `CRYPTO_VERIFIER_URL` | Fly private DNS | OCaml verifier |
 | `COPYPASTE_REQUIRE_CRYPTO_VERIFICATION` | `true` | Fail create if verifier fails |
 
-Full list and Tor/SQLite/admin notes: [CLAUDE.md](CLAUDE.md). Bundles, webhooks, attestations, and steganography stay off — turning their old flags on refuses to start.
+Full list and Tor/SQLite/admin notes: [CLAUDE.md](CLAUDE.md). Bundles, webhooks, attestations, and steganography stay off. Turning their old flags on refuses to start.
 
 ## Deploy
 

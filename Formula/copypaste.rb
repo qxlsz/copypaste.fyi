@@ -1,7 +1,7 @@
 # Pointer only. The app is qxlsz/copypaste.fyi main.
 # brew install qxlsz/copypaste/copypaste
 class Copypaste < Formula
-  desc "Pastebin CLI and self-hostable server — type, get link, share"
+  desc "Pastebin CLI and self-hostable server. Type, get link, share."
   homepage "https://www.copypaste.fyi"
   license "MIT"
   head "https://github.com/qxlsz/copypaste.fyi.git", branch: "main"
