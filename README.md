@@ -33,8 +33,8 @@ flowchart LR
 
 | | |
 |---|---|
-| **Web** | [copypaste.fyi](https://www.copypaste.fyi) — phones keep **Get link** in the thumb zone, above the keyboard |
-| **CLI** | `brew install qxlsz/copypaste/copypaste` then `copypaste send "text"` |
+| **Web** | [copypaste.fyi](https://www.copypaste.fyi). Phones keep **Get link** in the thumb zone, above the keyboard |
+| **CLI** | `curl -fsSL https://www.copypaste.fyi/install.sh | sh` then `copypaste send "text"` |
 | **Mac** | Select text → Services → Send to copypaste, or `copypaste send --clipboard` |
 | **curl** | `POST /api/pastes` with `{"content":"hello","format":"plain_text"}` |
 
@@ -42,26 +42,48 @@ Public writes are open. Pastes on the public instance live in that machine’s m
 
 ## Self-host
 
-Same binary as the public site. Website **or** a box on your LAN.
+Same binary as the public site. Website or a box on your LAN.
 
-**Docker** (anonymous, in-memory — fine on a private host):
+```bash
+curl -fsSL https://www.copypaste.fyi/install.sh | sh
+curl -fsSL https://www.copypaste.fyi/install.sh | sh -s -- --serve
+```
+
+The script picks an installer for this machine:
+
+| System | What it uses |
+|---|---|
+| Apple | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` |
+| Homebrew Linux | same brew line |
+| Ubuntu / Debian | release tarball if a `v*` tag exists, else cargo or Docker |
+| Fedora | same, with `dnf` hints |
+| Windows | `irm https://www.copypaste.fyi/install.ps1 \| iex` or Docker Desktop |
+
+Internal host after install:
+
+```bash
+ROCKET_ADDRESS=127.0.0.1 copypaste serve          # any OS
+brew services start copypaste                     # Apple / Linuxbrew
+sudo systemctl enable --now copypaste             # systemd unit in contrib/systemd/
+docker compose up --build                         # http://127.0.0.1:8000
+```
+
+**Docker** (anonymous, in-memory, fine on a private host):
 
 ```bash
 docker compose up --build
 # http://127.0.0.1:8000
 ```
 
-**Homebrew** (official tap `qxlsz/copypaste`):
+**Homebrew:**
 
 ```bash
 brew install qxlsz/copypaste/copypaste
-copypaste send --host https://www.copypaste.fyi "from this Mac"
+copypaste send --host https://www.copypaste.fyi "from this machine"
 brew services start copypaste
 ```
 
-That tap is [qxlsz/homebrew-copypaste](https://github.com/qxlsz/homebrew-copypaste). A `v*` tag on this repo builds binaries and CI copies the formula over.
-
-From this clone: `brew install --HEAD --formula Formula/copypaste.rb`
+The tap is a pointer at this `main`. From the clone: `brew install --HEAD --formula Formula/copypaste.rb`
 
 **Cargo:**
 

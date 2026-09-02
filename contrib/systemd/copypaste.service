@@ -1,0 +1,13 @@
+[Unit]
+Description=copypaste local paste server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/copypaste serve
+Environment=ROCKET_ADDRESS=127.0.0.1
+Environment=COPYPASTE_FORCE_MEMORY=true
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
