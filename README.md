@@ -55,10 +55,13 @@ docker compose up --build
 
 ```bash
 brew tap qxlsz/copypaste https://github.com/qxlsz/copypaste.fyi
-brew install copypaste
+brew install copypaste                 # release tarball after a v* tag
+brew install --HEAD copypaste          # compile main
 copypaste send --host https://www.copypaste.fyi "from this Mac"
 brew services start copypaste          # listens on 127.0.0.1
 ```
+
+CI: push a `v*` tag → `.github/workflows/release.yml` builds darwin/linux tarballs, attaches them to the GitHub Release, then commits sha256s into `Formula/copypaste.rb`. There is no bun package. Homebrew/core is not submitted automatically.
 
 From the clone: `brew install --HEAD --formula Formula/copypaste.rb`
 
