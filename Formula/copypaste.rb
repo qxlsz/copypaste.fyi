@@ -1,7 +1,4 @@
-# Homebrew formula for the copypaste CLI + local server.
-#   brew tap qxlsz/copypaste https://github.com/qxlsz/copypaste.fyi
-#   brew install copypaste
-#   brew services start copypaste
+# Official tap: brew install qxlsz/copypaste/copypaste
 class Copypaste < Formula
   desc "Pastebin CLI and self-hostable server — type, get link, share"
   homepage "https://www.copypaste.fyi"

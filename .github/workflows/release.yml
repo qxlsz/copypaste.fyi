@@ -131,6 +131,27 @@ jobs:
           git pull --rebase origin main
           git push origin HEAD:main
 
+      - name: Publish to official tap qxlsz/homebrew-copypaste
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "HOMEBREW_TAP_TOKEN unset; tap stays as last published formula"
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/qxlsz/homebrew-copypaste.git" tap
+          cp Formula/copypaste.rb tap/Formula/copypaste.rb
+          git -C tap config user.name "github-actions[bot]"
+          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C tap add Formula/copypaste.rb
+          if git -C tap diff --cached --quiet; then
+            echo "tap already current"
+            exit 0
+          fi
+          git -C tap commit -m "brew: copypaste ${GITHUB_REF_NAME#v}"
+          git -C tap push origin HEAD:main
+
   publish-crates:
     name: Publish to crates.io
     needs: [build, release]
