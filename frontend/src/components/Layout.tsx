@@ -1,13 +1,16 @@
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, lazy, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { BarChart2, Command, Plus } from "lucide-react";
 
-import { CommandPalette } from "./CommandPalette";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useTheme } from "../theme/ThemeContext";
+
+const CommandPalette = lazy(() =>
+  import("./CommandPalette").then((module) => ({ default: module.CommandPalette })),
+);
 
 const iconButtonClasses =
   "inline-flex size-11 appearance-none items-center justify-center rounded-lg bg-transparent text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none sm:size-10";
@@ -55,14 +58,20 @@ export const Layout = () => {
 
   useHotkeys({ shortcut: "meta+n", handler: () => navigate("/") });
   useHotkeys({ shortcut: "ctrl+n", handler: () => navigate("/") });
+  useHotkeys({ shortcut: "meta+k", handler: () => setPaletteOpen(true) });
+  useHotkeys({ shortcut: "ctrl+k", handler: () => setPaletteOpen(true) });
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-text">
-      <CommandPalette
-        actions={commandActions}
-        isOpen={isPaletteOpen}
-        onOpenChange={setPaletteOpen}
-      />
+      {isPaletteOpen ? (
+        <Suspense fallback={null}>
+          <CommandPalette
+            actions={commandActions}
+            isOpen={isPaletteOpen}
+            onOpenChange={setPaletteOpen}
+          />
+        </Suspense>
+      ) : null}
 
       <header className="shrink-0 border-b border-border bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="flex h-14 items-center gap-1 px-3 sm:px-4">
