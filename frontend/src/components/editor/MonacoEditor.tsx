@@ -1,6 +1,6 @@
 import type { Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import type { PasteFormat } from "../../api/types";
@@ -76,12 +76,16 @@ export const MonacoEditor = ({
   const { theme } = useTheme();
   const [editorModule, setEditorModule] = useState<EditorModule | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (
-      typeof window === "undefined" ||
-      typeof window.matchMedia !== "function"
-    ) {
+    const node = textareaRef.current;
+    if (!node || document.activeElement === node) return;
+    if (node.value !== value) node.value = value;
+  }, [value]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
 
@@ -115,10 +119,7 @@ export const MonacoEditor = ({
     }
 
     let cancelled = false;
-    Promise.all([
-      import("@monaco-editor/react"),
-      import("./monacoEnvironment"),
-    ])
+    Promise.all([import("@monaco-editor/react"), import("./monacoEnvironment")])
       .then(([module, { configureMonaco }]) => {
         if (!cancelled) {
           module.loader.config({ monaco: configureMonaco() });
@@ -145,8 +146,7 @@ export const MonacoEditor = ({
     [onChange],
   );
   const resolvedHeight = height;
-  const isFillHeight =
-    typeof resolvedHeight === "string" && resolvedHeight.includes("%");
+  const isFillHeight = typeof resolvedHeight === "string" && resolvedHeight.includes("%");
   const fillStyle = isFillHeight
     ? { minHeight: 0, height: "100%" as const }
     : { minHeight: resolvedHeight, height: resolvedHeight, maxHeight: resolvedHeight };
@@ -172,20 +172,17 @@ export const MonacoEditor = ({
       },
     });
   }, []);
-  const handleMount = useCallback(
-    (editorInstance: editor.IStandaloneCodeEditor) => {
-      // Disable problematic IntelliSense features that cause control access errors
-      editorInstance.updateOptions({
-        quickSuggestions: false,
-        parameterHints: { enabled: false },
-        suggestOnTriggerCharacters: false,
-        acceptSuggestionOnEnter: "off",
-        tabCompletion: "off",
-        wordBasedSuggestions: "off",
-      });
-    },
-    [],
-  );
+  const handleMount = useCallback((editorInstance: editor.IStandaloneCodeEditor) => {
+    // Disable problematic IntelliSense features that cause control access errors
+    editorInstance.updateOptions({
+      quickSuggestions: false,
+      parameterHints: { enabled: false },
+      suggestOnTriggerCharacters: false,
+      acceptSuggestionOnEnter: "off",
+      tabCompletion: "off",
+      wordBasedSuggestions: "off",
+    });
+  }, []);
 
   if (!editorModule) {
     if (readOnly) {
@@ -204,19 +201,35 @@ export const MonacoEditor = ({
 
     return (
       <textarea
+        ref={textareaRef}
         id="content"
         defaultValue={value}
         onInput={(event) => onChange?.(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab" || event.metaKey || event.ctrlKey || event.altKey) {
+            return;
+          }
+          event.preventDefault();
+          const node = event.currentTarget;
+          const start = node.selectionStart;
+          const end = node.selectionEnd;
+          const next = `${node.value.slice(0, start)}  ${node.value.slice(end)}`;
+          node.value = next;
+          node.selectionStart = node.selectionEnd = start + 2;
+          onChange?.(next);
+        }}
         className={clsx(
           "h-full w-full resize-none rounded-none border-0 bg-transparent p-4 font-mono text-base text-text placeholder:text-muted-foreground focus:outline-none md:text-sm",
           className,
         )}
-        placeholder="Type here, then Get link"
+        placeholder="Type here, then Get link. Drop a file if you want."
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
+        autoComplete="off"
         autoFocus
-        enterKeyHint="send"
+        enterKeyHint="enter"
+        wrap="soft"
         style={fillStyle}
       />
     );

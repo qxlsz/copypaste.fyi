@@ -35,6 +35,7 @@ import {
 import { whisperNote, sharePayload } from "../lib/whisper";
 import { agentReceipt } from "../lib/agent";
 import { sniffFormatFromText } from "../lib/sniffFormat";
+import { MAX_PASTE_BYTES, composerStats, isTextFile, sniffFormat } from "../lib/composer";
 import { useAuth } from "../stores/auth";
 
 const formatOptions: Array<{ label: string; value: PasteFormat }> = [
@@ -137,8 +138,10 @@ export const PasteFormPage = () => {
   const [showWriteToken, setShowWriteToken] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef(content);
   const idleRef = useRef(0);
+  const [isDragging, setIsDragging] = useState(false);
 
   const setLiveContent = (next: string) => {
     contentRef.current = next;
@@ -158,6 +161,52 @@ export const PasteFormPage = () => {
       setAutoFormat(true);
     }
   }, [content, format]);
+
+  const stats = composerStats(content);
+
+  const applyText = (next: string, filename?: string) => {
+    if (new TextEncoder().encode(next).byteLength > MAX_PASTE_BYTES) {
+      toast.error("That file is over 1 MB");
+      return;
+    }
+    contentRef.current = next;
+    setContent(next);
+    if (filename) {
+      const sniffed = sniffFormat(filename);
+      if (sniffed) {
+        formatLocked.current = true;
+        setAutoFormat(false);
+        setFormat(sniffed);
+      }
+    }
+  };
+
+  const loadFile = async (file: File) => {
+    if (!isTextFile(file)) {
+      toast.error("Drop a text file");
+      return;
+    }
+    if (file.size > MAX_PASTE_BYTES) {
+      toast.error("That file is over 1 MB");
+      return;
+    }
+    applyText(await file.text(), file.name);
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        toast.error("Clipboard is empty");
+        return;
+      }
+      applyText(text);
+      toast.success("Pasted");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error("Unable to read clipboard", { description: message });
+    }
+  };
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -574,7 +623,24 @@ export const PasteFormPage = () => {
           <label className="sr-only" htmlFor="content">
             Content
           </label>
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div
+            className={`relative min-h-0 flex-1 overflow-hidden ${isDragging ? "bg-muted/40" : ""}`}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragging(false);
+              const file = event.dataTransfer.files[0];
+              if (file) void loadFile(file);
+            }}
+          >
             <MonacoEditor
               value={content}
               onChange={setLiveContent}
@@ -582,11 +648,53 @@ export const PasteFormPage = () => {
               height="100%"
               className="absolute inset-0 h-full min-h-0 w-full"
             />
+            {isDragging ? (
+              <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                Drop to replace the box
+              </p>
+            ) : null}
           </div>
         </>
       )}
       {!shareLink && (
         <div className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,calc(var(--keyboard-inset,0px)+env(safe-area-inset-bottom)))]">
+          <div className="flex items-center gap-2 px-3 pt-2 text-xs text-muted-foreground sm:px-4">
+            <span>
+              {stats.chars === 0
+                ? "Empty"
+                : `${stats.chars} chars · ${stats.lines} line${stats.lines === 1 ? "" : "s"}`}
+            </span>
+            {stats.bytes > MAX_PASTE_BYTES * 0.9 ? (
+              <span className="text-danger">{Math.ceil(stats.bytes / 1024)} KB / 1024 KB</span>
+            ) : null}
+            <span className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-text underline-offset-2 hover:underline"
+              >
+                Open file
+              </button>
+              <button
+                type="button"
+                onClick={() => void handlePasteClipboard()}
+                className="text-text underline-offset-2 hover:underline"
+              >
+                Paste
+              </button>
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="text/*,.md,.json,.js,.ts,.py,.rs,.go,.rb,.sh,.yml,.yaml,.sql,.html,.css,.txt"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void loadFile(file);
+              }}
+            />
+          </div>
           {(showWriteToken || writeCredential) && (
             <div className="space-y-1.5 px-3 pt-3 sm:px-4">
               <label className={fieldLabelClasses} htmlFor="write-credential">
