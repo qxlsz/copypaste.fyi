@@ -176,4 +176,33 @@ describe("PasteView sensitive query lifecycle", () => {
     ).toBeInTheDocument();
     expect(screen.queryByLabelText("encryption key")).not.toBeInTheDocument();
   });
+
+  it("hides cached content once expiresAt has passed", async () => {
+    mockedFetchPaste.mockResolvedValue({
+      id: "paste-id",
+      format: "plain_text",
+      content: "should not remain visible",
+      createdAt: 1,
+      expiresAt: 1,
+      burnAfterReading: false,
+      encryption: { algorithm: "none", requiresKey: false },
+      torAccessOnly: false,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/p/paste-id"]}>
+          <Routes>
+            <Route path="/p/:id" element={<PasteViewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByLabelText("Paste not found")).toBeInTheDocument();
+    expect(screen.queryByText("should not remain visible")).not.toBeInTheDocument();
+  });
 });

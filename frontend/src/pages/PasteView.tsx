@@ -104,6 +104,22 @@ const parseHashKey = (hash: string): string | undefined => {
 const iconActionClasses =
   "inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none sm:size-10";
 
+const useHasExpired = (expiresAt: number | null | undefined): boolean => {
+  const [now, setNow] = useState(() => Date.now());
+  const expired = typeof expiresAt === "number" && now >= expiresAt * 1000;
+
+  useEffect(() => {
+    if (typeof expiresAt !== "number" || expired) {
+      return;
+    }
+    const delay = Math.max(0, expiresAt * 1000 - Date.now());
+    const timeoutId = window.setTimeout(() => setNow(Date.now()), delay);
+    return () => window.clearTimeout(timeoutId);
+  }, [expiresAt, expired]);
+
+  return expired;
+};
+
 // Live "expires in …" countdown for the metadata row. Ticks every second
 // under an hour (seconds are visible), every minute otherwise, and stops
 // once the paste has expired.
@@ -233,6 +249,8 @@ export const PasteViewPage = () => {
     queryKey,
     queryFn: () => fetchPaste(id!, key),
   });
+
+  const clientExpired = useHasExpired(data?.expiresAt);
 
   useEffect(() => {
     const clearSensitiveQuery = () => {
@@ -396,6 +414,10 @@ export const PasteViewPage = () => {
         }
       />
     );
+  }
+
+  if (clientExpired) {
+    return <LostPaste seed={id} />;
   }
 
   return (

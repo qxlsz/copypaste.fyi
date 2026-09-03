@@ -397,3 +397,46 @@ async fn workspace_at_max_length_accepted() {
         .await;
     assert_eq!(response.status(), Status::Ok);
 }
+
+#[rocket::async_test]
+async fn concurrent_burn_reads_return_at_most_one_body() {
+    let client = rocket_client().await;
+    let payload = json!({
+        "content": "one shot",
+        "format": "plain_text",
+        "burn_after_reading": true
+    });
+
+    let created = client
+        .post("/api/pastes")
+        .header(ContentType::JSON)
+        .body(payload.to_string())
+        .dispatch()
+        .await;
+    assert_eq!(created.status(), Status::Ok);
+    let body: serde_json::Value =
+        serde_json::from_str(&created.into_string().await.expect("create body")).expect("json");
+    let id = body["id"].as_str().expect("id");
+    let path = format!("/api/pastes/{id}");
+
+    let (first, second) = tokio::join!(client.get(&path).dispatch(), client.get(&path).dispatch());
+
+    let outcomes = [first, second];
+    let ok_count = outcomes
+        .iter()
+        .filter(|response| response.status() == Status::Ok)
+        .count();
+    assert_eq!(
+        ok_count, 1,
+        "exactly one concurrent burn read may return the body"
+    );
+    for response in outcomes {
+        if response.status() != Status::Ok {
+            assert_eq!(response.status(), Status::NotFound);
+            let body = response.into_string().await.expect("absence body");
+            assert!(body.contains("paste_not_found"));
+            assert!(!body.contains("one shot"));
+            assert!(!body.contains("paste_consumed"));
+        }
+    }
+}

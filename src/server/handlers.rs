@@ -914,20 +914,24 @@ fn public_paste_absence() -> (Status, Json<ApiError>) {
     )
 }
 
-/// Infallible guard extracting the optional `X-Paste-Key` request header.
+/// Optional `X-Paste-Key` request header.
 ///
 /// Passing decryption keys via header keeps them out of server/proxy access
 /// logs and `Referer` headers, unlike the legacy `?key=` query parameter.
+/// Duplicate headers are ambiguous and fail closed.
 pub struct PasteKeyHeader(pub Option<String>);
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for PasteKeyHeader {
-    type Error = std::convert::Infallible;
+    type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        Outcome::Success(PasteKeyHeader(
-            req.headers().get_one("X-Paste-Key").map(str::to_owned),
-        ))
+        let mut values = req.headers().get("X-Paste-Key");
+        match (values.next(), values.next()) {
+            (Some(value), None) => Outcome::Success(PasteKeyHeader(Some(value.to_owned()))),
+            (None, None) => Outcome::Success(PasteKeyHeader(None)),
+            _ => Outcome::Error((Status::BadRequest, ())),
+        }
     }
 }
 
@@ -1082,13 +1086,7 @@ async fn show_api(
                 }
             }
             Ok(false) => {
-                return Err((
-                    Status::Gone,
-                    Json(ApiError::new(
-                        "paste_consumed",
-                        "This paste was already consumed",
-                    )),
-                ));
+                return Err(public_paste_absence());
             }
             Err(_) => {
                 rocket::error!("burn_delete_failed");
@@ -1342,7 +1340,7 @@ async fn show_html_core(
                                     events_to_fire.push((config, WebhookEvent::Consumed));
                                 }
                             }
-                            Ok(false) => return Err(Status::Gone),
+                            Ok(false) => return Err(Status::NotFound),
                             Err(_) => {
                                 rocket::error!("burn_delete_failed");
                                 return Err(Status::ServiceUnavailable);
@@ -1467,7 +1465,7 @@ async fn show_raw(
                                     );
                                 }
                             }
-                            Ok(false) => return Err(Status::Gone),
+                            Ok(false) => return Err(Status::NotFound),
                             Err(_) => {
                                 rocket::error!("burn_delete_failed");
                                 return Err(Status::ServiceUnavailable);
@@ -1613,6 +1611,13 @@ fn expiration_from_retention(
     let Some(minutes) = retention_minutes else {
         return Ok(None);
     };
+
+    if minutes == 0 {
+        return Err((
+            Status::BadRequest,
+            "retention_minutes must be at least 1".to_string(),
+        ));
+    }
 
     if max_retention_minutes.is_some_and(|max| minutes > max) {
         return Err((
@@ -2803,6 +2808,82 @@ mod tests {
         assert_eq!(gone.status(), Status::NotFound);
     }
 
+    struct ConsumeMissStore {
+        inner: MemoryPasteStore,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::PasteStore for ConsumeMissStore {
+        async fn create_paste(
+            &self,
+            paste: StoredPaste,
+        ) -> Result<String, crate::PersistenceError> {
+            self.inner.create_paste(paste).await
+        }
+
+        async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError> {
+            self.inner.get_paste(id).await
+        }
+
+        async fn delete_paste(&self, _id: &str) -> Result<bool, crate::PersistenceError> {
+            Ok(false)
+        }
+
+        async fn get_all_paste_ids(&self) -> Vec<String> {
+            self.inner.get_all_paste_ids().await
+        }
+
+        async fn stats(&self) -> crate::StoreStats {
+            self.inner.stats().await
+        }
+
+        async fn update_paste(
+            &self,
+            id: &str,
+            content: StoredContent,
+        ) -> Result<(), PasteMutationError> {
+            self.inner.update_paste(id, content).await
+        }
+
+        async fn finalize_paste(&self, id: &str) -> Result<(), PasteMutationError> {
+            self.inner.finalize_paste(id).await
+        }
+    }
+
+    #[test]
+    fn show_api_burn_race_loser_matches_missing_paste() {
+        let store: SharedPasteStore = Arc::new(ConsumeMissStore {
+            inner: MemoryPasteStore::new(),
+        });
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "only one reader",
+                    "format": "plain_text",
+                    "burn_after_reading": true
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).expect("parse");
+
+        let raced = client.get(format!("/api/pastes/{}", created.id)).dispatch();
+        let missing = client.get("/api/pastes/no-such-paste").dispatch();
+        assert_eq!(raced.status(), Status::NotFound);
+        assert_eq!(missing.status(), Status::NotFound);
+        assert_eq!(
+            raced.into_string().expect("raced body"),
+            missing.into_string().expect("missing body")
+        );
+    }
+
     #[test]
     fn show_api_enforces_time_lock_and_attestation() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
@@ -2990,6 +3071,68 @@ mod tests {
             user_client
                 .get("/api/user/pastes")
                 .header(bearer(&session_token))
+                .dispatch()
+                .status(),
+            Status::TooManyRequests
+        );
+    }
+
+    #[test]
+    fn paste_read_routes_enforce_read_limits() {
+        fn limited_client(store: SharedPasteStore) -> Client {
+            let api_key_store: SharedApiKeyStore = Arc::new(SqliteApiKeyStore::disabled());
+            Client::tracked(build_rocket_with_components(
+                store,
+                api_key_store,
+                PasteRateLimiter::new(None, Some(1)),
+                StaticAuthTokens::default(),
+                FeaturePolicy::default(),
+                BlockedPasteIds::default(),
+                None,
+            ))
+            .expect("client")
+        }
+
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let setup = Client::tracked(build_rocket(Arc::clone(&store))).expect("setup");
+        let created: CreatePasteResponse = serde_json::from_str(
+            &setup
+                .post("/api/pastes")
+                .header(ContentType::JSON)
+                .body(json!({ "content": "limited", "format": "plain_text" }).to_string())
+                .dispatch()
+                .into_string()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let api_client = limited_client(Arc::clone(&store));
+        assert_eq!(
+            api_client
+                .get(format!("/api/pastes/{}", created.id))
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+        assert_eq!(
+            api_client
+                .get(format!("/api/pastes/{}", created.id))
+                .dispatch()
+                .status(),
+            Status::TooManyRequests
+        );
+
+        let raw_client = limited_client(store);
+        assert_eq!(
+            raw_client
+                .get(format!("/raw/{}", created.id))
+                .dispatch()
+                .status(),
+            Status::Ok
+        );
+        assert_eq!(
+            raw_client
+                .get(format!("/raw/{}", created.id))
                 .dispatch()
                 .status(),
             Status::TooManyRequests
@@ -5180,6 +5323,36 @@ mod tests {
     }
 
     #[test]
+    fn show_api_rejects_duplicate_paste_key_headers() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let create = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "ambiguous",
+                    "format": "plain_text",
+                    "encryption": { "algorithm": "aes256_gcm", "key": "headerpass" }
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(create.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&create.into_string().unwrap()).unwrap();
+
+        let ambiguous = client
+            .get(format!("/api/pastes/{}", created.id))
+            .header(rocket::http::Header::new("X-Paste-Key", "headerpass"))
+            .header(rocket::http::Header::new("X-Paste-Key", "other"))
+            .dispatch();
+        assert_eq!(ambiguous.status(), Status::BadRequest);
+    }
+
+    #[test]
     fn raw_route_accepts_key_via_header_and_header_wins_over_query() {
         let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
         let rocket = build_rocket(store);
@@ -5206,6 +5379,15 @@ mod tests {
             .header(rocket::http::Header::new("X-Paste-Key", "headerpass"))
             .dispatch();
         assert_eq!(ok.status(), Status::Ok);
+        let content_type = ok.headers().get_one("Content-Type").unwrap_or_default();
+        assert!(
+            content_type.starts_with("text/plain"),
+            "raw body must be text/plain, got {content_type}"
+        );
+        assert_eq!(
+            ok.headers().get_one("X-Content-Type-Options"),
+            Some("nosniff")
+        );
         assert_eq!(ok.into_string().as_deref(), Some("raw header secret"));
 
         let forbidden = client
@@ -5329,6 +5511,57 @@ mod tests {
         );
 
         std::env::remove_var("COPYPASTE_RETENTION_DEFAULT_MINUTES");
+    }
+
+    #[test]
+    fn create_api_rejects_zero_retention_minutes() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(json!({ "content": "x", "retention_minutes": 0 }).to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::BadRequest);
+        let err: ApiError = serde_json::from_str(&response.into_string().unwrap()).unwrap();
+        assert_eq!(err.code, "bad_request");
+        assert!(err.message.contains("at least 1"));
+    }
+
+    #[test]
+    fn create_api_one_minute_retention_is_readable() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(Arc::clone(&store));
+        let client = Client::tracked(rocket).expect("client");
+
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "content": "still here",
+                    "format": "plain_text",
+                    "retention_minutes": 1
+                })
+                .to_string(),
+            )
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let created: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+
+        let view = client.get(format!("/api/pastes/{}", created.id)).dispatch();
+        assert_eq!(view.status(), Status::Ok);
+        let body: PasteViewResponse = serde_json::from_str(&view.into_string().unwrap()).unwrap();
+        assert_eq!(body.content, "still here");
+        let expires_at = body.expires_at.expect("one-minute retention");
+        let expected = current_timestamp() + 60;
+        assert!(
+            (expires_at - expected).abs() <= 5,
+            "expires_at should be ~60 seconds out"
+        );
     }
 
     // ── Per-IP rate limiting (config knobs wired up) ───────────────────────────

@@ -1,3 +1,5 @@
+import { publicPasteUrl } from "./openAgents";
+
 /** A share note that does not pretend the paste is listed or forever. */
 export const whisperLine =
   "Not listed. If that page says you're lost, it burned, expired, or never existed.";
@@ -8,5 +10,5 @@ export const whisperNote = (url: string): string => `${url}\n\n${whisperLine}`;
 export const sharePayload = (url: string): ShareData => ({
   title: "copypaste.fyi",
   text: whisperLine,
-  url,
+  url: publicPasteUrl(url),
 });
