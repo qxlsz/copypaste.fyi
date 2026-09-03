@@ -264,9 +264,10 @@ async fn time_locked_paste_is_protected() {
     let client = rocket_client_with_store(store.clone()).await;
 
     let gated = client.get(format!("/{id}")).dispatch().await;
-    assert_eq!(gated.status(), Status::Ok);
+    assert_eq!(gated.status(), Status::Locked);
     let gated_html = gated.into_string().await.expect("html body");
     assert!(gated_html.contains("Time-locked paste"));
+    assert!(!gated_html.contains("sealed"));
 
     let raw = client.get(format!("/raw/{id}")).dispatch().await;
     assert_eq!(raw.status(), Status::Locked);

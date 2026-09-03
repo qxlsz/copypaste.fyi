@@ -205,7 +205,6 @@ pub fn render_time_locked(state: super::time::TimeLockState) -> String {
 pub fn render_attestation_prompt(
     id: &str,
     needs_key_field: bool,
-    existing_key: Option<&str>,
     requirement: &AttestationRequirement,
     invalid: bool,
 ) -> String {
@@ -235,11 +234,6 @@ pub fn render_attestation_prompt(
         <input type="password" name="key" id="key" required />
 "#,
         );
-    } else if let Some(key) = existing_key {
-        let escaped = encode_safe(key);
-        form_inputs.push_str(&format!(
-            "        <input type=\"hidden\" name=\"key\" value=\"{escaped}\" />\n"
-        ));
     }
 
     form_inputs.push_str(&format!(
@@ -272,7 +266,7 @@ pub fn render_attestation_prompt(
     <h2>Additional verification required</h2>
     <p>{helper}</p>
     {error}
-    <form method="get" action="/{id}">
+    <form method="post" action="/{id}">
 {inputs}        <button type="submit">Continue</button>
     </form>
 </section>
@@ -292,7 +286,7 @@ pub fn render_key_prompt(id: &str) -> String {
             r#"<section class="notice">
     <h2>This paste is encrypted</h2>
     <p>Provide the encryption key to view the content.</p>
-    <form method="get" action="/{id}">
+    <form method="post" action="/{id}">
         <label for="key">Encryption key</label>
         <input type="password" name="key" id="key" required />
         <button type="submit">Decrypt</button>
@@ -311,7 +305,7 @@ pub fn render_invalid_key(id: &str) -> String {
             r#"<section class="notice error">
     <h2>Invalid encryption key</h2>
     <p>The key you entered could not decrypt this paste.</p>
-    <form method="get" action="/{id}">
+    <form method="post" action="/{id}">
         <label for="key">Try again</label>
         <input type="password" name="key" id="key" required />
         <button type="submit">Decrypt</button>
@@ -509,7 +503,6 @@ mod tests {
         let totp_html = render_attestation_prompt(
             "id",
             true,
-            None,
             &AttestationRequirement::Totp {
                 secret: "secret".into(),
                 digits: 6,
@@ -520,29 +513,36 @@ mod tests {
             true,
         );
         assert!(totp_html.contains("Encryption key"));
+        assert!(totp_html.contains("method=\"post\""));
+        assert!(!totp_html.contains("method=\"get\""));
         assert!(totp_html.contains("pattern=\"[0-9]{6,10}\""));
         assert!(totp_html.contains("Verification failed"));
 
         let secret_html = render_attestation_prompt(
             "id",
             false,
-            Some("existing"),
             &AttestationRequirement::SharedSecret {
                 hash: "hash".into(),
             },
             false,
         );
         assert!(secret_html.contains("type=\"password\""));
-        assert!(secret_html.contains("existing"));
+        assert!(secret_html.contains("method=\"post\""));
+        assert!(!secret_html.contains("name=\"key\""));
+        assert!(!secret_html.contains("existing"));
     }
 
     #[test]
     fn render_key_and_error_prompts() {
         let key_html = render_key_prompt("abc");
         assert!(key_html.contains("Encryption key"));
+        assert!(key_html.contains("method=\"post\""));
+        assert!(!key_html.contains("method=\"get\""));
 
         let invalid_html = render_invalid_key("def");
         assert!(invalid_html.contains("Invalid encryption key"));
+        assert!(invalid_html.contains("method=\"post\""));
+        assert!(!invalid_html.contains("method=\"get\""));
     }
 
     #[test]
