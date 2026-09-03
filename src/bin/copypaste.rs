@@ -421,13 +421,21 @@ struct SendReceipt {
     algorithm: Option<String>,
 }
 
+fn api_read_url(share_url: &str, id: &str) -> String {
+    if share_url.contains("/p/") {
+        return share_url.replacen("/p/", "/api/pastes/", 1);
+    }
+    let suffix = format!("/{id}");
+    if let Some(prefix) = share_url.strip_suffix(suffix.as_str()) {
+        format!("{prefix}/api/pastes/{id}")
+    } else {
+        share_url.to_string()
+    }
+}
+
 impl SendReceipt {
     fn to_json(&self) -> io::Result<String> {
-        let get = if self.url.contains("/p/") {
-            self.url.replacen("/p/", "/api/pastes/", 1)
-        } else {
-            self.url.clone()
-        };
+        let get = api_read_url(&self.url, &self.id);
         let mut headers = serde_json::Map::new();
         if let Some(key) = &self.key {
             headers.insert(
@@ -895,6 +903,94 @@ mod tests {
     }
 
     #[test]
+    fn send_json_legacy_html_path_receipt_uses_api_get_url() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200).body("/legacyId01");
+        });
+        let base = server.base_url();
+        let args =
+            SendArgs::parse_from(["copypaste-send", "hello", "--host", base.as_str(), "--json"]);
+        let receipt = execute_send_receipt(args).expect("legacy path send");
+        mock.assert();
+        assert_eq!(receipt.url, format!("{base}/legacyId01"));
+        assert_eq!(receipt.id, "legacyId01");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&receipt.to_json().expect("json")).expect("parse");
+        assert_eq!(parsed["get"], format!("{base}/api/pastes/legacyId01"));
+        assert_eq!(parsed["url"], format!("{base}/legacyId01"));
+        assert!(
+            parsed["get"].as_str().unwrap().contains("/api/pastes/"),
+            "agent get must be the JSON read route"
+        );
+    }
+
+    #[test]
+    fn send_reads_encryption_key_from_env() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/").json_body_includes(
+                json!({ "encryption": { "algorithm": "aes256_gcm", "key": "env-secret-key" } })
+                    .to_string(),
+            );
+            then.status(200).body("/p/envKey01");
+        });
+        let base = server.base_url();
+        let previous = std::env::var("COPYPASTE_ENCRYPTION_KEY").ok();
+        std::env::set_var("COPYPASTE_ENCRYPTION_KEY", "env-secret-key");
+        let args = SendArgs::parse_from([
+            "copypaste-send",
+            "payload",
+            "--host",
+            base.as_str(),
+            "--encryption-mode",
+            "aes256_gcm",
+            "--json",
+        ]);
+        let result = execute_send_receipt(args);
+        match previous {
+            Some(value) => std::env::set_var("COPYPASTE_ENCRYPTION_KEY", value),
+            None => std::env::remove_var("COPYPASTE_ENCRYPTION_KEY"),
+        }
+        let receipt = result.expect("env key send");
+        mock.assert();
+        assert_eq!(receipt.key.as_deref(), Some("env-secret-key"));
+        let parsed: serde_json::Value =
+            serde_json::from_str(&receipt.to_json().expect("json")).expect("parse");
+        assert_eq!(parsed["headers"]["X-Paste-Key"], "env-secret-key");
+        assert_eq!(parsed["get"], format!("{base}/api/pastes/envKey01"));
+        assert!(!parsed["url"].as_str().unwrap().contains("env-secret-key"));
+    }
+
+    #[test]
+    fn send_reports_unauthorized_without_echoing_the_write_token() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/")
+                .header("x-copypaste-write-token", "closed-instance-token");
+            then.status(401).body(r#"{"code":"unauthorized"}"#);
+        });
+        let token_file = write_owner_only_secret_file("closed-instance-token");
+        let base = server.base_url();
+        let args = SendArgs::parse_from([
+            "copypaste-send",
+            "hello",
+            "--host",
+            base.as_str(),
+            "--auth-token-file",
+            token_file.to_str().expect("utf-8 token path"),
+        ]);
+        let error = execute_send(args).expect_err("closed instance");
+        std::fs::remove_file(token_file).expect("remove token file");
+        mock.assert();
+        let message = error.to_string();
+        assert!(message.contains("401"), "{message}");
+        assert!(!message.contains("closed-instance-token"), "{message}");
+    }
+
+    #[test]
     fn send_json_plain_omits_key() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
@@ -912,6 +1008,22 @@ mod tests {
         assert_eq!(parsed["copypaste"], 1);
         assert!(parsed.get("key").is_none());
         assert!(parsed.get("headers").is_none());
+    }
+
+    #[test]
+    fn api_read_url_maps_share_and_legacy_html_paths() {
+        assert_eq!(
+            api_read_url("https://www.copypaste.fyi/p/AbCdEf", "AbCdEf"),
+            "https://www.copypaste.fyi/api/pastes/AbCdEf"
+        );
+        assert_eq!(
+            api_read_url("http://127.0.0.1:8000/legacyId01", "legacyId01"),
+            "http://127.0.0.1:8000/api/pastes/legacyId01"
+        );
+        assert_eq!(
+            api_read_url("https://www.copypaste.fyi/p/AbCdEf/", "AbCdEf"),
+            "https://www.copypaste.fyi/api/pastes/AbCdEf/"
+        );
     }
 
     #[test]

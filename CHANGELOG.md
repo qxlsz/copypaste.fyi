@@ -31,8 +31,18 @@ All notable changes to copypaste.fyi are documented here. The project follows
   `--auth-token-file` or `COPYPASTE_AUTH_TOKEN` and encryption keys from
   `--encryption-key-file` or `COPYPASTE_ENCRYPTION_KEY`.
 
+### Changed
+
+- Operator docs now match public read status codes: retention expiry is `404` on JSON, HTML, and
+  raw; `410` is for mutations of an still-observable expired record and for raw reads after the
+  time-lock window.
+
 ### Fixed
 
+- `copypaste send --json` / `--agent` receipts now map a legacy `/{id}` create path to
+  `GET /api/pastes/{id}` so the `get` field is the JSON read URL, not the HTML page.
+- Self-host cookbook now uses `--auth-token-file` (the real CLI flag) instead of
+  `--write-token-file`.
 - Docker and Compose now detect an unresponsive `copypaste` process. The distroless image and
   Compose service probe `GET /api/health` through `copypaste healthcheck` (exec form, no shell).
 

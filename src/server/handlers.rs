@@ -950,6 +950,8 @@ impl<'r> FromRequest<'r> for PasteKeyHeader {
         (status = 401, description = "Key required", body = ApiError),
         (status = 403, description = "Invalid key", body = ApiError),
         (status = 404, description = "Paste not found, burned, or expired", body = ApiError),
+        (status = 423, description = "Outside the time-lock window", body = ApiError),
+        (status = 429, description = "Read rate limit exceeded", body = ApiError),
         (status = 503, description = "Paste storage unavailable", body = ApiError),
     )
 )]
@@ -1186,6 +1188,7 @@ async fn create(
         (status = 400, description = "Invalid request", body = ApiError),
         (status = 401, description = "Authentication required", body = ApiError),
         (status = 403, description = "Forbidden", body = ApiError),
+        (status = 429, description = "Create rate limit exceeded", body = ApiError),
         (status = 500, description = "Internal server error", body = ApiError),
     )
 )]
@@ -5365,6 +5368,46 @@ mod tests {
             .dispatch();
         assert_eq!(resp.status(), Status::TooManyRequests);
         assert_eq!(resp.headers().get_one("Retry-After"), Some("60"));
+    }
+
+    #[test]
+    fn create_rate_limit_applies_to_legacy_post_root() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let api_key_store: SharedApiKeyStore =
+            Arc::new(SqliteApiKeyStore::in_memory().expect("failed to initialise API key store"));
+        let rocket = build_rocket_with_components(
+            store,
+            api_key_store,
+            PasteRateLimiter::new(Some(1), None),
+            StaticAuthTokens::default(),
+            FeaturePolicy::default(),
+            BlockedPasteIds::default(),
+            None,
+        );
+        let client = Client::tracked(rocket).expect("client");
+        let body = json!({ "content": "legacy rate", "format": "plain_text" }).to_string();
+
+        let first = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(body.clone())
+            .dispatch();
+        assert_eq!(first.status(), Status::Ok);
+
+        let limited = client
+            .post("/")
+            .header(ContentType::JSON)
+            .body(body.clone())
+            .dispatch();
+        assert_eq!(limited.status(), Status::TooManyRequests);
+        assert_eq!(limited.headers().get_one("Retry-After"), Some("60"));
+
+        let api_also_limited = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(body)
+            .dispatch();
+        assert_eq!(api_also_limited.status(), Status::TooManyRequests);
     }
 
     // ── Workspace persistence & listing ────────────────────────────────────────
