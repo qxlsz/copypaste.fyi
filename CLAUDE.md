@@ -127,10 +127,10 @@ Operations:
 - `GET|DELETE /api/admin/pastes/{id}`: exact-ID metadata inspection and deletion
 
 The JSON paste route returns `423 Locked` before and after a configured time-lock window. Raw reads
-return `423` before the window and `410` after it. HTML time-lock pages return `200` with a locked
-or elapsed message. Public JSON, HTML, and raw reads treat retention expiry the same as a missing
-paste (`404`). Update, finalize, and admin routes return `410` while an expired record is still
-observable. All JSON, HTML, and raw read routes accept `X-Paste-Key`; it overrides legacy `?key=`.
+return `423` before the window and `410` after it. Public JSON, HTML, and raw reads treat retention
+expiry the same as a missing paste (`404`). Update, finalize, and admin routes return `410` while
+an expired record is still observable. All JSON, HTML, and raw read routes accept `X-Paste-Key`;
+it overrides legacy `?key=`.
 
 ## Storage
 

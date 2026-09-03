@@ -31,12 +31,6 @@ All notable changes to copypaste.fyi are documented here. The project follows
   `--auth-token-file` or `COPYPASTE_AUTH_TOKEN` and encryption keys from
   `--encryption-key-file` or `COPYPASTE_ENCRYPTION_KEY`.
 
-### Changed
-
-- Operator docs now match public read status codes: retention expiry is `404` on JSON, HTML, and
-  raw; `410` is for mutations of an still-observable expired record and for raw reads after the
-  time-lock window.
-
 ### Fixed
 
 - `copypaste send --json` / `--agent` receipts now map a legacy `/{id}` create path to
@@ -108,8 +102,9 @@ All notable changes to copypaste.fyi are documented here. The project follows
   is selected with `COPYPASTE_PERSISTENCE_BACKEND=redis` and configured with
   `UPSTASH_REDIS_REST_URL` plus `UPSTASH_REDIS_REST_TOKEN`.
 - Changed the JSON time-lock response to `423 Locked` while outside the configured access window.
-  An observable expired record returns `410 Gone`; after cache removal or Redis TTL expiry, it is
-  indistinguishable from an absent record and returns `404`.
+  Public JSON, HTML, and raw reads treat retention expiry the same as a missing paste (`404`).
+  Update, finalize, and admin routes return `410` while an expired record is still observable.
+  Raw reads after the time-lock window also return `410`.
 - Restricted anchoring to administrators and removed plaintext content commitments. Plaintext
   manifests contain content-free metadata only. Encrypted manifests commit, with domain
   separation, to randomized encrypted storage fields rather than deterministic plaintext hashes.

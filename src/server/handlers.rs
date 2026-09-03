@@ -951,7 +951,7 @@ impl<'r> FromRequest<'r> for PasteKeyHeader {
         (status = 403, description = "Invalid key", body = ApiError),
         (status = 404, description = "Paste not found, burned, or expired", body = ApiError),
         (status = 423, description = "Outside the time-lock window", body = ApiError),
-        (status = 429, description = "Read rate limit exceeded", body = ApiError),
+        (status = 429, description = "Read rate limit exceeded"),
         (status = 503, description = "Paste storage unavailable", body = ApiError),
     )
 )]
@@ -1188,7 +1188,7 @@ async fn create(
         (status = 400, description = "Invalid request", body = ApiError),
         (status = 401, description = "Authentication required", body = ApiError),
         (status = 403, description = "Forbidden", body = ApiError),
-        (status = 429, description = "Create rate limit exceeded", body = ApiError),
+        (status = 429, description = "Create rate limit exceeded"),
         (status = 500, description = "Internal server error", body = ApiError),
     )
 )]

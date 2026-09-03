@@ -422,8 +422,11 @@ struct SendReceipt {
 }
 
 fn api_read_url(share_url: &str, id: &str) -> String {
-    if share_url.contains("/p/") {
-        return share_url.replacen("/p/", "/api/pastes/", 1);
+    let share_url = share_url.trim_end_matches('/');
+    let id = id.trim_end_matches('/');
+    if let Some(idx) = share_url.rfind("/p/") {
+        let prefix = &share_url[..idx];
+        return format!("{prefix}/api/pastes/{id}");
     }
     let suffix = format!("/{id}");
     if let Some(prefix) = share_url.strip_suffix(suffix.as_str()) {
@@ -1022,7 +1025,7 @@ mod tests {
         );
         assert_eq!(
             api_read_url("https://www.copypaste.fyi/p/AbCdEf/", "AbCdEf"),
-            "https://www.copypaste.fyi/api/pastes/AbCdEf/"
+            "https://www.copypaste.fyi/api/pastes/AbCdEf"
         );
     }
 

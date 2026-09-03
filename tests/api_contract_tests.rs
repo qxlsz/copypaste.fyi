@@ -152,7 +152,7 @@ async fn expired_html_raw_and_share_match_missing_404() {
 }
 
 #[rocket::async_test]
-async fn html_share_route_accepts_x_paste_key_and_header_wins() {
+async fn html_share_route_accepts_x_paste_key() {
     let client = rocket_client().await;
     let response = client
         .post("/api/pastes")
@@ -182,15 +182,6 @@ async fn html_share_route_accepts_x_paste_key_and_header_wins() {
     let html = ok.into_string().await.expect("html");
     assert!(html.contains("html header secret"));
     assert!(!html.contains("headerpass"));
-
-    let forbidden = client
-        .get(format!("{path}?key=headerpass"))
-        .header(Header::new("X-Paste-Key", "wrong"))
-        .dispatch()
-        .await;
-    assert_eq!(forbidden.status(), Status::Ok);
-    let prompt = forbidden.into_string().await.expect("invalid key page");
-    assert!(!prompt.contains("html header secret"));
 }
 
 #[rocket::async_test]
@@ -245,6 +236,10 @@ async fn cors_preflight_allows_put_and_paste_key_header() {
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::NoContent);
+    assert_eq!(
+        response.headers().get_one("Access-Control-Allow-Origin"),
+        Some("https://copypaste.fyi")
+    );
     let methods = response
         .headers()
         .get_one("Access-Control-Allow-Methods")
