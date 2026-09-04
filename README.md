@@ -145,7 +145,7 @@ curl -sS -X POST https://www.copypaste.fyi/api/pastes \
   -d '{"content":"hello from curl","format":"plain_text"}'
 ```
 
-`401` missing key · `403` bad key · `404` missing, burned, or expired · `423` time-lock · `503` storage down.
+`401` missing key · `403` bad key · `404` missing, burned, or expired · `423` JSON time-lock · `410` raw after the time-lock window · `503` storage down.
 
 ## CLI
 

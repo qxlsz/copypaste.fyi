@@ -122,7 +122,7 @@ ROCKET_ADDRESS=127.0.0.1 copypaste serve
 Clients send `X-CopyPaste-Write-Token: <credential>`. Never put the token on argv.
 
 ```bash
-copypaste send --host http://127.0.0.1:8000 --write-token-file ./write.token "secret"
+copypaste send --host http://127.0.0.1:8000 --auth-token-file ./write.token "secret"
 ```
 
 ## 5. What the public site does vs you

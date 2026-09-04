@@ -133,6 +133,10 @@ fn set_security_headers(response: &mut Response<'_>) {
     ));
     response.set_header(Header::new("Permissions-Policy", PERMISSIONS_POLICY));
     response.set_header(Header::new("Cross-Origin-Opener-Policy", "same-origin"));
+    response.set_header(Header::new(
+        "Strict-Transport-Security",
+        "max-age=63072000; includeSubDomains; preload",
+    ));
 }
 
 #[rocket::async_trait]
@@ -366,6 +370,10 @@ mod tests {
             assert_eq!(
                 paste.headers().get_one("Cross-Origin-Opener-Policy"),
                 Some("same-origin")
+            );
+            assert_eq!(
+                paste.headers().get_one("Strict-Transport-Security"),
+                Some("max-age=63072000; includeSubDomains; preload")
             );
             let csp = paste
                 .headers()

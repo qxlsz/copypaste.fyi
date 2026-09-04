@@ -16,9 +16,13 @@ describe("whisperNote", () => {
   });
 
   it("builds a share sheet payload without a key", () => {
-    const payload = sharePayload("https://www.copypaste.fyi/p/abc#key=nope");
-    expect(payload.url).toBe("https://www.copypaste.fyi/p/abc#key=nope");
+    const payload = sharePayload(
+      "https://www.copypaste.fyi/p/abc?key=legacy#key=nope",
+    );
+    expect(payload.url).toBe("https://www.copypaste.fyi/p/abc");
     expect(payload.text?.toLowerCase()).toContain("not listed");
+    expect(JSON.stringify(payload)).not.toContain("nope");
+    expect(JSON.stringify(payload)).not.toContain("legacy");
     expect(JSON.stringify(payload)).not.toContain("encryption");
   });
 });

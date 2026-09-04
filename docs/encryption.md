@@ -122,9 +122,10 @@ Host: your-instance.example
 X-Paste-Key: key-from-a-secret-source
 ```
 
-The JSON, HTML, and raw read routes all accept `X-Paste-Key`, and the header takes precedence. The
-backend retains `?key=` on those routes for compatibility. New sensitive automation should use the
-header, never a query-string key.
+The JSON, HTML, and raw read routes all accept `X-Paste-Key`. When both the header and `?key=` are
+present they must match; a mismatch is rejected. The backend retains `?key=` on those routes for
+compatibility. New sensitive automation should use the header, never a query-string key. Legacy
+HTML decrypt forms POST the key in the request body so it does not appear in the URL.
 
 ## CLI secret handling
 

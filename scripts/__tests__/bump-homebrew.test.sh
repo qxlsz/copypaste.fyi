@@ -9,7 +9,7 @@ for name in copypaste-darwin-arm64 copypaste-darwin-x64 copypaste-linux-amd64 co
   tar -czf "$TMP/$name.tar.gz" -C "$TMP" "$name.bin"
 done
 
-"$ROOT/scripts/bump-homebrew.sh" 0.2.0 "$TMP" "$TMP/copypaste.rb"
+bash "$ROOT/scripts/bump-homebrew.sh" 0.2.0 "$TMP" "$TMP/copypaste.rb"
 
 grep -q 'version "0.2.0"' "$TMP/copypaste.rb"
 grep -q 'releases/download/v0.2.0/copypaste-darwin-arm64.tar.gz' "$TMP/copypaste.rb"
