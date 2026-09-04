@@ -29,7 +29,7 @@ cat >"$FORMULA" <<EOF
 # Stable URLs are GitHub Release tarballs written by scripts/bump-homebrew.sh
 # on a v* tag. head: still compiles from main.
 class Copypaste < Formula
-  desc "Pastebin CLI and self-hostable server — type, get link, share"
+  desc "Pastebin CLI and self-hostable server - type, get link, share"
   homepage "https://www.copypaste.fyi"
   license "MIT"
   version "${VERSION}"
