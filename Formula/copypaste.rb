@@ -61,6 +61,6 @@ class Copypaste < Formula
   end
 
   test do
-    assert_match "paste", shell_output("#{bin}/copypaste --help")
+    assert_match "paste", shell_output("#{bin/\"copypaste\"} --help")
   end
 end
