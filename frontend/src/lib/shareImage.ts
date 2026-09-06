@@ -59,7 +59,7 @@ export interface ShareImageOptions {
   encryptionLabel?: string;
 }
 
-/** Square share card: mark + QR. Burn and encrypt print under the code. The image is a carrier, not a vault. */
+/** Square share card: mark + QR + short id. Burn and encrypt print under the code. The image is a carrier, not a vault. */
 export const renderShareImage = async (
   url: string,
   colors: ShareImageColors,
@@ -87,21 +87,26 @@ export const renderShareImage = async (
   const qr = await loadImage(qrDataUrl);
   ctx.drawImage(qr, (SIZE - QR) / 2, 220, QR, QR);
 
+  const id = pasteIdFromShareUrl(url);
   const notes = [
     extras.burn ? "BURN AFTER READ" : "",
     extras.encryptionLabel ? extras.encryptionLabel.toUpperCase() : "",
   ].filter(Boolean);
+
+  ctx.fillStyle = colors.ink;
+  ctx.textAlign = "center";
   if (notes.length > 0) {
-    ctx.fillStyle = colors.ink;
-    ctx.font = "600 28px ui-sans-serif, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(notes.join("  ·  "), SIZE / 2, 900);
+    ctx.font = "600 26px ui-sans-serif, system-ui, sans-serif";
+    ctx.fillText(notes.join("  ·  "), SIZE / 2, 888);
   }
+  // Short id under the QR so the card stays legible when shared without the URL.
+  ctx.font = "500 32px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText(id, SIZE / 2, notes.length > 0 ? 940 : 910);
 
   const png = await canvasPng(canvas);
   const withSoftware = injectPngText(png, "Software", "copypaste.fyi");
   const withUrl = injectPngText(withSoftware, "URL", url);
-  const comment = notes.length > 0 ? notes.join(" ") : "copypaste share card";
+  const comment = notes.length > 0 ? `${id} ${notes.join(" ")}` : id;
   const withComment = injectPngText(withUrl, "Comment", comment);
   const copy = new ArrayBuffer(withComment.byteLength);
   new Uint8Array(copy).set(withComment);
