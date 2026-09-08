@@ -49,3 +49,37 @@ All notable changes to copypaste.fyi are documented here. The project follows
   identity in `Authorization`. Creation retains a legacy service-credential fallback in
   `Authorization`; current clients use the dedicated header. Live mutations require service
   admission and the paste ownership token in separate headers.
+
+## [0.2.0] - 2026-09-05
+
+### Added
+
+- Homebrew formula with release tarball sha256s for darwin/linux arm64/x64.
+- Share image card with QR, short paste id, burn and encrypt marks.
+- Composer box: drop a file, paste from clipboard, tab indent, live size.
+- Faster first paint: split Monaco, defer QR, slimmer fonts.
+- Self-host helper picks Grok VM, Cursor, or brew.
+- Cloud Agent development environment and agent-setup.sh.
+
+### Fixed
+
+- Various create/read/CORS contract tests and send receipt get URL.
+- Share key leak, zero retention, and burn/expiry gaps.
+
+### Changed
+
+- Public site remains anonymous; FORCE_MEMORY and no write auth on Fly.
+
+## Notes
+
+- Paste content is never written to moderation audit events.
+- Server-side encryption only; not E2E or zero-knowledge.
+- Sessions and challenges are process-local and disappear on restart. User/workspace listings,
+  statistics, and cached paste-ID indexes do not enumerate the full Redis dataset. Run one app
+  instance until these states are shared.
+- Per-IP limits are process-local. Public deployments still need shared edge quotas, bot controls,
+  a monitored abuse channel, and qualified legal review.
+- The experimental ML-KEM/passphrase envelope has not received independent cryptographic review or
+  FIPS validation. Low-entropy passphrases remain vulnerable to offline guessing.
+- End-to-end browser encryption is not implemented. The server sees plaintext and keys during
+  encryption and decryption.
