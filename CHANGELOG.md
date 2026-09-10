@@ -44,3 +44,18 @@ All notable changes to copypaste.fyi are documented here. The project follows
   `--write-token-file`.
 - Docker and Compose now detect an unresponsive `copypaste` process. The distroless image and
   Compose service probe `GET /api/health` through `copypaste healthcheck`.
+- Share key is never placed in the URL query string; hash fragment only.
+- Zero retention and burn/expiry edge cases validated in contract tests.
+- Create/read/CORS contract tests cover public Get link policy.
+
+### Security
+
+- Hardened profile keeps webhooks, attestations, steganography, and bundles disabled. Enabling
+  their flags refuses to start.
+- Encryption is server-side. The server sees plaintext and keys during create/read. Do not call it
+  E2E, client-side, or zero-knowledge.
+
+### Known limitations
+
+- Passphrase-based encryption is subject to offline guessing when entropy is low.
+- End-to-end browser encryption is not implemented.
