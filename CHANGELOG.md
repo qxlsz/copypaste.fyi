@@ -7,6 +7,7 @@ All notable changes to copypaste.fyi are documented here. The project follows
 
 ### Added
 
+- Installed-app share target: Share from another app lands in the composer via `?text=` / title / url, then those query fields are stripped from the address bar.
 - Self-host helper on About now has a one-tap Copy for the recipe commands.
 - Added `copypaste healthcheck` so distroless images can probe `GET /api/health` in Docker exec
   form without a shell or curl.
