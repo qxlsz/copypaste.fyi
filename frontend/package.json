@@ -56,6 +56,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
     "globals": "^16.4.0",
+    "js-yaml": "^4.3.2",
     "jsdom": "^27.1.0",
     "msw": "^2.6.15",
     "playwright": "^1.56.1",
@@ -67,5 +68,8 @@
     "vite": "^7.3.6",
     "vite-plugin-mkcert": "^1.17.9",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
   }
 }
