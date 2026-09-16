@@ -27,6 +27,14 @@ cd copypaste.fyi
 Then POST http://127.0.0.1:8000/api/pastes
 Cookbook: https://github.com/qxlsz/copypaste.fyi/blob/main/docs/self-host.md
 
+## Connector
+
+Host your own server if you want the ciphertext on your disk.
+
+Grok: grok.com/connectors → New Connector → Custom → http://YOUR_HOST/mcp
+
+Tools: create_paste, read_paste. Pass key to encrypt.
+
 ## Rules
 - Type → Get link → share. There is no public listing.
 - Missing, burned, and expired reads are the same 404.

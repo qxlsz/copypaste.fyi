@@ -28,6 +28,8 @@ Missing, burned, and expired are the same 404.
 Discovery: /.well-known/copypaste.json
 Grok Bot skill: /grok-bot.md
 CLI: copypaste send --agent "text"
+Self-host encrypted store: serve on your box, persist with Upstash Redis, encrypt on send.
+Grok connector: POST /mcp (tools create_paste, read_paste). Card: GET /mcp.
 
 Do not put write tokens or encryption keys in argv, query strings, or Open-with URLs.
 Encryption is server-side, not E2E.
