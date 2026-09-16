@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { ChatGptMark, ClaudeMark, CodexMark, GoogleMark, GrokMark } from "./AgentMarks";
+import {
+  ChatGptMark,
+  ClaudeMark,
+  CodexMark,
+  GoogleMark,
+  GrokMark,
+  WhatsAppMark,
+} from "./AgentMarks";
 import { API_BASE } from "../api/client";
-import { gmailShareHref } from "../lib/googleShare";
+import { gmailShareHref, whatsappShareHref } from "../lib/googleShare";
 import {
   GROK_BOT_ADD_PROMPT,
   GROK_BOT_SKILL,
@@ -140,6 +147,17 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
           </a>
         );
       })}
+      <a
+        href={whatsappShareHref(url)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={logoButton}
+        aria-label="Share with WhatsApp"
+        title="Share with WhatsApp"
+      >
+        <WhatsAppMark />
+        <span className="text-[10px] leading-none text-muted-foreground">WhatsApp</span>
+      </a>
       <a
         href={gmailShareHref(url)}
         target="_blank"

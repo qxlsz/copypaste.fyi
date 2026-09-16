@@ -14,4 +14,5 @@ pub mod sessions;
 pub mod stego;
 pub mod time;
 pub mod tor;
+pub mod traffic;
 pub mod webhook;

@@ -233,6 +233,7 @@ fn build_rocket_with_components(
         .manage(rate_limiter)
         .manage(webhook_client)
         .manage(session_store)
+        .manage(std::sync::Arc::new(super::traffic::TrafficStore::default()))
         .manage(paste_rate_limiter)
         .attach(Cors)
         .register("/", catchers![unauthorized_api])
@@ -254,6 +255,10 @@ fn build_rocket_with_components(
                 show_post,
                 show_raw,
                 stats_summary_api,
+                traffic_api,
+                collect_api,
+                robots_txt,
+                sitemap_xml,
                 auth_challenge_api,
                 auth_login_api,
                 auth_google_api,
@@ -313,6 +318,7 @@ pub async fn launch() -> Result<(), Box<dyn std::error::Error>> {
         show_share,
         anchor_api,
         stats_summary_api,
+        traffic_api,
         auth_challenge_api,
         auth_login_api,
         auth_logout_api,
@@ -662,6 +668,51 @@ async fn stats_summary_api(
 ) -> Json<StatsSummaryResponse> {
     let stats = store.stats().await;
     Json(stats.into())
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/stats/traffic",
+    responses((status = 200, description = "First-party visit counts", body = super::traffic::TrafficResponse))
+)]
+#[get("/api/stats/traffic")]
+async fn traffic_api(
+    _rate: ReadRateLimit,
+    traffic: &State<super::traffic::SharedTraffic>,
+) -> Json<super::traffic::TrafficResponse> {
+    Json(traffic.snapshot())
+}
+
+#[post("/api/collect", data = "<body>")]
+async fn collect_api(
+    _rate: ReadRateLimit,
+    traffic: &State<super::traffic::SharedTraffic>,
+    body: Json<super::traffic::CollectBody>,
+) {
+    let path = super::traffic::classify_path(body.path.as_deref().unwrap_or("/"));
+    let referrer = super::traffic::classify_referrer(body.referrer.as_deref());
+    let device = super::traffic::classify_device(body.device.as_deref());
+    traffic.record(path, &referrer, device);
+}
+
+#[get("/robots.txt")]
+fn robots_txt() -> content::RawText<&'static str> {
+    content::RawText(
+        "User-agent: *\nAllow: /\nAllow: /about\nAllow: /stats\nDisallow: /p/\nDisallow: /raw/\nDisallow: /api/\nSitemap: https://www.copypaste.fyi/sitemap.xml\n",
+    )
+}
+
+#[get("/sitemap.xml")]
+fn sitemap_xml() -> content::RawXml<&'static str> {
+    content::RawXml(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.copypaste.fyi/</loc></url>
+  <url><loc>https://www.copypaste.fyi/about</loc></url>
+  <url><loc>https://www.copypaste.fyi/stats</loc></url>
+</urlset>
+"#,
+    )
 }
 
 #[utoipa::path(
@@ -3600,6 +3651,34 @@ mod tests {
             .body(r#"{"credential":"nope"}"#)
             .dispatch();
         assert_eq!(denied.status(), Status::NotFound);
+    }
+
+    #[test]
+    fn collect_stores_referrer_host_not_paste_ids() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+        let posted = client
+            .post("/api/collect")
+            .header(ContentType::JSON)
+            .body(
+                r#"{"path":"/p/secretIdHere","referrer":"https://news.ycombinator.com/item?id=1","device":"desktop"}"#,
+            )
+            .dispatch();
+        assert_eq!(posted.status(), Status::Ok);
+        let traffic = client.get("/api/stats/traffic").dispatch();
+        let body: serde_json::Value =
+            serde_json::from_str(&traffic.into_string().expect("body")).expect("json");
+        assert_eq!(body["pageviews"], 1);
+        let pages = body["pages"].as_array().expect("pages");
+        assert!(pages.iter().any(|row| row["name"] == "share"));
+        assert!(!body.to_string().contains("secretIdHere"));
+        let robots = client.get("/robots.txt").dispatch();
+        assert_eq!(robots.status(), Status::Ok);
+        assert!(robots
+            .into_string()
+            .expect("robots")
+            .contains("Disallow: /p/"));
     }
 
     #[test]
