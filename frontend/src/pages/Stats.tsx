@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchStatsSummary, fetchTraffic } from "../api/client";
+import { fetchStatsSummary, fetchTraffic, type TrafficSummary } from "../api/client";
 import type { StatsSummary } from "../api/types";
 import { format } from "date-fns";
 import { AreaGroupChart } from "../components/charts/AreaGroupChart";
@@ -45,12 +45,7 @@ const StatsContent = ({
   traffic,
 }: {
   summary: StatsSummary;
-  traffic?: {
-    pageviews: number;
-    pages: Array<{ name: string; count: number }>;
-    referrers: Array<{ name: string; count: number }>;
-    devices: Array<{ name: string; count: number }>;
-  };
+  traffic?: TrafficSummary;
 }) => {
   const encryptedCount = summary.encryptionUsage.reduce((acc, item) => acc + item.count, 0);
 
@@ -59,42 +54,49 @@ const StatsContent = ({
       <header className="space-y-2">
         <h1 className="text-3xl font-medium tracking-tight text-text">This instance</h1>
         <p className="max-w-lg text-sm leading-relaxed text-muted-foreground">
-          Counts for pastes created here. Visit counts are first-party: page class, referrer host,
-          device. No paste ids, no cookies.
+          Live counts on this process. Public copypaste.fyi keeps pastes and visit totals in memory,
+          so a deploy resets the figures. No paste ids, no cookies.
         </p>
       </header>
 
-      {traffic && traffic.pageviews > 0 && (
-        <section className="space-y-6">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
-            <Stat figure={traffic.pageviews} label="Pageviews" />
-          </div>
-          <div className="grid gap-10 lg:grid-cols-3">
-            <DistributionCard
-              title="Pages"
-              data={traffic.pages.map((item) => ({
-                label: item.name,
-                value: item.count,
-              }))}
-              palette="formats"
-            />
-            <DistributionCard
-              title="From"
-              data={traffic.referrers.map((item) => ({
-                label: item.name,
-                value: item.count,
-              }))}
-              palette="encryption"
-            />
-            <DistributionCard
-              title="Device"
-              data={traffic.devices.map((item) => ({
-                label: item.name,
-                value: item.count,
-              }))}
-              palette="formats"
-            />
-          </div>
+      <section className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
+        <Stat figure={summary.totalPastes} label="Pastes" />
+        <Stat figure={summary.activePastes} label="Active" />
+        <Stat figure={summary.expiredPastes} label="Expired" />
+        <Stat figure={traffic?.pageviews ?? 0} label="Pageviews" />
+      </section>
+      {traffic?.startedAt ? (
+        <p className="text-xs text-muted-foreground">
+          Counting since {format(new Date(traffic.startedAt * 1000), "d MMM yyyy HH:mm")} UTC
+        </p>
+      ) : null}
+
+      {traffic && (traffic.referrers.length > 0 || traffic.pages.length > 0) && (
+        <section className="grid gap-10 lg:grid-cols-3">
+          <DistributionCard
+            title="Pages"
+            data={traffic.pages.map((item) => ({
+              label: item.name,
+              value: item.count,
+            }))}
+            palette="formats"
+          />
+          <DistributionCard
+            title="From"
+            data={traffic.referrers.map((item) => ({
+              label: item.name,
+              value: item.count,
+            }))}
+            palette="encryption"
+          />
+          <DistributionCard
+            title="Device"
+            data={traffic.devices.map((item) => ({
+              label: item.name,
+              value: item.count,
+            }))}
+            palette="formats"
+          />
         </section>
       )}
 
@@ -102,13 +104,6 @@ const StatsContent = ({
         <p className="text-sm text-muted-foreground">No pastes on this instance yet.</p>
       ) : (
         <>
-          <section className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
-            <Stat figure={summary.totalPastes} label="Total" />
-            <Stat figure={summary.activePastes} label="Active" />
-            <Stat figure={summary.expiredPastes} label="Expired" />
-            <Stat figure={summary.burnAfterReadingCount} label="Burn" />
-          </section>
-
           <section className="grid gap-10 lg:grid-cols-2">
             <DistributionCard
               title="Formats"

@@ -3670,6 +3670,7 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_str(&traffic.into_string().expect("body")).expect("json");
         assert_eq!(body["pageviews"], 1);
+        assert!(body["startedAt"].as_i64().unwrap_or(0) > 0);
         let pages = body["pages"].as_array().expect("pages");
         assert!(pages.iter().any(|row| row["name"] == "share"));
         assert!(!body.to_string().contains("secretIdHere"));
