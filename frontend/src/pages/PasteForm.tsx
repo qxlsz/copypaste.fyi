@@ -295,7 +295,6 @@ export const PasteFormPage = () => {
   useHotkeys({ shortcut: "ctrl+enter", handler: submitForm });
 
   const requiresKey = encryption !== "none";
-  const hasText = content.trim().length > 0;
 
   const createSecureEncryptionKey = () => {
     try {
@@ -780,8 +779,6 @@ export const PasteFormPage = () => {
                 {[
                   formatOptions.find((item) => item.value === format)?.label,
                   retentionOptions.find((item) => item.value === retentionMinutes)?.label,
-                  burnAfterReading ? "Burn" : null,
-                  requiresKey ? encryptionChipLabel[encryption] : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -828,7 +825,9 @@ export const PasteFormPage = () => {
                   </option>
                 ))}
               </DockSelect>
+            </div>
 
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-end">
               <button
                 type="button"
                 role="switch"
@@ -859,20 +858,16 @@ export const PasteFormPage = () => {
                 title={
                   requiresKey
                     ? "Encryption is on. Tap again for none."
-                    : hasText
-                      ? "Encrypt this paste. Default is none."
-                      : "Type something first. Encryption stays off until you turn it on."
+                    : "Encrypt this paste. Default is none."
                 }
                 className={`inline-flex h-11 w-full items-center justify-center gap-2 self-end rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
                   requiresKey
                     ? "bg-accent text-accent-foreground"
-                    : hasText
-                      ? "bg-muted text-text hover:bg-border"
-                      : "bg-muted text-muted-foreground hover:text-text"
+                    : "bg-muted text-text hover:bg-border"
                 }`}
               >
                 <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-                {requiresKey ? encryptionChipLabel[encryption] : "Encrypt"}
+                {requiresKey ? encryptionChipLabel[encryption] : "Encrypt · off"}
               </button>
             </div>
 
