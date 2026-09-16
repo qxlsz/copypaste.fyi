@@ -35,6 +35,13 @@ export const Layout = () => {
         handler: () => navigate("/"),
       },
       {
+        id: "self-host",
+        label: "Self-host this binary",
+        description: "MIT source. Same CLI and server as this site.",
+        group: "Navigation",
+        handler: () => navigate("/about"),
+      },
+      {
         id: "about",
         label: "About & architecture",
         group: "Navigation",
@@ -114,6 +121,13 @@ export const Layout = () => {
               <Command className="h-4 w-4" aria-hidden="true" />
             </button>
             <ThemeToggle />
+            <NavLink
+              to="/about"
+              className="ml-1 hidden text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground transition hover:text-text sm:inline"
+              title="MIT source. Run the same binary at home."
+            >
+              self-host
+            </NavLink>
           </nav>
         </div>
       </header>
@@ -140,27 +154,27 @@ export const Layout = () => {
             <Outlet />
           </Suspense>
         </main>
-        {!isEditorPage && (
-          <footer className="shrink-0 border-t border-border">
-            <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground sm:px-6">
-              <span>open source</span>
-              <span aria-hidden="true">·</span>
-              <NavLink to="/about" className="transition hover:text-text">
-                about
-              </NavLink>
-              <span aria-hidden="true">·</span>
-              <a
-                href="https://github.com/qxlsz/copypaste.fyi"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="transition hover:text-text"
-              >
-                github
-              </a>
-              <span className="ml-auto font-mono">copypaste.fyi</span>
-            </div>
-          </footer>
-        )}
+        <footer
+          className={`shrink-0 border-t border-border ${isEditorPage ? "hidden sm:block" : ""}`}
+        >
+          <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground sm:px-6">
+            <span>MIT</span>
+            <span aria-hidden="true">·</span>
+            <NavLink to="/about" className="transition hover:text-text">
+              self-host
+            </NavLink>
+            <span aria-hidden="true">·</span>
+            <a
+              href="https://github.com/qxlsz/copypaste.fyi"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition hover:text-text"
+            >
+              source
+            </a>
+            <span className="ml-auto font-mono">same binary</span>
+          </div>
+        </footer>
       </div>
     </div>
   );

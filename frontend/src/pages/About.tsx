@@ -10,7 +10,8 @@ const features = [
   ["hardened profile", "bundles, attestations, webhooks, and steganography disabled"],
   ["tor-only", "restrict a paste to .onion access"],
   ["anchoring", "admin-only encrypted-content commitment or plaintext metadata manifest"],
-  ["cli", "pipe from your terminal: copypaste send"],
+  ["license", "MIT. github.com/qxlsz/copypaste.fyi"],
+  ["self-host", "brew install qxlsz/copypaste/copypaste, then copypaste serve"],
   ["api", "REST + OpenAPI JSON at /api/openapi.json"],
 ] as const;
 
@@ -49,12 +50,12 @@ export const AboutPage = () => {
     <article className="mx-auto max-w-2xl space-y-10 pb-16">
       <header className="space-y-3">
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          copypaste
+          MIT · self-host
         </p>
-        <h1 className="text-3xl font-medium tracking-tight text-text">A paste that disappears</h1>
+        <h1 className="text-3xl font-medium tracking-tight text-text">Run the same binary</h1>
         <p className="text-base leading-relaxed text-muted-foreground">
-          Open-source paste sharing for secrets that should not outlive their purpose. A Rust
-          backend encrypts and enforces retention. There is no public listing.
+          copypaste.fyi is the public demo. The product is the MIT repo: a CLI and a local server
+          you can brew, cargo, or Docker. Type, get link, share. No public listing.
         </p>
       </header>
 
