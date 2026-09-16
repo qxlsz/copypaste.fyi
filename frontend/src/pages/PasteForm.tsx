@@ -68,7 +68,7 @@ const encryptionOptions: Array<{ label: string; value: EncryptionAlgorithm }> = 
   { label: "ChaCha20-Poly1305", value: "chacha20_poly1305" },
   { label: "XChaCha20-Poly1305", value: "xchacha20_poly1305" },
   {
-    label: "Kyber Hybrid AES-256-GCM (Post-Quantum)",
+    label: "ML-KEM-768 hybrid AES-256-GCM",
     value: "kyber_hybrid_aes256_gcm",
   },
 ];

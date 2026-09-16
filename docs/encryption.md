@@ -21,6 +21,9 @@ of the trusted plaintext boundary. XChaCha20-Poly1305 and ML-KEM operations stay
 The stored record contains ciphertext, nonce, salt or envelope fields, and an algorithm identifier.
 It does not contain the supplied key.
 
+This product does not use RSA for paste encryption. The September 2026 RSA-260 factorization (an 862-bit challenge integer) does not apply. See [rsa-260.md](rsa-260.md).
+
+
 ## Standard symmetric key derivation
 
 AES-256-GCM, ChaCha20-Poly1305, and XChaCha20-Poly1305 use this derivation:

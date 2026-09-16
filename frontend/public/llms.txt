@@ -14,8 +14,8 @@ Content-Type: application/json
 
 Closed instance: header X-CopyPaste-Write-Token.
 
-Optional encryption (server-side AES-256-GCM / ChaCha20-Poly1305):
-{"content":"hello","format":"plain_text","encryption":{"algorithm":"aes256_gcm","key":"<secret>"}}
+Optional encryption is server-side AES-256-GCM, ChaCha20-Poly1305, XChaCha20, or ML-KEM-768 hybrid.
+Never RSA. RSA-260 factorization does not apply. RSA PEM keys are rejected.
 
 ## Read
 GET https://www.copypaste.fyi/api/pastes/{id}
