@@ -5,9 +5,11 @@ import { toast } from "sonner";
 import {
   HOST_GOALS,
   HOST_MACHINES,
+  HOST_STORES,
   hostRecipe,
   type HostGoal,
   type HostMachine,
+  type HostStore,
 } from "../lib/selfHostGuide";
 
 const chip = (active: boolean) =>
@@ -18,8 +20,9 @@ const chip = (active: boolean) =>
 export const SelfHostHelper = () => {
   const [goal, setGoal] = useState<HostGoal>("local");
   const [machine, setMachine] = useState<HostMachine>("grok");
+  const [store, setStore] = useState<HostStore>("memory");
   const [copied, setCopied] = useState(false);
-  const recipe = useMemo(() => hostRecipe(goal, machine), [goal, machine]);
+  const recipe = useMemo(() => hostRecipe(goal, machine, store), [goal, machine, store]);
 
   const copyCommands = async () => {
     try {
@@ -74,6 +77,29 @@ export const SelfHostHelper = () => {
             </button>
           ))}
         </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Store
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {HOST_STORES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={chip(store === item.id)}
+              onClick={() => setStore(item.id)}
+              aria-pressed={store === item.id}
+              title={item.hint}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          The VM can sit on AWS, Fly, or your desk. Paste bytes live in memory or Upstash Redis. S3
+          and ordinary Redis TCP are not backends.
+        </p>
       </div>
       <p className="text-sm text-text">
         Follow this: <span className="font-medium">{recipe.follow}</span>

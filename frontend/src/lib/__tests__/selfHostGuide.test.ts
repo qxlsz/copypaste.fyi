@@ -16,6 +16,14 @@ describe("hostRecipe", () => {
     expect(recipe.commands).toMatch(/agent-setup\.sh/);
   });
 
+  it("sends AWS to agent-setup and can pin Upstash Redis", () => {
+    const recipe = hostRecipe("local", "aws", "redis");
+    expect(recipe.follow).toMatch(/AWS/i);
+    expect(recipe.commands).toMatch(/agent-setup\.sh/);
+    expect(recipe.commands).toMatch(/COPYPASTE_PERSISTENCE_BACKEND=redis/);
+    expect(recipe.commands).not.toMatch(/FORCE_MEMORY/);
+  });
+
   it("sends Ubuntu to agent-setup, not a brew URL", () => {
     const recipe = hostRecipe("local", "ubuntu");
     expect(recipe.commands).toMatch(/agent-setup\.sh/);
