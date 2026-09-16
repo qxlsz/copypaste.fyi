@@ -10,7 +10,7 @@ import {
 } from "../lib/openAgents";
 
 const logoButton =
-  "inline-flex size-11 items-center justify-center rounded-md text-text transition hover:bg-border focus-visible:outline-none sm:size-10";
+  "inline-flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md px-1.5 py-1 text-text transition hover:bg-border focus-visible:outline-none";
 
 export const OpenWithAgents = ({ url }: { url: string }) => {
   const prompt = openPrompt(url);
@@ -28,7 +28,7 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-end gap-1">
       {OPEN_AGENTS.map((agent) => {
         const Mark =
           agent.id === "grok"
@@ -49,6 +49,7 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
             title={`Open in ${agent.label}`}
           >
             <Mark />
+            <span className="text-[10px] leading-none text-muted-foreground">{agent.label}</span>
           </a>
         );
       })}
@@ -61,8 +62,9 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
       >
         <span className="relative inline-flex">
           <GrokMark />
-          <span className="absolute -right-1 -top-1 text-[10px] leading-none">+</span>
+          <span className="absolute -right-1.5 -top-1 text-[10px] leading-none">+</span>
         </span>
+        <span className="text-[10px] leading-none text-muted-foreground">Add</span>
       </button>
     </div>
   );
