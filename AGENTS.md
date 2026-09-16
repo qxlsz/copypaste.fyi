@@ -26,13 +26,16 @@ Rust 1.88 / Rocket 0.5 · React 19 / Vite 7 / TypeScript · OCaml 5.2 verifier �
 
 ## Grok workflow (every change)
 
+**Do not `git commit` until `./scripts/ci-gate.sh` exits 0.** That script is `cargo fmt --check`, `cargo audit`, `npm audit --audit-level=high`, and workflow lint. Those are the jobs that go red in 20 seconds (see CI #395 on `6d347f7`). Hooks installed by `./scripts/setup_git_hooks.sh` run the same gate on commit and again on push.
+
 1. Read this file. Match the product above.
 2. Change the smallest surface that fixes the request.
-3. Run the CI jobs that cover what you touched (table below). Workflow YAML: `python3 scripts/lint-workflows.py`. Duplicate top-level keys (`permissions:` twice) make GitHub fail as a **0-job** run named `.github/workflows/<file>.yml` on every push.
-4. Push a branch, open a PR.
-5. **Wait for every Actions run on that SHA.** `ci.yml` green is not enough. Invalid workflows, Auto Research, Docker publish, Fly deploy all count. A cancelled-by-newer Docker publish is fine. `npm audit --audit-level=high` is part of Frontend; a new GHSA on a lockfile is a red CI, not a fluke.
-6. If anything is red: fix on the same branch, push, wait again. Do not merge red. Do not leave `main` red.
-7. Merge only when the PR checks are green. After merge, confirm `CI` on `main` succeeded and Auto Research did **not** fail.
+3. Run `./scripts/ci-gate.sh`. If it fails, fix the lockfile (`cargo update`, `npm audit fix`) on this branch before committing.
+4. Run the rest of the CI jobs that cover what you touched (table below).
+5. Push a branch, open a PR.
+6. **Wait for every Actions run on that SHA.** `ci.yml` green is not enough.
+7. If anything is red: fix on the same branch, push, wait again. Do not merge red.
+8. Merge only when the PR checks are green.
 
 Auto Research is **manual** (`workflow_dispatch` only). It writes a competitor briefing issue. It does not ship code. Do not re-enable a daily cron; it flooded the tracker.
 

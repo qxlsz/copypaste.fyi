@@ -65,8 +65,9 @@ else
   echo "[3/9] Skipping blockchain dependencies (directory missing)"
 fi
 
-echo "[4/9] Running cargo fmt --check"
+echo "[4/9] Running cargo fmt --check and the commit gate"
 cargo fmt --all -- --check
+bash "$SCRIPT_DIR/ci-gate.sh"
 
 echo "[5/9] Running cargo clippy"
 cargo clippy --all-targets --all-features -- -D warnings

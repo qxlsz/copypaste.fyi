@@ -32,6 +32,7 @@ jobs:
       - run: bash scripts/__tests__/bump-homebrew.test.sh
       - run: bash scripts/__tests__/install.test.sh
       - run: bash scripts/__tests__/agent-setup.test.sh
+      - run: bash scripts/__tests__/ci-gate.test.sh
 
   fmt:
     name: Rust fmt

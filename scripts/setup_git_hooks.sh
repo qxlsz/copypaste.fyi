@@ -18,25 +18,9 @@ mkdir -p "$HOOKS_DIR"
 cat >"$HOOK_PATH" <<'HOOK'
 #!/usr/bin/env bash
 set -euo pipefail
-
-if ! command -v cargo &>/dev/null; then
-  echo "cargo is required for this hook" >&2
-  exit 1
-fi
-
-echo "Running cargo fmt --all ..."
-cargo fmt --all
-
-if ! git diff --quiet; then
-  echo "Rust formatter changed files. Re-stage and retry the commit." >&2
-  exit 1
-fi
-
-echo "Running cargo clippy --all-targets --all-features ..."
-cargo clippy --all-targets --all-features -- -D warnings
-
-echo "Running cargo nextest run --workspace --all-features ..."
-cargo nextest run --workspace --all-features
+ROOT="$(git rev-parse --show-toplevel)"
+echo "pre-commit: ci-gate (audit + fmt). Do not commit if this fails."
+bash "$ROOT/scripts/ci-gate.sh"
 HOOK
 
 chmod +x "$HOOK_PATH"
@@ -45,9 +29,8 @@ cat >"$PREPUSH_PATH" <<'HOOK'
 #!/usr/bin/env bash
 # Refuse to push if the same CI jobs would fail.
 set -euo pipefail
-
-echo "pre-push: cargo fmt --check"
-cargo fmt --all -- --check
+ROOT="$(git rev-parse --show-toplevel)"
+bash "$ROOT/scripts/ci-gate.sh"
 
 echo "pre-push: cargo clippy -D warnings"
 cargo clippy --all-targets --all-features -- -D warnings
@@ -60,7 +43,7 @@ if git diff --name-only origin/HEAD...HEAD 2>/dev/null | grep -q '^frontend/'; t
   (cd frontend && npm test -- --run && npm run lint)
 fi
 
-echo "pre-push: ok — still wait for GitHub Actions after the push."
+echo "pre-push: ok. Still wait for GitHub Actions after the push."
 HOOK
 
 chmod +x "$PREPUSH_PATH"
