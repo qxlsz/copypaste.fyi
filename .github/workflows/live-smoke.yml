@@ -21,8 +21,17 @@ jobs:
     steps:
       - name: robots hides pastes
         run: |
-          curl -fsS https://www.copypaste.fyi/robots.txt | grep -q "Disallow: /p/"
-          curl -fsS https://www.copypaste.fyi/sitemap.xml | grep -q "https://www.copypaste.fyi/"
+          for i in 1 2 3 4 5 6; do
+            robots=$(curl -fsS https://www.copypaste.fyi/robots.txt || true)
+            if echo "$robots" | grep -q "Disallow: /p/"; then
+              curl -fsS https://www.copypaste.fyi/sitemap.xml | grep -q "https://www.copypaste.fyi/"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "robots.txt still is not the allowlist"
+          echo "$robots" | head
+          exit 1
       - name: home is up
         run: curl -fsS -o /dev/null -w "%{http_code}" https://www.copypaste.fyi/ | grep -q 200
       - name: API health
