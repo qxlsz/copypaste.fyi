@@ -273,6 +273,8 @@ fn build_rocket_with_components(
                 grok_bot_md,
                 mcp_rpc,
                 mcp_info,
+                mcp_manifest,
+                mcp_well_known,
                 spa_fallback
             ],
         )
@@ -431,14 +433,33 @@ fn grok_bot_md() -> content::RawText<&'static str> {
 
 #[get("/mcp")]
 fn mcp_info() -> Json<serde_json::Value> {
-    Json(json!({
+    Json(mcp_manifest_body())
+}
+
+#[get("/mcp.json")]
+fn mcp_manifest() -> Json<serde_json::Value> {
+    Json(mcp_manifest_body())
+}
+
+#[get("/.well-known/mcp.json")]
+fn mcp_well_known() -> Json<serde_json::Value> {
+    Json(mcp_manifest_body())
+}
+
+fn mcp_manifest_body() -> serde_json::Value {
+    json!({
         "copypaste": 1,
         "mcp": "2.0",
         "name": "copypaste",
-        "transport": "json-rpc POST /mcp",
+        "transport": "streamable-http",
+        "url": "/mcp",
         "tools": ["create_paste", "read_paste"],
-        "note": "Grok: grok.com/connectors → New Connector → Custom → this URL + /mcp. Encrypted pastes need X-Paste-Key on read."
-    }))
+        "clients": {
+            "cursor": { "mcpServers": { "copypaste": { "url": "http://127.0.0.1:8000/mcp" } } },
+            "grok": "https://grok.com/connectors"
+        },
+        "note": "POST JSON-RPC to /mcp. create_paste and read_paste. Pass key to encrypt and decrypt."
+    })
 }
 
 #[post("/mcp", data = "<body>")]
@@ -453,13 +474,15 @@ async fn mcp_rpc(
     let result = match method {
         "initialize" => json!({
             "protocolVersion": "2025-03-26",
-            "capabilities": { "tools": {} },
+            "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
             "serverInfo": { "name": "copypaste", "version": env!("CARGO_PKG_VERSION") }
         }),
         "notifications/initialized" => {
             return Json(json!({"jsonrpc":"2.0"}));
         }
         "ping" => json!({}),
+        "resources/list" => json!({ "resources": [] }),
+        "prompts/list" => json!({ "prompts": [] }),
         "tools/list" => json!({
             "tools": [
                 {
@@ -549,13 +572,21 @@ async fn mcp_rpc(
                 }
                 "read_paste" => {
                     let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                    let key = args.get("key").and_then(|k| k.as_str());
                     match store.get_paste(paste_id).await {
-                        Ok(_paste) => json!({
-                            "content": [{
-                                "type": "text",
-                                "text": format!("GET /api/pastes/{paste_id} on this host. Encrypted pastes need header X-Paste-Key.")
-                            }]
-                        }),
+                        Ok(paste) => match decrypt_content(&paste.content, key) {
+                            Ok(text) => json!({
+                                "content": [{ "type": "text", "text": text }]
+                            }),
+                            Err(DecryptError::MissingKey) => json!({
+                                "isError": true,
+                                "content": [{ "type": "text", "text": "Encrypted. Pass key." }]
+                            }),
+                            Err(_) => json!({
+                                "isError": true,
+                                "content": [{ "type": "text", "text": "Unable to decrypt." }]
+                            }),
+                        },
                         Err(_) => json!({
                             "isError": true,
                             "content": [{ "type": "text", "text": "Paste not found." }]
@@ -3425,6 +3456,24 @@ mod tests {
             .expect("text");
         assert!(text.contains("encrypted"));
         assert!(text.contains("\"id\""));
+        let receipt: serde_json::Value = serde_json::from_str(text).expect("receipt");
+        let paste_id = receipt["id"].as_str().expect("id");
+        let read = client
+            .post("/mcp")
+            .header(ContentType::JSON)
+            .body(format!(
+                r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"read_paste","arguments":{{"id":"{paste_id}","key":"unit-test-key"}}}}}}"#
+            ))
+            .dispatch();
+        assert_eq!(read.status(), Status::Ok);
+        let read_body: serde_json::Value =
+            serde_json::from_str(&read.into_string().expect("read")).expect("json");
+        assert_eq!(
+            read_body["result"]["content"][0]["text"],
+            "connector secret"
+        );
+        let manifest = client.get("/.well-known/mcp.json").dispatch();
+        assert_eq!(manifest.status(), Status::Ok);
     }
 
     #[test]
