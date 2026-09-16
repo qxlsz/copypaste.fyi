@@ -13,6 +13,7 @@ describe("AboutPage", () => {
         <AboutPage />
       </MemoryRouter>,
     );
+    expect(screen.getByRole("heading", { name: /run the same binary/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /rsa-260/i })).toBeInTheDocument();
     expect(screen.getByText(/does not encrypt pastes with rsa/i)).toBeInTheDocument();
     expect(screen.getByText(/follow this:/i)).toBeInTheDocument();
@@ -27,6 +28,8 @@ describe("AboutPage", () => {
       </MemoryRouter>,
     );
     await user.click(screen.getByRole("button", { name: "Apple" }));
-    expect(screen.getByText(/brew install qxlsz\/copypaste\/copypaste/)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/brew install qxlsz\/copypaste\/copypaste/).length,
+    ).toBeGreaterThan(0);
   });
 });
