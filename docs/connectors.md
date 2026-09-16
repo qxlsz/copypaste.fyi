@@ -1,37 +1,54 @@
-# Connectors
+# MCP for agents
 
-Your box stores the ciphertext. Grok, Codex, and ChatGPT talk to it.
+Agents talk to your host over Model Context Protocol. Humans still use Get link.
 
-## 1. Host
+## Tools
+
+| Tool | Args | Result |
+|---|---|---|
+| `create_paste` | `content`, optional `key`, optional `burn` | `{ id, url, encrypted }` |
+| `read_paste` | `id`, optional `key` | plaintext |
+
+`key` means AES-256-GCM. No key means plaintext on disk of that host.
+
+## Run the server
 
 ```bash
-brew install qxlsz/copypaste/copypaste
-# durable store (optional):
-export COPYPASTE_PERSISTENCE_BACKEND=redis
-export UPSTASH_REDIS_REST_URL='https://...'
-export UPSTASH_REDIS_REST_TOKEN='...'
 ROCKET_ADDRESS=127.0.0.1 copypaste serve
 ```
 
-Encrypt on send so the disk never sees plaintext:
+Probe: `GET http://127.0.0.1:8000/mcp` or `GET /.well-known/mcp.json`.
+
+## Cursor
+
+`~/.cursor/mcp.json` or `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "copypaste": {
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+Closed host: add `"headers": { "X-CopyPaste-Write-Token": "<token>" }` if you lock writes. MCP create still uses the open write path on this build.
+
+## Claude Desktop / Claude.ai custom connector
+
+Same URL: `http://127.0.0.1:8000/mcp` on a tunnel Claude can reach.
+
+## Grok
+
+[grok.com/connectors](https://grok.com/connectors) → New Connector → Custom → `https://your-host/mcp`.
+
+## ChatGPT developer mode
+
+Add an MCP server with streamable HTTP URL `https://your-host/mcp`.
+
+## CLI still works
 
 ```bash
 copypaste send --host http://127.0.0.1:8000 --agent "handoff"
 ```
-
-S3 is not a paste backend. Memory or Upstash Redis only.
-
-## 2. Grok custom connector
-
-1. Put the server on a URL Grok can reach (tailscale, caddy, AWS).
-2. Open [grok.com/connectors](https://grok.com/connectors).
-3. New Connector → Custom.
-4. MCP URL: `https://your-host/mcp`
-
-Tools Grok gets: `create_paste`, `read_paste`. A `key` argument turns on AES-256-GCM.
-
-GET `/mcp` is the human card. POST `/mcp` is JSON-RPC.
-
-## 3. ChatGPT / Claude
-
-Same host. Discovery is `/.well-known/copypaste.json`. There is no second storage API.
