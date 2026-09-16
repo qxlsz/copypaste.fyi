@@ -7,14 +7,28 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::server::time::current_timestamp;
+
 pub type SharedTraffic = Arc<TrafficStore>;
 
-#[derive(Default)]
 pub struct TrafficStore {
+    started_at: i64,
     pageviews: AtomicU64,
     pages: Mutex<BTreeMap<String, u64>>,
     referrers: Mutex<BTreeMap<String, u64>>,
     devices: Mutex<BTreeMap<String, u64>>,
+}
+
+impl Default for TrafficStore {
+    fn default() -> Self {
+        Self {
+            started_at: current_timestamp(),
+            pageviews: AtomicU64::new(0),
+            pages: Mutex::new(BTreeMap::new()),
+            referrers: Mutex::new(BTreeMap::new()),
+            devices: Mutex::new(BTreeMap::new()),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,6 +42,7 @@ pub struct CollectBody {
 #[serde(rename_all = "camelCase")]
 pub struct TrafficResponse {
     pub pageviews: u64,
+    pub started_at: i64,
     pub pages: Vec<NamedCount>,
     pub referrers: Vec<NamedCount>,
     pub devices: Vec<NamedCount>,
@@ -50,6 +65,7 @@ impl TrafficStore {
     pub fn snapshot(&self) -> TrafficResponse {
         TrafficResponse {
             pageviews: self.pageviews.load(Ordering::Relaxed),
+            started_at: self.started_at,
             pages: snapshot(&self.pages),
             referrers: snapshot(&self.referrers),
             devices: snapshot(&self.devices),

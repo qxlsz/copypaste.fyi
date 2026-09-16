@@ -158,6 +158,7 @@ export const fetchStatsSummary = async (): Promise<StatsSummary> => {
 
 export interface TrafficSummary {
   pageviews: number;
+  startedAt?: number;
   pages: Array<{ name: string; count: number }>;
   referrers: Array<{ name: string; count: number }>;
   devices: Array<{ name: string; count: number }>;
