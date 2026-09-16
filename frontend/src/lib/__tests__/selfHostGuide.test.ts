@@ -21,7 +21,7 @@ describe("hostRecipe", () => {
     expect(recipe.follow).toMatch(/AWS/i);
     expect(recipe.commands).toMatch(/agent-setup\.sh/);
     expect(recipe.commands).toMatch(/COPYPASTE_PERSISTENCE_BACKEND=redis/);
-    expect(recipe.commands).not.toMatch(/FORCE_MEMORY/);
+    expect(recipe.commands).not.toMatch(/COPYPASTE_FORCE_MEMORY=true/);
   });
 
   it("sends Ubuntu to agent-setup, not a brew URL", () => {
