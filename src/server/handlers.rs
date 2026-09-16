@@ -1653,6 +1653,17 @@ fn validate_encryption_request(
                 format!("Encryption key must not exceed {MAX_ENCRYPTION_KEY_BYTES} bytes"),
             ));
         }
+        let upper = enc.key.to_ascii_uppercase();
+        if upper.contains("BEGIN RSA PRIVATE KEY")
+            || upper.contains("BEGIN RSA PUBLIC KEY")
+            || upper.contains("BEGIN RSA ENCRYPTED PRIVATE KEY")
+        {
+            return Err((
+                Status::BadRequest,
+                "RSA keys are not accepted. Use a generated 256-bit secret or ML-KEM hybrid."
+                    .to_string(),
+            ));
+        }
     }
     Ok(())
 }
@@ -2621,6 +2632,14 @@ mod tests {
             key: String::new(),
         };
         assert!(validate_encryption_request(Some(&plaintext)).is_ok());
+
+        let rsa = super::super::models::EncryptionRequest {
+            algorithm: EncryptionAlgorithm::Aes256Gcm,
+            key: "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----".to_string(),
+        };
+        let rsa_error = validate_encryption_request(Some(&rsa)).unwrap_err();
+        assert_eq!(rsa_error.0, Status::BadRequest);
+        assert!(rsa_error.1.contains("RSA"));
     }
 
     #[test]

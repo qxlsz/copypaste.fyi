@@ -13,7 +13,8 @@ describe("AboutPage", () => {
         <AboutPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("heading", { name: /run your own/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /rsa-260/i })).toBeInTheDocument();
+    expect(screen.getByText(/does not encrypt pastes with rsa/i)).toBeInTheDocument();
     expect(screen.getByText(/follow this:/i)).toBeInTheDocument();
     expect(screen.getByText(/agent-setup\.sh --serve/)).toBeInTheDocument();
   });

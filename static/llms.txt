@@ -14,6 +14,9 @@ Content-Type: application/json
 
 Closed instance: header X-CopyPaste-Write-Token.
 
+Optional encryption is AES-256-GCM, ChaCha20, XChaCha20, or ML-KEM-768 hybrid. Never RSA.
+RSA-260 factorization does not apply. RSA PEM keys are rejected.
+
 ## Read
 GET /api/pastes/{id}
 Encrypted: header X-Paste-Key

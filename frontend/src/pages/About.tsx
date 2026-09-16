@@ -3,7 +3,7 @@ import { API_BASE } from "../api/client";
 import { SelfHostHelper } from "../components/SelfHostHelper";
 
 const features = [
-  ["encryption", "AES-256-GCM · ChaCha20 · XChaCha20 · experimental ML-KEM hybrid"],
+  ["encryption", "AES-256-GCM · ChaCha20 · XChaCha20 · ML-KEM-768 hybrid. No RSA."],
   ["burn-after-reading", "best-effort deletion after a successful read"],
   ["retention", "1 minute to 30 days, enforced server-side"],
   ["time-locks", "not-before / not-after access windows"],
@@ -69,6 +69,25 @@ export const AboutPage = () => {
           </div>
         ))}
       </dl>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-medium tracking-tight text-text">RSA-260</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          RSA-260 was factored in September 2026. That is an 862-bit challenge integer split into
+          two primes. This site does not encrypt pastes with RSA, so that record does not apply.
+          Optional ciphers are AES-GCM, ChaCha20, and ML-KEM-768 (FIPS 203) wrapping AES. The API
+          rejects RSA PEM in the key field. Notes:{" "}
+          <a
+            href="https://github.com/qxlsz/copypaste.fyi/blob/main/docs/rsa-260.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-border underline-offset-4 hover:text-text"
+          >
+            docs/rsa-260.md
+          </a>
+          .
+        </p>
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-base font-medium tracking-tight text-text">Run your own</h2>

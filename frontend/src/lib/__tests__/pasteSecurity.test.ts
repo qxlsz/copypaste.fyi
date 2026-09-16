@@ -23,11 +23,9 @@ afterEach(() => {
 
 describe("generateEncryptionKey", () => {
   it("generates a 256-bit base64url key without Math.random", () => {
-    const mathRandom = vi
-      .spyOn(Math, "random")
-      .mockImplementation(() => {
-        throw new Error("Math.random must not generate encryption keys");
-      });
+    const mathRandom = vi.spyOn(Math, "random").mockImplementation(() => {
+      throw new Error("Math.random must not generate encryption keys");
+    });
 
     const key = generateEncryptionKey();
 
@@ -39,21 +37,19 @@ describe("generateEncryptionKey", () => {
 
 describe("validateEncryptionKey", () => {
   it("rejects empty and whitespace-only keys", () => {
-    expect(validateEncryptionKey("")).toBe(
-      "Encryption requires a non-empty key.",
-    );
-    expect(validateEncryptionKey(" \n\t ")).toBe(
-      "Encryption requires a non-empty key.",
-    );
+    expect(validateEncryptionKey("")).toBe("Encryption requires a non-empty key.");
+    expect(validateEncryptionKey(" \n\t ")).toBe("Encryption requires a non-empty key.");
+  });
+
+  it("rejects RSA PEM material", () => {
+    expect(
+      validateEncryptionKey("-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----"),
+    ).toMatch(/RSA/);
   });
 
   it("enforces the limit in UTF-8 bytes", () => {
-    expect(validateEncryptionKey("a".repeat(MAX_ENCRYPTION_KEY_BYTES))).toBe(
-      null,
-    );
-    expect(
-      validateEncryptionKey("é".repeat(MAX_ENCRYPTION_KEY_BYTES / 2 + 1)),
-    ).toBe(
+    expect(validateEncryptionKey("a".repeat(MAX_ENCRYPTION_KEY_BYTES))).toBe(null);
+    expect(validateEncryptionKey("é".repeat(MAX_ENCRYPTION_KEY_BYTES / 2 + 1))).toBe(
       `Encryption keys must be ${MAX_ENCRYPTION_KEY_BYTES} bytes or smaller.`,
     );
   });
@@ -80,9 +76,9 @@ describe("buildPasteShareUrl", () => {
       "/p/id?key=secret",
       "//evil.example/p/id",
     ]) {
-      expect(() =>
-        buildPasteShareUrl(unsafe, "", "https://www.copypaste.fyi"),
-      ).toThrow("unsafe paste share URL");
+      expect(() => buildPasteShareUrl(unsafe, "", "https://www.copypaste.fyi")).toThrow(
+        "unsafe paste share URL",
+      );
     }
   });
 });
@@ -90,16 +86,12 @@ describe("buildPasteShareUrl", () => {
 describe("steganographic carrier validation", () => {
   it("recognizes PNG and BMP magic bytes instead of trusting MIME metadata", () => {
     expect(
-      detectStegoImageMime(
-        new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      ),
+      detectStegoImageMime(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
     ).toBe("image/png");
-    expect(detectStegoImageMime(new Uint8Array([0x42, 0x4d, 0, 0]))).toBe(
-      "image/bmp",
+    expect(detectStegoImageMime(new Uint8Array([0x42, 0x4d, 0, 0]))).toBe("image/bmp");
+    expect(() => detectStegoImageMime(new Uint8Array([0x47, 0x49, 0x46, 0x38]))).toThrow(
+      "Only genuine PNG or BMP",
     );
-    expect(() =>
-      detectStegoImageMime(new Uint8Array([0x47, 0x49, 0x46, 0x38])),
-    ).toThrow("Only genuine PNG or BMP");
   });
 
   it("rejects an oversized file before reading it", async () => {
@@ -109,16 +101,12 @@ describe("steganographic carrier validation", () => {
       arrayBuffer,
     } as unknown as File;
 
-    await expect(readStegoImage(oversizedFile)).rejects.toThrow(
-      "1 MiB or smaller",
-    );
+    await expect(readStegoImage(oversizedFile)).rejects.toThrow("1 MiB or smaller");
     expect(arrayBuffer).not.toHaveBeenCalled();
   });
 
   it("normalizes the data URI MIME from the validated signature", async () => {
-    const bytes = new Uint8Array([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-    ]);
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const file = {
       size: bytes.byteLength,
       type: "image/svg+xml",
