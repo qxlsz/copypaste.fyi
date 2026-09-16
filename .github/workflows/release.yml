@@ -21,10 +21,10 @@ jobs:
             os: macos-latest
             artifact: copypaste-darwin-arm64
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
             artifact: copypaste-linux-amd64
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-22.04
             artifact: copypaste-linux-arm64
 
     runs-on: ${{ matrix.os }}
@@ -50,7 +50,7 @@ jobs:
         run: cargo build --release --locked --bin copypaste --target ${{ matrix.target }}
 
       - name: Generate shell completions
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        if: startsWith(matrix.target, 'x86_64-') || startsWith(matrix.target, 'aarch64-apple-')
         run: |
           mkdir -p completions
           ./target/${{ matrix.target }}/release/copypaste completions bash > completions/copypaste.bash || true
