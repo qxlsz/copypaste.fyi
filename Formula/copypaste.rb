@@ -46,6 +46,9 @@ class Copypaste < Formula
       Local server: copypaste serve
                     brew services start copypaste
 
+      v0.2.0 Linux bottles need glibc 2.39 (Ubuntu 24.04).
+      On Debian 12 or Ubuntu 22.04 use: brew install --HEAD qxlsz/copypaste/copypaste
+
       Closed instance: set COPYPASTE_REQUIRE_WRITE_AUTH=true and
       COPYPASTE_AUTH_TOKEN in the environment. Tokens never go on argv.
     EOS
