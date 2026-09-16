@@ -256,6 +256,8 @@ fn build_rocket_with_components(
                 stats_summary_api,
                 auth_challenge_api,
                 auth_login_api,
+                auth_google_api,
+                auth_providers_api,
                 auth_logout_api,
                 user_paste_count_api,
                 user_paste_list_api,
@@ -763,6 +765,112 @@ async fn auth_login_api(
         .collect::<String>();
     sessions.insert(&token, &pubkey_hash);
 
+    Ok(Json(AuthLoginResponse { token, pubkey_hash }))
+}
+
+fn google_client_id() -> Option<String> {
+    std::env::var("COPYPASTE_GOOGLE_CLIENT_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[get("/api/auth/providers")]
+fn auth_providers_api() -> Json<serde_json::Value> {
+    Json(json!({ "google": google_client_id() }))
+}
+
+#[derive(Deserialize)]
+struct GoogleLoginRequest {
+    credential: String,
+}
+
+#[post("/api/auth/google", data = "<body>")]
+async fn auth_google_api(
+    sessions: &State<SharedSessionStore>,
+    http: &State<WebhookClient>,
+    body: Json<GoogleLoginRequest>,
+) -> Result<Json<AuthLoginResponse>, (Status, Json<ApiError>)> {
+    let expected = google_client_id().ok_or((
+        Status::NotFound,
+        Json(ApiError::new(
+            "not_configured",
+            "Sign in with Google is off on this host.",
+        )),
+    ))?;
+    if body.credential.is_empty() || body.credential.len() > 8192 {
+        return Err((
+            Status::BadRequest,
+            Json(ApiError::new(
+                "invalid_request",
+                "Invalid Google credential.",
+            )),
+        ));
+    }
+    let response = http
+        .0
+        .get("https://oauth2.googleapis.com/tokeninfo")
+        .query(&[("id_token", body.credential.as_str())])
+        .send()
+        .await
+        .map_err(|_| {
+            (
+                Status::BadGateway,
+                Json(ApiError::new(
+                    "google_unreachable",
+                    "Google token check failed.",
+                )),
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err((
+            Status::Unauthorized,
+            Json(ApiError::new(
+                "unauthorized",
+                "Google rejected the credential.",
+            )),
+        ));
+    }
+    let claims: serde_json::Value = response.json().await.map_err(|_| {
+        (
+            Status::BadGateway,
+            Json(ApiError::new(
+                "google_unreachable",
+                "Google token check failed.",
+            )),
+        )
+    })?;
+    let aud = claims.get("aud").and_then(|v| v.as_str()).unwrap_or("");
+    let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
+    let verified = claims
+        .get("email_verified")
+        .and_then(|v| v.as_bool())
+        .or_else(|| {
+            claims
+                .get("email_verified")
+                .and_then(|v| v.as_str())
+                .map(|s| s == "true")
+        })
+        .unwrap_or(false);
+    if aud != expected || sub.is_empty() || !verified {
+        return Err((
+            Status::Unauthorized,
+            Json(ApiError::new(
+                "unauthorized",
+                "Google audience or email is not valid.",
+            )),
+        ));
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"google:");
+    hasher.update(sub.as_bytes());
+    let pubkey_hash = format!("{:x}", hasher.finalize());
+    let token = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect::<String>();
+    sessions.insert(&token, &pubkey_hash);
     Ok(Json(AuthLoginResponse { token, pubkey_hash }))
 }
 
@@ -3474,6 +3582,24 @@ mod tests {
         );
         let manifest = client.get("/.well-known/mcp.json").dispatch();
         assert_eq!(manifest.status(), Status::Ok);
+    }
+
+    #[test]
+    fn google_provider_is_off_until_configured() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+        let response = client.get("/api/auth/providers").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let body: serde_json::Value =
+            serde_json::from_str(&response.into_string().expect("body")).expect("json");
+        assert!(body["google"].is_null());
+        let denied = client
+            .post("/api/auth/google")
+            .header(ContentType::JSON)
+            .body(r#"{"credential":"nope"}"#)
+            .dispatch();
+        assert_eq!(denied.status(), Status::NotFound);
     }
 
     #[test]

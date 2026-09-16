@@ -30,5 +30,26 @@ export const ClaudeMark = () => (
   </svg>
 );
 
+export const GoogleMark = () => (
+  <svg viewBox="0 0 24 24" className={mark} aria-hidden="true">
+    <path
+      fill="currentColor"
+      d="M21.6 12.23c0-.76-.07-1.49-.2-2.19H12v4.15h5.4a4.62 4.62 0 0 1-2 3.03v2.5h3.22c1.89-1.74 2.98-4.3 2.98-7.49Z"
+    />
+    <path
+      fill="currentColor"
+      d="M12 22c2.7 0 4.96-.9 6.62-2.28l-3.22-2.5c-.9.6-2.04.96-3.4.96-2.61 0-4.83-1.76-5.62-4.13H3.06v2.58A10 10 0 0 0 12 22Z"
+    />
+    <path
+      fill="currentColor"
+      d="M6.38 13.05A6 6 0 0 1 6.06 12c0-.36.06-.72.16-1.05V8.37H3.06A10 10 0 0 0 2 12c0 1.62.39 3.14 1.06 4.48l3.32-3.43Z"
+    />
+    <path
+      fill="currentColor"
+      d="M12 5.82c1.47 0 2.78.5 3.82 1.5l2.86-2.86C16.95 2.9 14.7 2 12 2A10 10 0 0 0 3.06 8.37l3.32 2.58C7.17 7.58 9.39 5.82 12 5.82Z"
+    />
+  </svg>
+);
+
 export const ChatGptMark = OpenAiMark;
 export const CodexMark = OpenAiMark;

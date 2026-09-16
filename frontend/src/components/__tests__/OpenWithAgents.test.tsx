@@ -17,6 +17,10 @@ describe("OpenWithAgents", () => {
     expect(codex).toHaveAttribute("href", expect.stringContaining("chatgpt.com"));
     expect(decodeURIComponent(grok.getAttribute("href") ?? "")).not.toContain("dont-leak");
     expect(screen.getByRole("button", { name: "Add to Grok" })).toBeInTheDocument();
+    const gmail = screen.getByRole("link", { name: "Share with Gmail" });
+    expect(gmail).toHaveAttribute("href", expect.stringContaining("mail.google.com"));
+    expect(decodeURIComponent(gmail.getAttribute("href") ?? "")).not.toContain("dont-leak");
+    expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeInTheDocument();
     expect(screen.queryByText("Open in Grok, Codex, ChatGPT…")).not.toBeInTheDocument();
   });
 });
