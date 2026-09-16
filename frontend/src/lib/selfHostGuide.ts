@@ -1,5 +1,14 @@
 export type HostGoal = "public" | "local" | "locked";
-export type HostMachine = "apple" | "windows" | "ubuntu" | "fedora" | "docker" | "grok" | "cursor";
+export type HostMachine =
+  | "apple"
+  | "windows"
+  | "ubuntu"
+  | "fedora"
+  | "docker"
+  | "grok"
+  | "cursor"
+  | "aws";
+export type HostStore = "memory" | "redis";
 
 export const HOST_GOALS: { id: HostGoal; label: string; hint: string }[] = [
   { id: "public", label: "Just send text", hint: "Use copypaste.fyi. No server." },
@@ -12,9 +21,19 @@ export const HOST_MACHINES: { id: HostMachine; label: string }[] = [
   { id: "windows", label: "Windows" },
   { id: "ubuntu", label: "Ubuntu / Debian" },
   { id: "fedora", label: "Fedora" },
+  { id: "aws", label: "AWS / any VM" },
   { id: "grok", label: "Grok / Grokbot VM" },
   { id: "cursor", label: "Cursor cloud agent" },
   { id: "docker", label: "I have Docker" },
+];
+
+export const HOST_STORES: { id: HostStore; label: string; hint: string }[] = [
+  { id: "memory", label: "Memory", hint: "Pastes die when the process dies." },
+  {
+    id: "redis",
+    label: "Upstash Redis",
+    hint: "Durable store. Works from AWS, Fly, or a closet. Not S3.",
+  },
 ];
 
 export interface HostRecipe {
@@ -23,12 +42,19 @@ export interface HostRecipe {
   commands: string;
 }
 
-const serve = "ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve";
-const lock = `export COPYPASTE_REQUIRE_WRITE_AUTH=true
-export COPYPASTE_AUTH_TOKEN='replace-with-43-to-128-base64url-chars'
-${serve}`;
 const sendLocal = 'copypaste send --host http://127.0.0.1:8000 "notes from this box"';
 const sendPublic = 'copypaste send --host https://www.copypaste.fyi "notes"';
+
+const persistBlock = (store: HostStore, bind: string): string => {
+  if (store === "redis") {
+    return `export COPYPASTE_PERSISTENCE_BACKEND=redis
+export UPSTASH_REDIS_REST_URL='https://your-upstash-endpoint'
+export UPSTASH_REDIS_REST_TOKEN='your-upstash-token'
+# Do not set COPYPASTE_FORCE_MEMORY. S3 and ElastiCache TCP are not backends.
+ROCKET_ADDRESS=${bind} copypaste serve`;
+  }
+  return `ROCKET_ADDRESS=${bind} COPYPASTE_FORCE_MEMORY=true copypaste serve`;
+};
 
 const installFor = (machine: HostMachine): { follow: string; install: string } => {
   switch (machine) {
@@ -58,6 +84,16 @@ sudo dnf install -y gcc pkgconf openssl-devel
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 cargo install copypaste`,
       };
+    case "aws":
+      return {
+        follow: "AWS EC2, Lightsail, or any Ubuntu VM",
+        install: `sudo apt-get update
+sudo apt-get install -y git build-essential pkg-config libssl-dev
+git clone https://github.com/qxlsz/copypaste.fyi.git
+cd copypaste.fyi
+./scripts/agent-setup.sh
+# Security group: open 8000 only to you, or put nginx/caddy in front.`,
+      };
     case "docker":
       return {
         follow: "Docker, from a git clone",
@@ -82,11 +118,17 @@ cd copypaste.fyi
   }
 };
 
-export const hostRecipe = (goal: HostGoal, machine: HostMachine): HostRecipe => {
+export const hostRecipe = (
+  goal: HostGoal,
+  machine: HostMachine,
+  store: HostStore = "memory",
+): HostRecipe => {
   const { follow, install } = installFor(machine);
+  const bind = machine === "aws" ? "0.0.0.0" : "127.0.0.1";
+  const serve = persistBlock(store, bind);
 
   if (goal === "public") {
-    if (machine === "docker" || machine === "grok" || machine === "cursor") {
+    if (machine === "docker" || machine === "grok" || machine === "cursor" || machine === "aws") {
       return {
         title: "Public site only",
         follow: "You do not need a VM server. curl the public API, or install the CLI.",
@@ -106,10 +148,14 @@ ${sendPublic}`,
 
   if (machine === "docker") {
     const extra = goal === "locked" ? `\n# then set COPYPASTE_REQUIRE_WRITE_AUTH=true in .env` : "";
+    const storeBit =
+      store === "redis"
+        ? "\n# set COPYPASTE_PERSISTENCE_BACKEND=redis and the UPSTASH_* vars in .env"
+        : "";
     return {
       title: goal === "locked" ? "Docker host, locked writes" : "Docker host on this computer",
       follow: "Follow Docker. Open http://127.0.0.1:8000 after compose is up.",
-      commands: `${install}${extra}
+      commands: `${install}${extra}${storeBit}
 ${sendLocal}`,
     };
   }
@@ -129,30 +175,27 @@ ${sendLocal}`,
     };
   }
 
-  if (goal === "locked") {
-    return {
-      title: "Your computer, locked writes",
-      follow: `Follow ${follow}, then the lock block.`,
-      commands: `${install}
-${lock}
-# http://127.0.0.1:8000
-${sendLocal}`,
-    };
-  }
+  const lockBit =
+    goal === "locked"
+      ? `export COPYPASTE_REQUIRE_WRITE_AUTH=true
+export COPYPASTE_AUTH_TOKEN='replace-with-43-to-128-base64url-chars'
+`
+      : "";
 
   const service =
     machine === "apple"
       ? "\nbrew services start copypaste   # optional, instead of serve"
-      : machine === "ubuntu" || machine === "fedora"
+      : machine === "ubuntu" || machine === "fedora" || machine === "aws"
         ? "\n# optional: sudo cp contrib/systemd/copypaste.service /etc/systemd/system && sudo systemctl enable --now copypaste"
         : "";
 
+  const where = machine === "aws" ? "AWS or any VM" : "Your computer";
   return {
-    title: "Your computer, open writes",
-    follow: `Follow ${follow}, then serve.`,
+    title: `${where}, ${goal === "locked" ? "locked writes" : "open writes"}, ${store}`,
+    follow: `Follow ${follow}, then serve. Pastes live in ${store === "redis" ? "Upstash Redis" : "process memory"}.`,
     commands: `${install}
-${serve}${service}
-# http://127.0.0.1:8000
-${sendLocal}`,
+${lockBit}${serve}${service}
+# http://${bind === "0.0.0.0" ? "<public-ip>" : "127.0.0.1"}:8000
+${bind === "0.0.0.0" ? 'copypaste send --host http://127.0.0.1:8000 "notes from this box"' : sendLocal}`,
   };
 };

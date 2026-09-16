@@ -15,6 +15,8 @@ Pick one row. Ignore the rest.
 | Ubuntu / Debian / Fedora | a server on this box | `install.sh` or cargo, then `copypaste serve` |
 | Windows | a server on this PC | `install.ps1`, then `copypaste serve` |
 | I have Docker | a container | `docker compose up --build` |
+| AWS EC2 / Lightsail / any VM | a server on that box | About picker: AWS / any VM |
+| Any of the above | pastes that survive restart | Store = Upstash Redis. Not S3. |
 | Any of the above | only send to copypaste.fyi | CLI `send --host https://www.copypaste.fyi`. No serve. |
 
 The site About page has the same picker.
@@ -135,5 +137,33 @@ copypaste send --host http://127.0.0.1:8000 --auth-token-file ./write.token "sec
 | Verifier | OCaml VM on Fly | optional; local serve works without it |
 
 Do not point `ROCKET_ADDRESS` at `0.0.0.0` unless you mean to expose the port.
+
+## 6. AWS and where pastes live
+
+The binary does not care if the VM is AWS, GCP, a Pi, or a Grok box. Pastes are not stored in S3.
+
+| Store | Env | Survives restart |
+|---|---|---|
+| Memory | `COPYPASTE_FORCE_MEMORY=true` | No |
+| Upstash Redis REST | `COPYPASTE_PERSISTENCE_BACKEND=redis` plus `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` | Yes |
+
+Do not set `COPYPASTE_FORCE_MEMORY` when you want Redis. ElastiCache TCP Redis and S3 buckets are not backends.
+
+AWS sketch:
+
+```bash
+# Ubuntu AMI
+sudo apt-get update
+sudo apt-get install -y git build-essential pkg-config libssl-dev
+git clone https://github.com/qxlsz/copypaste.fyi.git
+cd copypaste.fyi
+./scripts/agent-setup.sh
+export COPYPASTE_PERSISTENCE_BACKEND=redis
+export UPSTASH_REDIS_REST_URL='https://...'
+export UPSTASH_REDIS_REST_TOKEN='...'
+ROCKET_ADDRESS=127.0.0.1 copypaste serve
+```
+
+Put Caddy or nginx on 443 in front. Open the security group only to that proxy.
 
 Full env list: [CLAUDE.md](../CLAUDE.md).
