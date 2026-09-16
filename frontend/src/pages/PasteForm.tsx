@@ -295,6 +295,7 @@ export const PasteFormPage = () => {
   useHotkeys({ shortcut: "ctrl+enter", handler: submitForm });
 
   const requiresKey = encryption !== "none";
+  const hasText = content.trim().length > 0;
 
   const createSecureEncryptionKey = () => {
     try {
@@ -852,12 +853,22 @@ export const PasteFormPage = () => {
                 type="button"
                 onClick={toggleEncryption}
                 aria-pressed={requiresKey}
-                aria-label="Encryption options"
-                title="Encryption options"
+                aria-label={
+                  requiresKey ? "Turn encryption off" : "Turn encryption on. Default is none."
+                }
+                title={
+                  requiresKey
+                    ? "Encryption is on. Tap again for none."
+                    : hasText
+                      ? "Encrypt this paste. Default is none."
+                      : "Type something first. Encryption stays off until you turn it on."
+                }
                 className={`inline-flex h-11 w-full items-center justify-center gap-2 self-end rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
                   requiresKey
                     ? "bg-accent text-accent-foreground"
-                    : "bg-muted text-muted-foreground hover:text-text"
+                    : hasText
+                      ? "bg-muted text-text hover:bg-border"
+                      : "bg-muted text-muted-foreground hover:text-text"
                 }`}
               >
                 <Lock className="h-3.5 w-3.5" aria-hidden="true" />
