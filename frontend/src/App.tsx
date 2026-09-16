@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Suspense, lazy, useState } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Toaster } from "sonner";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
+import { shareTargetText, stripShareTargetSearch } from "./lib/shareTarget";
 import { PasteFormPage } from "./pages/PasteForm";
 
 import { ThemeProvider } from "./theme/ThemeProvider";
@@ -42,6 +43,30 @@ const RouteFallback = () => (
   </div>
 );
 
+const HomeComposer = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const seed = shareTargetText(location.search);
+
+  useEffect(() => {
+    if (!seed) return;
+    navigate(
+      {
+        pathname: "/",
+        search: stripShareTargetSearch(location.search),
+        hash: location.hash,
+      },
+      { replace: true, state: { content: seed } },
+    );
+  }, [location.hash, location.search, navigate, seed]);
+
+  if (seed) {
+    return <RouteFallback />;
+  }
+
+  return <PasteFormPage />;
+};
+
 export function App() {
   return (
     <>
@@ -49,7 +74,7 @@ export function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<Layout />}>
-            <Route index element={<PasteFormPage />} />
+            <Route index element={<HomeComposer />} />
             <Route
               path="p/:id"
               element={

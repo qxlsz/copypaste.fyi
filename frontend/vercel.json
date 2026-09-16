@@ -6,7 +6,7 @@
   "installCommand": "npm ci",
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/((?!assets/|llms\\.txt|grok-bot\\.md|install\\.sh|install\\.ps1|theme-boot\\.js|\\.well-known/).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|llms\\.txt|grok-bot\\.md|install\\.sh|install\\.ps1|theme-boot\\.js|manifest\\.webmanifest|\\.well-known/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
