@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /stats
+Disallow: /p/
+Disallow: /raw/
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /login
+
+Sitemap: https://www.copypaste.fyi/sitemap.xml

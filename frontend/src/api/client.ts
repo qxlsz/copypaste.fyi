@@ -9,9 +9,7 @@ import type { PasteViewResponse } from "../server/types";
 
 // In development, use relative /api paths (proxied by Vite)
 // In production, use the configured API base
-export const API_BASE = import.meta.env.DEV
-  ? "/api"
-  : (import.meta.env.VITE_API_BASE ?? "/api");
+export const API_BASE = import.meta.env.DEV ? "/api" : (import.meta.env.VITE_API_BASE ?? "/api");
 
 const requestOrigin = (url: string): string => {
   const frontendOrigin = globalThis.location?.origin ?? "http://localhost";
@@ -58,10 +56,7 @@ export class ApiError extends Error {
   }
 }
 
-const jsonFetch = async <T>(
-  input: RequestInfo,
-  init?: RequestInit,
-): Promise<T> => {
+const jsonFetch = async <T>(input: RequestInfo, init?: RequestInit): Promise<T> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
@@ -90,20 +85,14 @@ const jsonFetch = async <T>(
         if (import.meta.env.DEV) {
           console.error(`[API] ${response.status} error:`, body);
         }
-        throw new ApiError(
-          "Something went wrong. Please try again later.",
-          response.status,
-        );
+        throw new ApiError("Something went wrong. Please try again later.", response.status);
       }
       // For 4xx: use structured API error message if schema conforms {code, message}
       let userMessage = `Request failed (${response.status})`;
       let code: string | undefined;
       try {
         const parsed = JSON.parse(body) as Record<string, unknown>;
-        if (
-          typeof parsed.message === "string" &&
-          typeof parsed.code === "string"
-        ) {
+        if (typeof parsed.message === "string" && typeof parsed.code === "string") {
           userMessage = parsed.message;
           code = parsed.code;
         }
@@ -121,9 +110,7 @@ const jsonFetch = async <T>(
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(
-        "Request timed out. Please check if the backend is running.",
-      );
+      throw new Error("Request timed out. Please check if the backend is running.");
     }
     throw error;
   }
@@ -142,8 +129,7 @@ export const createPaste = async (
     credentialHeaders.Authorization = `Bearer ${credentials.sessionToken}`;
   }
   if (credentials?.writeCredential) {
-    credentialHeaders["X-CopyPaste-Write-Token"] =
-      credentials.writeCredential;
+    credentialHeaders["X-CopyPaste-Write-Token"] = credentials.writeCredential;
   }
   try {
     return await jsonFetch<CreatePasteResponse>(url, {
@@ -170,10 +156,19 @@ export const fetchStatsSummary = async (): Promise<StatsSummary> => {
   return jsonFetch<StatsSummary>(url);
 };
 
-export const fetchPaste = async (
-  id: string,
-  key?: string,
-): Promise<PasteViewResponse> => {
+export interface TrafficSummary {
+  pageviews: number;
+  pages: Array<{ name: string; count: number }>;
+  referrers: Array<{ name: string; count: number }>;
+  devices: Array<{ name: string; count: number }>;
+}
+
+export const fetchTraffic = async (): Promise<TrafficSummary> => {
+  const url = `${API_BASE}/stats/traffic`;
+  return jsonFetch<TrafficSummary>(url);
+};
+
+export const fetchPaste = async (id: string, key?: string): Promise<PasteViewResponse> => {
   const url = `${API_BASE}/pastes/${encodeURIComponent(id)}`;
   return jsonFetch<PasteViewResponse>(url, {
     ...(key ? guardedApiHeaderOptions(url, { "X-Paste-Key": key }) : undefined),
@@ -223,9 +218,7 @@ export const loginWithSignature = async (
   });
 };
 
-export const logoutUser = async (
-  token?: string | null,
-): Promise<{ success: boolean }> => {
+export const logoutUser = async (token?: string | null): Promise<{ success: boolean }> => {
   const url = `${API_BASE}/auth/logout`;
   return jsonFetch<{ success: boolean }>(url, {
     ...sessionRequestOptions(url, token),

@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Suspense, lazy, useState } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
 import { PasteFormPage } from "./pages/PasteForm";
+import { collectVisit } from "./lib/traffic";
 
 import { ThemeProvider } from "./theme/ThemeProvider";
 import { useTheme } from "./theme/ThemeContext";
@@ -16,21 +17,23 @@ import { useTheme } from "./theme/ThemeContext";
 const PasteViewPage = lazy(() =>
   import("./pages/PasteView").then((m) => ({ default: m.PasteViewPage })),
 );
-const StatsPage = lazy(() =>
-  import("./pages/Stats").then((m) => ({ default: m.StatsPage })),
-);
+const StatsPage = lazy(() => import("./pages/Stats").then((m) => ({ default: m.StatsPage })));
 const DashboardPage = lazy(() =>
   import("./pages/Dashboard").then((m) => ({ default: m.DashboardPage })),
 );
-const LoginPage = lazy(() =>
-  import("./pages/Login").then((m) => ({ default: m.LoginPage })),
-);
-const AboutPage = lazy(() =>
-  import("./pages/About").then((m) => ({ default: m.AboutPage })),
-);
+const LoginPage = lazy(() => import("./pages/Login").then((m) => ({ default: m.LoginPage })));
+const AboutPage = lazy(() => import("./pages/About").then((m) => ({ default: m.AboutPage })));
 const NotFoundPage = lazy(() =>
   import("./pages/NotFound").then((m) => ({ default: m.NotFoundPage })),
 );
+
+const TrafficBeacon = () => {
+  const location = useLocation();
+  useEffect(() => {
+    collectVisit(location.pathname);
+  }, [location.pathname]);
+  return null;
+};
 
 const RouteFallback = () => (
   <div
@@ -45,6 +48,7 @@ const RouteFallback = () => (
 export function App() {
   return (
     <>
+      <TrafficBeacon />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -71,9 +75,7 @@ export function App() {
 
 const ThemedToaster = () => {
   const { theme } = useTheme();
-  return (
-    <Toaster richColors closeButton position="bottom-right" theme={theme} />
-  );
+  return <Toaster richColors closeButton position="bottom-right" theme={theme} />;
 };
 
 export default function AppWithProviders() {
