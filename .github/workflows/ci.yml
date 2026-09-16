@@ -106,3 +106,19 @@ jobs:
         working-directory: frontend
       - name: Verify canonical Vercel policy is synchronized
         run: cmp vercel.json frontend/vercel.json
+
+  seo:
+    name: SEO files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - name: Public SEO files exist
+        run: |
+          test -f frontend/public/robots.txt
+          test -f frontend/public/sitemap.xml
+          grep -q "Disallow: /p/" frontend/public/robots.txt
+          grep -q "canonical" frontend/index.html
+          grep -q "application/ld+json" frontend/index.html
+          python3 -c "import json; json.load(open('frontend/vercel.json'))"
+

@@ -2850,7 +2850,7 @@ async fn spa_fallback(_path: PathBuf) -> content::RawHtml<String> {
 mod tests {
     use super::*;
     use crate::MemoryPasteStore;
-    use rocket::http::{ContentType, Header};
+    use rocket::http::ContentType;
     use rocket::local::blocking::Client;
     use serde_json::json;
     use std::sync::Arc;

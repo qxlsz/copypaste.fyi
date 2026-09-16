@@ -1,0 +1,29 @@
+# Hits the public site after merge. Failures mean deploy or SEO files drifted.
+name: Live smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: live-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  public:
+    name: Public pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: robots hides pastes
+        run: |
+          curl -fsS https://www.copypaste.fyi/robots.txt | grep -q "Disallow: /p/"
+          curl -fsS https://www.copypaste.fyi/sitemap.xml | grep -q "https://www.copypaste.fyi/"
+      - name: home is up
+        run: curl -fsS -o /dev/null -w "%{http_code}" https://www.copypaste.fyi/ | grep -q 200
+      - name: API health
+        run: curl -fsS https://copypaste-fyi-withered-darkness-575.fly.dev/health | grep -q ok
