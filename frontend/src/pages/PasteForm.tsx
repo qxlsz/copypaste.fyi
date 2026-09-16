@@ -86,7 +86,7 @@ const retentionOptions: Array<{ label: string; value: number }> = [
   { label: "10 minutes", value: 10 },
   { label: "1 hour", value: 60 },
   { label: "3 hours", value: 180 },
-  { label: "1 day", value: 1440 },
+  { label: "1 day (default)", value: 1440 },
   { label: "7 days", value: 10080 },
   { label: "30 days", value: 43200 },
 ];
@@ -818,7 +818,7 @@ export const PasteFormPage = () => {
 
               <DockSelect
                 id="retention"
-                label="Retention period"
+                label="Keep"
                 value={String(retentionMinutes)}
                 onChange={(value) => setRetentionMinutes(Number(value))}
               >
