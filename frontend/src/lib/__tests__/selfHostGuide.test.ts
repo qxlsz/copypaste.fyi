@@ -24,9 +24,10 @@ describe("hostRecipe", () => {
     expect(recipe.commands).not.toMatch(/COPYPASTE_FORCE_MEMORY=true/);
   });
 
-  it("sends Ubuntu to agent-setup, not a brew URL", () => {
-    const recipe = hostRecipe("local", "ubuntu");
-    expect(recipe.commands).toMatch(/agent-setup\.sh/);
-    expect(recipe.commands).not.toMatch(/brew install/);
+  it("sends connector goal to /mcp for Grok", () => {
+    const recipe = hostRecipe("connector", "apple", "redis");
+    expect(recipe.commands).toMatch(/\/mcp/);
+    expect(recipe.commands).toMatch(/grok.com\/connectors/);
+    expect(recipe.commands).toMatch(/--agent/);
   });
 });

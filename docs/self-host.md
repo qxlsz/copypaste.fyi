@@ -16,7 +16,7 @@ Pick one row. Ignore the rest.
 | Windows | a server on this PC | `install.ps1`, then `copypaste serve` |
 | I have Docker | a container | `docker compose up --build` |
 | AWS EC2 / Lightsail / any VM | a server on that box | About picker: AWS / any VM |
-| Any of the above | pastes that survive restart | Store = Upstash Redis. Not S3. |
+| Any of the above | encrypted store + Grok connector | About picker: Encrypted store + Grok connector. MCP at `/mcp`. |
 | Any of the above | only send to copypaste.fyi | CLI `send --host https://www.copypaste.fyi`. No serve. |
 
 The site About page has the same picker.

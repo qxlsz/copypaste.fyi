@@ -23,6 +23,7 @@ use crate::{
     PasteMutationError, PersistenceLocator, SharedPasteStore, StoredContent, StoredPaste,
     WebhookConfig,
 };
+use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -44,11 +45,11 @@ use super::models::{
     AdminDeletePasteResponse, AdminPasteMetadataResponse, AnchorRequest, AnchorResponse, ApiError,
     ApiKeyInfo, AuthChallengeResponse, AuthLoginRequest, AuthLoginResponse, AuthLogoutResponse,
     CreateApiKeyRequest, CreateApiKeyResponse, CreatePasteApiSchema, CreatePasteRequest,
-    CreatePasteResponse, FinalizePasteRequest, FinalizePasteResponse, ListApiKeysResponse,
-    PasteEncryptionInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse, PersistenceRequest,
-    RevokeApiKeyResponse, StatsSummaryResponse, StegoRequest, TimeLockRequest, UpdatePasteRequest,
-    UpdatePasteResponse, UserPasteCountResponse, UserPasteListItem, UserPasteListResponse,
-    WebhookRequest, WorkspacePasteItem, WorkspacePasteListResponse,
+    CreatePasteResponse, EncryptionRequest, FinalizePasteRequest, FinalizePasteResponse,
+    ListApiKeysResponse, PasteEncryptionInfo, PasteTimeLockInfo, PasteViewQuery, PasteViewResponse,
+    PersistenceRequest, RevokeApiKeyResponse, StatsSummaryResponse, StegoRequest, TimeLockRequest,
+    UpdatePasteRequest, UpdatePasteResponse, UserPasteCountResponse, UserPasteListItem,
+    UserPasteListResponse, WebhookRequest, WorkspacePasteItem, WorkspacePasteListResponse,
 };
 use super::rate_limit::{CreateRateLimit, PasteRateLimiter, ReadRateLimit};
 use super::render::{
@@ -270,6 +271,8 @@ fn build_rocket_with_components(
                 agent_discovery,
                 llms_txt,
                 grok_bot_md,
+                mcp_rpc,
+                mcp_info,
                 spa_fallback
             ],
         )
@@ -386,6 +389,7 @@ struct AgentDiscovery {
     encryption: Vec<String>,
     llms: String,
     grok_bot: String,
+    mcp: String,
     note: String,
 }
 
@@ -406,10 +410,12 @@ fn agent_discovery() -> Json<AgentDiscovery> {
             "aes256_gcm".to_string(),
             "chacha20_poly1305".to_string(),
             "xchacha20_poly1305".to_string(),
+            "kyber_hybrid_aes256_gcm".to_string(),
         ],
         llms: "/llms.txt".to_string(),
         grok_bot: "/grok-bot.md".to_string(),
-        note: "Without X-Paste-Key the body stays ciphertext. Missing, burned, and expired reads are the same 404. Never put keys in Open-with URLs.".to_string(),
+        mcp: "/mcp".to_string(),
+        note: "Without X-Paste-Key the body stays ciphertext. Host your own server for encrypted storage. Grok connector: POST /mcp. Never put keys in Open-with URLs.".to_string(),
     })
 }
 
@@ -421,6 +427,156 @@ fn llms_txt() -> content::RawText<&'static str> {
 #[get("/grok-bot.md")]
 fn grok_bot_md() -> content::RawText<&'static str> {
     content::RawText(include_str!("../../static/grok-bot.md"))
+}
+
+#[get("/mcp")]
+fn mcp_info() -> Json<serde_json::Value> {
+    Json(json!({
+        "copypaste": 1,
+        "mcp": "2.0",
+        "name": "copypaste",
+        "transport": "json-rpc POST /mcp",
+        "tools": ["create_paste", "read_paste"],
+        "note": "Grok: grok.com/connectors → New Connector → Custom → this URL + /mcp. Encrypted pastes need X-Paste-Key on read."
+    }))
+}
+
+#[post("/mcp", data = "<body>")]
+async fn mcp_rpc(
+    store: &State<SharedPasteStore>,
+    features: &State<FeaturePolicy>,
+    onion: OnionAccess,
+    body: Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let id = body.get("id").cloned().unwrap_or(json!(null));
+    let method = body.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    let result = match method {
+        "initialize" => json!({
+            "protocolVersion": "2025-03-26",
+            "capabilities": { "tools": {} },
+            "serverInfo": { "name": "copypaste", "version": env!("CARGO_PKG_VERSION") }
+        }),
+        "notifications/initialized" => {
+            return Json(json!({"jsonrpc":"2.0"}));
+        }
+        "ping" => json!({}),
+        "tools/list" => json!({
+            "tools": [
+                {
+                    "name": "create_paste",
+                    "description": "Store text on this copypaste host. Optional AES-256-GCM key. Returns id and share URL.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "content": { "type": "string" },
+                            "key": { "type": "string", "description": "If set, encrypt with AES-256-GCM." },
+                            "burn": { "type": "boolean" }
+                        },
+                        "required": ["content"]
+                    }
+                },
+                {
+                    "name": "read_paste",
+                    "description": "Read a paste by id from this host. Pass key when the paste is encrypted.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "key": { "type": "string" }
+                        },
+                        "required": ["id"]
+                    }
+                }
+            ]
+        }),
+        "tools/call" => {
+            let params = body.get("params").cloned().unwrap_or(json!({}));
+            let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let args = params.get("arguments").cloned().unwrap_or(json!({}));
+            match name {
+                "create_paste" => {
+                    let content = args
+                        .get("content")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let mut request = CreatePasteRequest {
+                        content,
+                        format: None,
+                        retention_minutes: None,
+                        encryption: None,
+                        burn_after_reading: args
+                            .get("burn")
+                            .and_then(|b| b.as_bool())
+                            .unwrap_or(false),
+                        bundle: None,
+                        time_lock: None,
+                        attestation: None,
+                        persistence: None,
+                        webhook: None,
+                        stego: None,
+                        tor_access_only: false,
+                        owner_pubkey_hash: None,
+                        workspace: None,
+                        live: false,
+                    };
+                    if let Some(key) = args.get("key").and_then(|k| k.as_str()) {
+                        if !key.is_empty() {
+                            request.encryption = Some(EncryptionRequest {
+                                algorithm: EncryptionAlgorithm::Aes256Gcm,
+                                key: key.to_string(),
+                            });
+                        }
+                    }
+                    match create_paste_internal(store.inner(), request, &onion, features.inner())
+                        .await
+                    {
+                        Ok(created) => json!({
+                            "content": [{
+                                "type": "text",
+                                "text": serde_json::to_string(&json!({
+                                    "id": created.id,
+                                    "url": created.shareable_url,
+                                    "encrypted": args.get("key").and_then(|k| k.as_str()).map(|k| !k.is_empty()).unwrap_or(false)
+                                })).unwrap_or_else(|_| "{}".into())
+                            }]
+                        }),
+                        Err((_, msg)) => json!({
+                            "isError": true,
+                            "content": [{ "type": "text", "text": msg }]
+                        }),
+                    }
+                }
+                "read_paste" => {
+                    let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                    match store.get_paste(paste_id).await {
+                        Ok(_paste) => json!({
+                            "content": [{
+                                "type": "text",
+                                "text": format!("GET /api/pastes/{paste_id} on this host. Encrypted pastes need header X-Paste-Key.")
+                            }]
+                        }),
+                        Err(_) => json!({
+                            "isError": true,
+                            "content": [{ "type": "text", "text": "Paste not found." }]
+                        }),
+                    }
+                }
+                _ => json!({
+                    "isError": true,
+                    "content": [{ "type": "text", "text": "Unknown tool" }]
+                }),
+            }
+        }
+        _ => {
+            return Json(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32601, "message": format!("Method not found: {method}") }
+            }));
+        }
+    };
+    Json(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
 }
 
 #[get("/health")]
@@ -3232,6 +3388,43 @@ mod tests {
                 .status(),
             Status::TooManyRequests
         );
+    }
+
+    #[test]
+    fn mcp_lists_tools_and_can_create_an_encrypted_paste() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+
+        let listed = client.get("/mcp").dispatch();
+        assert_eq!(listed.status(), Status::Ok);
+        let card: serde_json::Value =
+            serde_json::from_str(&listed.into_string().expect("card")).expect("json");
+        assert_eq!(card["mcp"], "2.0");
+
+        let init = client
+            .post("/mcp")
+            .header(ContentType::JSON)
+            .body(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
+            .dispatch();
+        assert_eq!(init.status(), Status::Ok);
+        let init_body: serde_json::Value =
+            serde_json::from_str(&init.into_string().expect("init")).expect("json");
+        assert_eq!(init_body["result"]["serverInfo"]["name"], "copypaste");
+
+        let created = client
+            .post("/mcp")
+            .header(ContentType::JSON)
+            .body(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_paste","arguments":{"content":"connector secret","key":"unit-test-key"}}}"#)
+            .dispatch();
+        assert_eq!(created.status(), Status::Ok);
+        let created_body: serde_json::Value =
+            serde_json::from_str(&created.into_string().expect("created")).expect("json");
+        let text = created_body["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text");
+        assert!(text.contains("encrypted"));
+        assert!(text.contains("\"id\""));
     }
 
     #[test]

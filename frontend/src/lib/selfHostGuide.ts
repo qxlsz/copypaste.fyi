@@ -1,4 +1,4 @@
-export type HostGoal = "public" | "local" | "locked";
+export type HostGoal = "public" | "local" | "locked" | "connector";
 export type HostMachine =
   | "apple"
   | "windows"
@@ -14,6 +14,11 @@ export const HOST_GOALS: { id: HostGoal; label: string; hint: string }[] = [
   { id: "public", label: "Just send text", hint: "Use copypaste.fyi. No server." },
   { id: "local", label: "Host on this computer", hint: "Browser at 127.0.0.1:8000." },
   { id: "locked", label: "Host and lock writes", hint: "Team box with a write token." },
+  {
+    id: "connector",
+    label: "Encrypted store + Grok connector",
+    hint: "Your server keeps ciphertext. Point Grok at /mcp.",
+  },
 ];
 
 export const HOST_MACHINES: { id: HostMachine; label: string }[] = [
@@ -167,11 +172,26 @@ ${sendLocal}`,
         ? "\nexport COPYPASTE_REQUIRE_WRITE_AUTH=true\nexport COPYPASTE_AUTH_TOKEN='replace-with-43-to-128-base64url-chars'"
         : "";
     return {
-      title: goal === "locked" ? `${who}, locked writes` : `${who}, local server`,
-      follow: `Follow ${who}. Run agent-setup, then --serve. Do not use the Apple brew path.`,
+      title:
+        goal === "connector"
+          ? `${who}, encrypted store + connector`
+          : goal === "locked"
+            ? `${who}, locked writes`
+            : `${who}, local server`,
+      follow:
+        goal === "connector"
+          ? `Follow ${who}, serve, then add http://127.0.0.1:8000/mcp in grok.com/connectors.`
+          : `Follow ${who}. Run agent-setup, then --serve. Do not use the Apple brew path.`,
       commands: `${install}${lockBit}
 ./scripts/agent-setup.sh --serve
-${sendLocal}`,
+${sendLocal}${
+        goal === "connector"
+          ? `
+# Encrypt on send:
+copypaste send --host http://127.0.0.1:8000 --agent "secret for the next model"
+# Grok connector: grok.com/connectors → New → Custom → http://127.0.0.1:8000/mcp`
+          : ""
+      }`,
     };
   }
 
@@ -190,6 +210,18 @@ export COPYPASTE_AUTH_TOKEN='replace-with-43-to-128-base64url-chars'
         : "";
 
   const where = machine === "aws" ? "AWS or any VM" : "Your computer";
+  if (goal === "connector") {
+    return {
+      title: `${where}, encrypted store + Grok connector`,
+      follow: `Follow ${follow}. Serve, encrypt on send, add /mcp as a custom Grok connector.`,
+      commands: `${install}
+${lockBit}${serve}${service}
+# store ciphertext, not S3
+copypaste send --host http://127.0.0.1:8000 --agent "secret for the next model"
+# grok.com/connectors → New Connector → Custom
+# MCP URL: http://${bind === "0.0.0.0" ? "<public-host>" : "127.0.0.1"}:8000/mcp`,
+    };
+  }
   return {
     title: `${where}, ${goal === "locked" ? "locked writes" : "open writes"}, ${store}`,
     follow: `Follow ${follow}, then serve. Pastes live in ${store === "redis" ? "Upstash Redis" : "process memory"}.`,
