@@ -27,3 +27,26 @@ export const agentReceipt = (url: string, key?: string, algorithm?: string): str
   }
   return JSON.stringify(receipt);
 };
+
+export const parseAgentReceipt = (text: string): AgentReceipt | null => {
+  const raw = text.trim();
+  if (!raw.startsWith("{") || raw.length > 8192) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<AgentReceipt>;
+    if (value.copypaste !== 1) return null;
+    if (typeof value.url !== "string" && typeof value.get !== "string") return null;
+    const url = typeof value.url === "string" ? value.url : String(value.get);
+    const id = typeof value.id === "string" ? value.id : pasteIdFromShareUrl(url);
+    return {
+      copypaste: 1,
+      url,
+      id,
+      get: typeof value.get === "string" ? value.get : url,
+      algorithm: value.algorithm,
+      key: value.key,
+      headers: value.headers,
+    };
+  } catch {
+    return null;
+  }
+};

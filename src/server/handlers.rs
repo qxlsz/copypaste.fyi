@@ -406,10 +406,11 @@ fn agent_discovery() -> Json<AgentDiscovery> {
             "aes256_gcm".to_string(),
             "chacha20_poly1305".to_string(),
             "xchacha20_poly1305".to_string(),
+            "kyber_hybrid_aes256_gcm".to_string(),
         ],
         llms: "/llms.txt".to_string(),
         grok_bot: "/grok-bot.md".to_string(),
-        note: "Without X-Paste-Key the body stays ciphertext. Missing, burned, and expired reads are the same 404. Never put keys in Open-with URLs.".to_string(),
+        note: "Without X-Paste-Key the body stays ciphertext. Missing, burned, and expired reads are the same 404. Never put keys in Open-with URLs. Agents: copypaste send --agent prints a JSON receipt.".to_string(),
     })
 }
 

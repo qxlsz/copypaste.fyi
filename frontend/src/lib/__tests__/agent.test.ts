@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentReceipt } from "../agent";
+import { agentReceipt, parseAgentReceipt } from "../agent";
 
 describe("agentReceipt", () => {
   it("gives another agent the URL without leaking a key when there is none", () => {
@@ -27,5 +27,15 @@ describe("agentReceipt", () => {
     expect(parsed.url.includes(key)).toBe(false);
     expect(parsed.key).toBe(key);
     expect(parsed.headers["X-Paste-Key"]).toBe(key);
+  });
+});
+
+describe("parseAgentReceipt", () => {
+  it("reads a receipt another agent dropped in the box", () => {
+    const raw = agentReceipt("https://www.copypaste.fyi/p/abc123", "tok", "aes256_gcm");
+    const parsed = parseAgentReceipt(raw);
+    expect(parsed?.id).toBe("abc123");
+    expect(parsed?.key).toBe("tok");
+    expect(parseAgentReceipt("just notes")).toBeNull();
   });
 });

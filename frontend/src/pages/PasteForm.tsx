@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -33,7 +33,7 @@ import {
   shareImageColorsFromDocument,
 } from "../lib/shareImage";
 import { whisperNote, sharePayload } from "../lib/whisper";
-import { agentReceipt } from "../lib/agent";
+import { agentReceipt, parseAgentReceipt } from "../lib/agent";
 import { sniffFormatFromText } from "../lib/sniffFormat";
 import { MAX_PASTE_BYTES, composerStats, isTextFile, sniffFormat } from "../lib/composer";
 import { useAuth } from "../stores/auth";
@@ -108,6 +108,7 @@ const isPasteFormat = (value: unknown): value is PasteFormat =>
 export const PasteFormPage = () => {
   const { token } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   // Seed the editor from router state (fork flow) on mount only; the lazy
   // initializers never re-run, so later navigation state changes can't loop.
   const [content, setContent] = useState(() => {
@@ -128,6 +129,7 @@ export const PasteFormPage = () => {
     return sessionStorage.getItem("copypaste.write-token") ?? "";
   });
   const [burnAfterReading, setBurnAfterReading] = useState(false);
+  const [forAgent, setForAgent] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
@@ -211,6 +213,12 @@ export const PasteFormPage = () => {
   const mutation = useMutation({
     mutationFn: async () => {
       const live = contentRef.current;
+      let algorithm = encryption;
+      let key = encryptionKey;
+      if (forAgent && algorithm === "none") {
+        key = generateEncryptionKey();
+        algorithm = "aes256_gcm";
+      }
       const payload: CreatePastePayload = {
         content: live,
         format,
@@ -218,36 +226,36 @@ export const PasteFormPage = () => {
         burn_after_reading: burnAfterReading || undefined,
       };
 
-      if (encryption !== "none") {
+      if (algorithm !== "none") {
         payload.encryption = {
-          algorithm: encryption,
-          key: encryptionKey,
+          algorithm,
+          key,
         };
       }
 
-      return createPaste(payload, {
+      const result = await createPaste(payload, {
         sessionToken: token,
         writeCredential: writeCredential.trim() || undefined,
       });
+      return { result, algorithm, key };
     },
-    onSuccess: (result) => {
-      const usedEncryption = encryption;
-      const usedEncryptionKey = encryptionKey;
-      toast.success("Paste created");
+    onSuccess: ({ result, algorithm, key }) => {
+      toast.success(forAgent ? "Receipt ready for another agent" : "Paste created");
       try {
         navigator.vibrate?.(16);
       } catch {
         /* ignore */
       }
-      setPasteEncryption(usedEncryption);
-      setPasteEncryptionKey(usedEncryptionKey);
+      setPasteEncryption(algorithm);
+      setPasteEncryptionKey(key);
       setContent("");
       contentRef.current = "";
       setShareUrl(result.shareableUrl);
       setEncryptionKey("");
-      if (usedEncryption !== "none") {
+      if (algorithm !== "none") {
         setEncryption("none");
       }
+      setForAgent(false);
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -295,6 +303,8 @@ export const PasteFormPage = () => {
   useHotkeys({ shortcut: "ctrl+enter", handler: submitForm });
 
   const requiresKey = encryption !== "none";
+  const hasText = content.trim().length > 0;
+  const inboundReceipt = parseAgentReceipt(content);
 
   const createSecureEncryptionKey = () => {
     try {
@@ -623,6 +633,23 @@ export const PasteFormPage = () => {
           <label className="sr-only" htmlFor="content">
             Content
           </label>
+          {inboundReceipt ? (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm sm:px-4">
+              <span className="text-muted-foreground">Agent receipt {inboundReceipt.id}</span>
+              <button
+                type="button"
+                className="underline underline-offset-2"
+                onClick={() => {
+                  const path = inboundReceipt.url.includes("/p/")
+                    ? new URL(inboundReceipt.url, window.location.origin).pathname
+                    : `/p/${inboundReceipt.id}`;
+                  navigate(path);
+                }}
+              >
+                Open paste
+              </button>
+            </div>
+          ) : null}
           <div
             className={`relative min-h-0 flex-1 overflow-hidden ${isDragging ? "bg-muted/40" : ""}`}
             onDragEnter={(event) => {
@@ -862,6 +889,22 @@ export const PasteFormPage = () => {
               >
                 <Lock className="h-3.5 w-3.5" aria-hidden="true" />
                 {requiresKey ? encryptionChipLabel[encryption] : "Encrypt"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setForAgent((on) => !on)}
+                aria-pressed={forAgent}
+                title="Encrypt for another agent and copy a JSON receipt after Get link"
+                className={`inline-flex h-11 w-full items-center justify-center gap-2 self-end rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
+                  forAgent
+                    ? "bg-accent text-accent-foreground"
+                    : hasText
+                      ? "bg-muted text-text hover:bg-border"
+                      : "bg-muted text-muted-foreground hover:text-text"
+                }`}
+              >
+                <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+                Agent
               </button>
             </div>
 
