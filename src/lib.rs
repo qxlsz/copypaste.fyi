@@ -1401,8 +1401,8 @@ mod tests {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')));
         let short = store.add_alias(&id).await.expect("short alias");
         assert_eq!(short.len(), 10);
-        assert_eq!(store.resolve_id(&short).await, id);
-        assert_eq!(store.resolve_id(&id).await, id);
+        assert!(store.resolve_related_ids(&short).await.contains(&id));
+        assert!(store.resolve_related_ids(&id).await.contains(&id));
         let via_short = store.get_paste(&short).await.expect("alias lookup");
         assert_eq!(
             via_short.created_at,

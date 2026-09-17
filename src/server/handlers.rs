@@ -3428,8 +3428,8 @@ mod tests {
             self.inner.add_alias(canonical).await
         }
 
-        async fn resolve_id(&self, id: &str) -> String {
-            self.inner.resolve_id(id).await
+        async fn resolve_related_ids(&self, id: &str) -> Vec<String> {
+            self.inner.resolve_related_ids(id).await
         }
     }
 
