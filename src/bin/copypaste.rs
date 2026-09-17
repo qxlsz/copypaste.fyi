@@ -444,7 +444,7 @@ fn execute_clip(host: &str) -> io::Result<String> {
         json: false,
         agent: false,
     };
-    let url = execute_send(args)?;
+    let url = execute_send_receipt(args)?.url;
     write_os_clipboard(&url)?;
     Ok(url)
 }
