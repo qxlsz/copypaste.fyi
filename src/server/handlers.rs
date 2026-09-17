@@ -486,9 +486,12 @@ fn mcp_manifest_body() -> serde_json::Value {
         "name": "copypaste",
         "transport": "streamable-http",
         "url": "/mcp",
-        "tools": ["create_paste", "read_paste"],
+        "tools": ["create_paste", "read_paste", "mint_alias", "health"],
         "clients": {
-            "cursor": { "mcpServers": { "copypaste": { "url": "http://127.0.0.1:8000/mcp" } } },
+            "cursor": { "mcpServers": { "copypaste": { "url": "https://www.copypaste.fyi/mcp" } } },
+            "vscode": { "servers": { "copypaste": { "url": "https://www.copypaste.fyi/mcp", "type": "http" } } },
+            "claude": { "mcpServers": { "copypaste": { "url": "https://www.copypaste.fyi/mcp" } } },
+            "chatgpt": "developer mode → MCP → https://www.copypaste.fyi/mcp",
             "grok": "https://grok.com/connectors"
         },
         "note": "POST JSON-RPC to /mcp. create_paste and read_paste. Pass key to encrypt and decrypt."
@@ -512,15 +515,82 @@ async fn mcp_rpc(
     let result = match method {
         "initialize" => json!({
             "protocolVersion": "2025-03-26",
-            "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
+            "capabilities": {
+                "tools": { "listChanged": false },
+                "resources": { "listChanged": false },
+                "prompts": { "listChanged": false }
+            },
             "serverInfo": { "name": "copypaste", "version": env!("CARGO_PKG_VERSION") }
         }),
         "notifications/initialized" => {
             return Json(json!({"jsonrpc":"2.0"}));
         }
         "ping" => json!({}),
-        "resources/list" => json!({ "resources": [] }),
-        "prompts/list" => json!({ "prompts": [] }),
+        "resources/list" => json!({
+            "resources": [{
+                "uri": "copypaste://discovery",
+                "name": "copypaste protocol",
+                "mimeType": "application/json"
+            }]
+        }),
+        "resources/read" => {
+            let uri = body
+                .get("params")
+                .and_then(|p| p.get("uri"))
+                .and_then(|u| u.as_str())
+                .unwrap_or("");
+            if uri == "copypaste://discovery" || uri.ends_with("/.well-known/copypaste.json") {
+                json!({
+                    "contents": [{
+                        "uri": "copypaste://discovery",
+                        "mimeType": "application/json",
+                        "text": serde_json::to_string(&mcp_manifest_body()).unwrap_or_else(|_| "{}".into())
+                    }]
+                })
+            } else {
+                json!({ "contents": [] })
+            }
+        }
+        "prompts/list" => json!({
+            "prompts": [
+                {
+                    "name": "share_paste",
+                    "description": "Ask the model to store text on this host and return the share URL.",
+                    "arguments": [{ "name": "content", "required": true }]
+                },
+                {
+                    "name": "read_paste",
+                    "description": "Ask the model to fetch a paste by id.",
+                    "arguments": [{ "name": "id", "required": true }]
+                }
+            ]
+        }),
+        "prompts/get" => {
+            let params = body.get("params").cloned().unwrap_or(json!({}));
+            let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+            let content = arguments
+                .get("content")
+                .and_then(|c| c.as_str())
+                .unwrap_or("");
+            let paste_id = arguments.get("id").and_then(|i| i.as_str()).unwrap_or("");
+            let text = match name {
+                "share_paste" => format!(
+                    "Call create_paste with this text, then give the human the share URL. Never put keys in chat URLs.\n\n{content}"
+                ),
+                "read_paste" => format!(
+                    "Call read_paste with id {paste_id}. If it is encrypted, ask for the key out of band."
+                ),
+                _ => "Unknown prompt.".into(),
+            };
+            json!({
+                "description": name,
+                "messages": [{
+                    "role": "user",
+                    "content": { "type": "text", "text": text }
+                }]
+            })
+        }
         "tools/list" => json!({
             "tools": [
                 {
@@ -531,7 +601,8 @@ async fn mcp_rpc(
                         "properties": {
                             "content": { "type": "string" },
                             "key": { "type": "string", "description": "If set, encrypt with AES-256-GCM." },
-                            "burn": { "type": "boolean" }
+                            "burn": { "type": "boolean" },
+                            "short": { "type": "boolean", "description": "Also mint a 10-character alphanumeric alias." }
                         },
                         "required": ["content"]
                     }
@@ -547,6 +618,20 @@ async fn mcp_rpc(
                         },
                         "required": ["id"]
                     }
+                },
+                {
+                    "name": "mint_alias",
+                    "description": "Mint a 10-character alphanumeric short link for an existing paste id.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": { "id": { "type": "string" } },
+                        "required": ["id"]
+                    }
+                },
+                {
+                    "name": "health",
+                    "description": "Check that this copypaste host is up.",
+                    "inputSchema": { "type": "object", "properties": {} }
                 }
             ]
         }),
@@ -580,7 +665,7 @@ async fn mcp_rpc(
                         owner_pubkey_hash: None,
                         workspace: None,
                         live: false,
-                        short_link: false,
+                        short_link: args.get("short").and_then(|b| b.as_bool()).unwrap_or(false),
                     };
                     if let Some(key) = args.get("key").and_then(|k| k.as_str()) {
                         if !key.is_empty() {
@@ -646,6 +731,49 @@ async fn mcp_rpc(
                         }
                     }
                 }
+                "mint_alias" => {
+                    let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                    if !is_valid_paste_id(paste_id)
+                        || request_or_canonical_blocked(blocked, store, paste_id).await
+                    {
+                        json!({
+                            "isError": true,
+                            "content": [{ "type": "text", "text": "Paste not found." }]
+                        })
+                    } else {
+                        match store.get_paste(paste_id).await {
+                            Ok(_) => {
+                                let related = store.resolve_related_ids(paste_id).await;
+                                let root = related
+                                    .first()
+                                    .cloned()
+                                    .unwrap_or_else(|| paste_id.to_string());
+                                match store.add_alias(&root).await {
+                                    Ok(alias) => json!({
+                                        "content": [{
+                                            "type": "text",
+                                            "text": serde_json::to_string(&json!({
+                                                "id": alias,
+                                                "url": format!("/p/{alias}")
+                                            })).unwrap_or_else(|_| "{}".into())
+                                        }]
+                                    }),
+                                    Err(_) => json!({
+                                        "isError": true,
+                                        "content": [{ "type": "text", "text": "Unable to mint alias." }]
+                                    }),
+                                }
+                            }
+                            Err(_) => json!({
+                                "isError": true,
+                                "content": [{ "type": "text", "text": "Paste not found." }]
+                            }),
+                        }
+                    }
+                }
+                "health" => json!({
+                    "content": [{ "type": "text", "text": "ok" }]
+                }),
                 _ => json!({
                     "isError": true,
                     "content": [{ "type": "text", "text": "Unknown tool" }]
@@ -3859,6 +3987,34 @@ mod tests {
             read_body["result"]["content"][0]["text"],
             "connector secret"
         );
+        let listed_tools = client
+            .post("/mcp")
+            .header(ContentType::JSON)
+            .body(r#"{"jsonrpc":"2.0","id":4,"method":"tools/list"}"#)
+            .dispatch();
+        let listed_body: serde_json::Value =
+            serde_json::from_str(&listed_tools.into_string().expect("tools")).expect("json");
+        let names: Vec<&str> = listed_body["result"]["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        assert!(names.contains(&"mint_alias"));
+        assert!(names.contains(&"health"));
+        let alias = client
+            .post("/mcp")
+            .header(ContentType::JSON)
+            .body(format!(
+                r#"{{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{{"name":"mint_alias","arguments":{{"id":"{paste_id}"}}}}}}"#
+            ))
+            .dispatch();
+        let alias_body: serde_json::Value =
+            serde_json::from_str(&alias.into_string().expect("alias")).expect("json");
+        assert!(alias_body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("/p/"));
         let manifest = client.get("/.well-known/mcp.json").dispatch();
         assert_eq!(manifest.status(), Status::Ok);
     }

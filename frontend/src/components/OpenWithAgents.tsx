@@ -5,8 +5,11 @@ import {
   ChatGptMark,
   ClaudeMark,
   CodexMark,
+  CopilotMark,
+  GeminiMark,
   GoogleMark,
   GrokMark,
+  PerplexityMark,
   WhatsAppMark,
 } from "./AgentMarks";
 import { API_BASE } from "../api/client";
@@ -21,6 +24,16 @@ import {
   isIosUa,
   openPrompt,
 } from "../lib/openAgents";
+
+const AGENT_MARK = {
+  grok: GrokMark,
+  codex: CodexMark,
+  chatgpt: ChatGptMark,
+  claude: ClaudeMark,
+  gemini: GeminiMark,
+  copilot: CopilotMark,
+  perplexity: PerplexityMark,
+} as const;
 
 const logoButton =
   "inline-flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md px-1.5 py-1 text-text transition hover:bg-border focus-visible:outline-none";
@@ -131,14 +144,7 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
   return (
     <div className="flex flex-wrap items-end gap-1">
       {OPEN_AGENTS.map((agent) => {
-        const Mark =
-          agent.id === "grok"
-            ? GrokMark
-            : agent.id === "codex"
-              ? CodexMark
-              : agent.id === "chatgpt"
-                ? ChatGptMark
-                : ClaudeMark;
+        const Mark = AGENT_MARK[agent.id];
         const href = agentHref(agent, prompt, navigator.userAgent);
         return (
           <a

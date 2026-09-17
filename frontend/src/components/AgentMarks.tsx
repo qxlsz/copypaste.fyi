@@ -84,4 +84,35 @@ export const WhatsAppMark = () => (
   </svg>
 );
 
+export const GeminiMark = () => (
+  <svg viewBox="0 0 24 24" className={mark} aria-hidden="true">
+    <path
+      fill="#8E75B2"
+      d="M12 2.2 13.7 10.3 21.8 12 13.7 13.7 12 21.8 10.3 13.7 2.2 12 10.3 10.3Z"
+    />
+  </svg>
+);
+
+export const CopilotMark = () => (
+  <svg viewBox="0 0 24 24" className={mark} aria-hidden="true">
+    <circle cx="12" cy="12" r="8.2" fill="none" stroke="#2563EB" strokeWidth="1.8" />
+    <path
+      fill="none"
+      stroke="#2563EB"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      d="M8.2 12.2c1.4-2.2 6.2-2.2 7.6 0"
+    />
+  </svg>
+);
+
+export const PerplexityMark = () => (
+  <svg viewBox="0 0 24 24" className={mark} aria-hidden="true">
+    <path
+      fill="#1FB8CD"
+      d="M12 3.2 13.2 10.8 20.8 12 13.2 13.2 12 20.8 10.8 13.2 3.2 12 10.8 10.8Z"
+    />
+  </svg>
+);
+
 export const OpenAiMark = ChatGptMark;

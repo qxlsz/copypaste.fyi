@@ -14,7 +14,14 @@ export const publicPasteUrl = (url: string): string => {
 export const openPrompt = (url: string): string =>
   `Read this copypaste.fyi paste and continue the work. If you need the protocol, fetch /.well-known/copypaste.json from the same origin.\n\n${publicPasteUrl(url)}`;
 
-export type OpenAgentId = "grok" | "codex" | "chatgpt" | "claude";
+export type OpenAgentId =
+  | "grok"
+  | "codex"
+  | "chatgpt"
+  | "claude"
+  | "gemini"
+  | "copilot"
+  | "perplexity";
 
 export interface OpenAgent {
   id: OpenAgentId;
@@ -53,6 +60,27 @@ export const OPEN_AGENTS: OpenAgent[] = [
     androidPackage: "com.anthropic.claude",
     iosScheme: "claude",
   },
+  {
+    id: "gemini",
+    label: "Gemini",
+    web: (prompt) => `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`,
+    androidPackage: "com.google.android.apps.bard",
+    iosScheme: "googlegemini",
+  },
+  {
+    id: "copilot",
+    label: "Copilot",
+    web: (prompt) => `https://copilot.microsoft.com/?q=${encodeURIComponent(prompt)}`,
+    androidPackage: "com.microsoft.copilot",
+    iosScheme: "ms-copilot",
+  },
+  {
+    id: "perplexity",
+    label: "Perplexity",
+    web: (prompt) => `https://www.perplexity.ai/search?q=${encodeURIComponent(prompt)}`,
+    androidPackage: "ai.perplexity.app.android",
+    iosScheme: "perplexity",
+  },
 ];
 
 export const isAndroidUa = (ua: string): boolean => /Android/i.test(ua);
@@ -79,10 +107,18 @@ export const agentSchemeHref = (agent: OpenAgent, prompt: string): string | null
 };
 
 export const parseOpenAgentId = (value: string | null): OpenAgentId | null => {
-  if (value === "grok" || value === "codex" || value === "chatgpt" || value === "claude") {
-    return value;
+  switch (value) {
+    case "grok":
+    case "codex":
+    case "chatgpt":
+    case "claude":
+    case "gemini":
+    case "copilot":
+    case "perplexity":
+      return value;
+    default:
+      return null;
   }
-  return null;
 };
 
 /** Share URL that opens this paste in an agent. Never includes #key=. */
