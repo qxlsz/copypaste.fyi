@@ -17,6 +17,8 @@ pub struct TrafficStore {
     pages: Mutex<BTreeMap<String, u64>>,
     referrers: Mutex<BTreeMap<String, u64>>,
     devices: Mutex<BTreeMap<String, u64>>,
+    oses: Mutex<BTreeMap<String, u64>>,
+    countries: Mutex<BTreeMap<String, u64>>,
 }
 
 impl Default for TrafficStore {
@@ -27,6 +29,8 @@ impl Default for TrafficStore {
             pages: Mutex::new(BTreeMap::new()),
             referrers: Mutex::new(BTreeMap::new()),
             devices: Mutex::new(BTreeMap::new()),
+            oses: Mutex::new(BTreeMap::new()),
+            countries: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -36,6 +40,7 @@ pub struct CollectBody {
     pub path: Option<String>,
     pub referrer: Option<String>,
     pub device: Option<String>,
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -46,6 +51,8 @@ pub struct TrafficResponse {
     pub pages: Vec<NamedCount>,
     pub referrers: Vec<NamedCount>,
     pub devices: Vec<NamedCount>,
+    pub oses: Vec<NamedCount>,
+    pub countries: Vec<NamedCount>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -55,11 +62,13 @@ pub struct NamedCount {
 }
 
 impl TrafficStore {
-    pub fn record(&self, path: &str, referrer: &str, device: &str) {
+    pub fn record(&self, path: &str, referrer: &str, device: &str, os: &str, country: &str) {
         self.pageviews.fetch_add(1, Ordering::Relaxed);
         bump(&self.pages, path);
         bump(&self.referrers, referrer);
         bump(&self.devices, device);
+        bump(&self.oses, os);
+        bump(&self.countries, country);
     }
 
     pub fn snapshot(&self) -> TrafficResponse {
@@ -69,6 +78,8 @@ impl TrafficStore {
             pages: snapshot(&self.pages),
             referrers: snapshot(&self.referrers),
             devices: snapshot(&self.devices),
+            oses: snapshot(&self.oses),
+            countries: snapshot(&self.countries),
         }
     }
 }
@@ -145,13 +156,76 @@ pub fn classify_device(ua: Option<&str>) -> &'static str {
         || ua.contains("spider")
         || ua.contains("crawler")
         || ua.contains("preview")
+        || ua.contains("slurp")
     {
         return "bot";
     }
-    if ua.contains("mobile") || ua.contains("android") || ua.contains("iphone") {
-        return "mobile";
+    if ua.contains("ipad")
+        || ua.contains("tablet")
+        || (ua.contains("android") && !ua.contains("mobile"))
+    {
+        return "tablet";
+    }
+    if ua.contains("mobile") || ua.contains("iphone") || ua.contains("android") {
+        return "phone";
     }
     "desktop"
+}
+
+pub fn classify_os(ua: Option<&str>) -> &'static str {
+    let ua = ua.unwrap_or("").to_ascii_lowercase();
+    if ua.is_empty() {
+        return "unknown";
+    }
+    if ua.contains("iphone") || ua.contains("ipad") || ua.contains("ios") {
+        return "ios";
+    }
+    if ua.contains("android") {
+        return "android";
+    }
+    if ua.contains("windows") {
+        return "windows";
+    }
+    if ua.contains("mac os") || ua.contains("macos") || ua.contains("macintosh") {
+        return "macos";
+    }
+    if ua.contains("cros") {
+        return "chromeos";
+    }
+    if ua.contains("linux") {
+        return "linux";
+    }
+    "other"
+}
+
+pub fn classify_country(header: Option<&str>, language: Option<&str>) -> String {
+    if let Some(code) = header.and_then(two_letter_country) {
+        return code;
+    }
+    if let Some(code) = language.and_then(region_from_language) {
+        return code;
+    }
+    "unknown".into()
+}
+
+fn two_letter_country(raw: &str) -> Option<String> {
+    let code = raw.trim().to_ascii_uppercase();
+    if code.len() == 2
+        && code.bytes().all(|b| b.is_ascii_alphabetic())
+        && code != "XX"
+        && code != "T1"
+    {
+        Some(code)
+    } else {
+        None
+    }
+}
+
+fn region_from_language(raw: &str) -> Option<String> {
+    let primary = raw.split(',').next()?.trim();
+    let tag = primary.split(';').next()?.trim();
+    let region = tag.split('-').nth(1)?.chars().take(2).collect::<String>();
+    two_letter_country(&region)
 }
 
 #[cfg(test)]
@@ -173,5 +247,28 @@ mod tests {
             "direct"
         );
         assert_eq!(classify_referrer(None), "direct");
+    }
+
+    #[test]
+    fn device_os_and_country_are_coarse() {
+        assert_eq!(
+            classify_device(Some("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)")),
+            "phone"
+        );
+        assert_eq!(
+            classify_os(Some("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)")),
+            "ios"
+        );
+        assert_eq!(
+            classify_device(Some("Mozilla/5.0 (iPad; CPU OS 17_0)")),
+            "tablet"
+        );
+        assert_eq!(
+            classify_os(Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")),
+            "windows"
+        );
+        assert_eq!(classify_country(Some("PL"), None), "PL");
+        assert_eq!(classify_country(None, Some("en-GB,en;q=0.9")), "GB");
+        assert_eq!(classify_country(None, None), "unknown");
     }
 }
