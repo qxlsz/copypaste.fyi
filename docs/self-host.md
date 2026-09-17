@@ -195,4 +195,22 @@ COPYPASTE_ALLOWED_ORIGINS=http://127.0.0.1:8000
 docker compose up --build
 ```
 
+## 8. Public Fly secrets from GitHub
+
+Do not put tokens in `fly.toml` or the repo. Store them as GitHub Actions **secrets** (not variables):
+
+- `FLY_API_TOKEN` already deploys the app
+- `COPYPASTE_ADMIN_TOKEN` unlocks `/stats` and moderation
+- `COPYPASTE_AUTH_TOKEN` optional write token for a closed box
+
+Repo → Settings → Secrets and variables → Actions → New repository secret.
+
+The next `Deploy backend to Fly.io` run copies non-empty values onto Fly (`flyctl secrets set --stage`) and the deploy applies them. Empty GitHub secrets are skipped so a missing value does not wipe Fly.
+
+Generate a token once, save it in a password manager, then paste the same value into GitHub:
+
+```bash
+openssl rand -base64 48 | tr '+/' '-_' | tr -d '=' | head -c 48
+```
+
 Full env list: [CLAUDE.md](../CLAUDE.md).
