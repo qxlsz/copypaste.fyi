@@ -15,4 +15,4 @@ else
   grep -q 'Package: copypaste' "$TMP/out/control"
   grep -q 'Version: 0.2.0' "$TMP/out/control"
 fi
-echo "build-deb ok"
+grep -q 'ExecStart=/usr/bin/copypaste' "$ROOT/contrib/systemd/copypaste.service"

@@ -609,6 +609,16 @@ impl PasteStore for MemoryPasteStore {
         let alias = {
             let map = self.entries.read().await;
             let aliases = self.aliases.read().await;
+            let existing = aliases
+                .values()
+                .filter(|target| *target == canonical)
+                .count();
+            if existing >= 3 {
+                return Err(PersistenceError::Save(
+                    canonical.to_string(),
+                    "alias cap".into(),
+                ));
+            }
             generate_short_paste_id(&map, &aliases)
         };
         self.aliases
