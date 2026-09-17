@@ -117,6 +117,7 @@ Point every client at the same host. Default is `http://127.0.0.1:8000`.
 ```bash
 export COPYPASTE_HOST=http://127.0.0.1:8000
 copypaste send "notes from this box"
+copypaste healthcheck
 ```
 
 `send`, `clip`, and `healthcheck` use `COPYPASTE_HOST` when `--host` is omitted.
