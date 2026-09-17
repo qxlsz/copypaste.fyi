@@ -1,3 +1,4 @@
+import { publicPasteUrl } from "./openAgents";
 import { pasteIdFromShareUrl } from "./shareImage";
 
 export interface AgentReceipt {
@@ -12,11 +13,12 @@ export interface AgentReceipt {
 
 /** Tokens another agent needs. The share URL without the key stays unreadable. */
 export const agentReceipt = (url: string, key?: string, algorithm?: string): string => {
-  const id = pasteIdFromShareUrl(url);
-  const get = url.includes("/p/") ? url.replace("/p/", "/api/pastes/") : url;
+  const clean = publicPasteUrl(url);
+  const id = pasteIdFromShareUrl(clean);
+  const get = clean.includes("/p/") ? clean.replace("/p/", "/api/pastes/") : clean;
   const receipt: AgentReceipt = {
     copypaste: 1,
-    url,
+    url: clean,
     id,
     get,
   };

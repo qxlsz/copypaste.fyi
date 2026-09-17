@@ -722,6 +722,7 @@ async fn traffic_api(
 struct CollectMeta {
     user_agent: Option<String>,
     country: Option<String>,
+    referrer: Option<String>,
 }
 
 #[rocket::async_trait]
@@ -738,6 +739,7 @@ impl<'r> FromRequest<'r> for CollectMeta {
         Outcome::Success(CollectMeta {
             user_agent: req.headers().get_one("User-Agent").map(str::to_string),
             country,
+            referrer: req.headers().get_one("Referer").map(str::to_string),
         })
     }
 }
@@ -750,7 +752,12 @@ async fn collect_api(
     meta: CollectMeta,
 ) {
     let path = super::traffic::classify_path(body.path.as_deref().unwrap_or("/"));
-    let referrer = super::traffic::classify_referrer(body.referrer.as_deref());
+    let referrer = super::traffic::classify_referrer(
+        meta.referrer
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .or(body.referrer.as_deref()),
+    );
     let ua = meta.user_agent.as_deref().or(body.device.as_deref());
     let device = super::traffic::classify_device(ua);
     let os = super::traffic::classify_os(ua);
@@ -3799,6 +3806,31 @@ mod tests {
             .into_string()
             .expect("robots")
             .contains("Disallow: /p/"));
+    }
+
+    #[test]
+    fn collect_prefers_http_referer_over_body() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+        let posted = client
+            .post("/api/collect")
+            .header(ContentType::JSON)
+            .header(rocket::http::Header::new(
+                "Referer",
+                "https://news.ycombinator.com/item?id=9",
+            ))
+            .body(r#"{"path":"/","referrer":"https://evil.example/fake"}"#)
+            .dispatch();
+        assert_eq!(posted.status(), Status::Ok);
+        let traffic = client.get("/api/stats/traffic").dispatch();
+        let body: serde_json::Value =
+            serde_json::from_str(&traffic.into_string().expect("body")).expect("json");
+        let hosts = body["referrers"].as_array().expect("referrers");
+        assert!(hosts
+            .iter()
+            .any(|row| row["name"] == "news.ycombinator.com"));
+        assert!(!body.to_string().contains("evil.example"));
     }
 
     #[test]

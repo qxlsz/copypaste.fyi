@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 
+import { publicPasteUrl } from "./openAgents";
 import { injectPngText } from "./pngText";
 
 export interface ShareImageColors {
@@ -105,7 +106,7 @@ export const renderShareImage = async (
 
   const png = await canvasPng(canvas);
   const withSoftware = injectPngText(png, "Software", "copypaste.fyi");
-  const withUrl = injectPngText(withSoftware, "URL", url);
+  const withUrl = injectPngText(withSoftware, "URL", publicPasteUrl(url));
   const comment = notes.length > 0 ? `${id} ${notes.join(" ")}` : id;
   const withComment = injectPngText(withUrl, "Comment", comment);
   const copy = new ArrayBuffer(withComment.byteLength);

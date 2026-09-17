@@ -17,6 +17,8 @@ primary_region = 'iad'
   COPYPASTE_ALLOWED_ORIGINS = 'https://copypaste.fyi,https://www.copypaste.fyi'
   COPYPASTE_RATE_LIMIT_CREATES = '10'
   COPYPASTE_RATE_LIMIT_READS = '120'
+  COPYPASTE_BAN_AFTER = '12'
+  COPYPASTE_BAN_SECONDS = '600'
   COPYPASTE_MAX_PASTE_SIZE = '1048576'
   # Public pastebin: Get link must work without an operator token.
   # Self-hosters close writes with COPYPASTE_REQUIRE_WRITE_AUTH=true.

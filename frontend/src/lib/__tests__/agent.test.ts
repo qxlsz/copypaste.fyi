@@ -28,4 +28,18 @@ describe("agentReceipt", () => {
     expect(parsed.key).toBe(key);
     expect(parsed.headers["X-Paste-Key"]).toBe(key);
   });
+
+  it("strips #key= from url and get", () => {
+    const parsed = JSON.parse(
+      agentReceipt(
+        "https://www.copypaste.fyi/p/secret01#key=super-secret-token",
+        "super-secret-token",
+      ),
+    ) as { url: string; get: string; key: string };
+    expect(parsed.url).toBe("https://www.copypaste.fyi/p/secret01");
+    expect(parsed.get).toBe("https://www.copypaste.fyi/api/pastes/secret01");
+    expect(parsed.key).toBe("super-secret-token");
+    expect(parsed.url.includes("super-secret")).toBe(false);
+    expect(parsed.get.includes("super-secret")).toBe(false);
+  });
 });

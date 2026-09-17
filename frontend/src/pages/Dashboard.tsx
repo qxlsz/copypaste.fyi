@@ -85,12 +85,8 @@ export const DashboardPage = () => {
   if (!user) {
     return (
       <div className="mx-auto max-w-md space-y-4 py-16 text-center">
-        <h2 className="text-xl font-semibold tracking-tight text-text">
-          Access denied
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Please log in to view your dashboard.
-        </p>
+        <h2 className="text-xl font-semibold tracking-tight text-text">Access denied</h2>
+        <p className="text-sm text-muted-foreground">Please log in to view your dashboard.</p>
         <Link
           to="/login"
           className="inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -135,23 +131,17 @@ export const DashboardPage = () => {
       {activeTab === "pastes" && (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
           <div className="border-b border-border px-4 py-4 sm:px-6">
-            <h3 className="text-base font-semibold tracking-tight text-text">
-              Your pastes
-            </h3>
+            <h3 className="text-base font-semibold tracking-tight text-text">Your pastes</h3>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Pastes indexed on this server instance. Durable Redis records may
-              be absent after a restart until a shared ownership index exists.
+              Pastes indexed on this server instance. Durable Redis records may be absent after a
+              restart until a shared ownership index exists.
             </p>
           </div>
           <div className="divide-y divide-border">
             {loadingPastes ? (
-              <div className="px-4 py-8 text-center text-muted-foreground">
-                Loading pastes...
-              </div>
+              <div className="px-4 py-8 text-center text-muted-foreground">Loading pastes...</div>
             ) : pastes.length === 0 ? (
-              <div className="px-4 py-8 text-center text-muted-foreground">
-                No pastes found
-              </div>
+              <div className="px-4 py-8 text-center text-muted-foreground">No pastes found</div>
             ) : (
               pastes.map((paste: UserPasteListItem) => (
                 <div key={paste.id} className="px-4 py-4 sm:px-6">
@@ -159,7 +149,10 @@ export const DashboardPage = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center">
                         <p className="truncate font-mono text-sm font-medium text-accent">
-                          <Link to={paste.url} className="hover:underline">
+                          <Link
+                            to={`/p/${encodeURIComponent(paste.id)}`}
+                            className="hover:underline"
+                          >
                             {paste.id}
                           </Link>
                         </p>
@@ -175,22 +168,19 @@ export const DashboardPage = () => {
                       <div className="mt-2 flex items-center font-mono text-xs text-muted-foreground">
                         <span>
                           Created{" "}
-                          {new Date(paste.createdAt * 1000).toLocaleDateString(
-                            "en-US",
-                            {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            },
-                          )}
+                          {new Date(paste.createdAt * 1000).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
                       </div>
                     </div>
                     <div className="flex-shrink-0">
                       <Link
-                        to={paste.url}
+                        to={`/p/${encodeURIComponent(paste.id)}`}
                         className="inline-flex items-center rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                       >
                         View
@@ -218,73 +208,53 @@ export const DashboardPage = () => {
             </div>
             <dl className="sm:divide-y sm:divide-border">
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Key Algorithm
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Key Algorithm</dt>
                 <dd className="mt-1 font-mono text-sm text-text sm:col-span-2 sm:mt-0">
                   {keyAlgorithm}
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Key Strength
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Key Strength</dt>
                 <dd className="mt-1 font-mono text-sm text-text sm:col-span-2 sm:mt-0">
                   {keyStrength}
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Key Fingerprint
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Key Fingerprint</dt>
                 <dd className="mt-1 break-all font-mono text-sm text-text sm:col-span-2 sm:mt-0">
                   {keyFingerprint || "Computing…"}
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Identity Key ID
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Identity Key ID</dt>
                 <dd className="mt-1 font-mono text-sm text-text sm:col-span-2 sm:mt-0">
                   {identityKeyId}
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Key Usage
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Key Usage</dt>
                 <dd className="mt-1 text-sm text-text sm:col-span-2 sm:mt-0">
                   Digital signatures for authentication
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Curve Parameters
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Curve Parameters</dt>
                 <dd className="mt-1 font-mono text-sm text-text sm:col-span-2 sm:mt-0">
                   Edwards25519 (RFC 8032)
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Key Format
-                </dt>
-                <dd className="mt-1 text-sm text-text sm:col-span-2 sm:mt-0">
-                  RFC 8032 Ed25519
-                </dd>
+                <dt className="text-sm font-medium text-muted-foreground">Key Format</dt>
+                <dd className="mt-1 text-sm text-text sm:col-span-2 sm:mt-0">RFC 8032 Ed25519</dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Entropy Source
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Entropy Source</dt>
                 <dd className="mt-1 text-sm text-text sm:col-span-2 sm:mt-0">
                   Cryptographically secure RNG
                 </dd>
               </div>
               <div className="py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 sm:py-5">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  Creation Date
-                </dt>
+                <dt className="text-sm font-medium text-muted-foreground">Creation Date</dt>
                 <dd className="mt-1 text-sm text-text sm:col-span-2 sm:mt-0">
                   {creationTimestamp
                     ? `${creationTimestamp.toLocaleDateString()} at ${creationTimestamp.toLocaleTimeString()}`
@@ -357,9 +327,8 @@ export const DashboardPage = () => {
                   )
                 ) : (
                   <dd className="rounded-md border border-border bg-muted p-3 text-xs text-muted-foreground">
-                    Private key is only held in memory for the current session
-                    and was cleared on reload — import your key again to view
-                    it.
+                    Private key is only held in memory for the current session and was cleared on
+                    reload — import your key again to view it.
                   </dd>
                 )}
               </div>
