@@ -34,10 +34,10 @@ copypaste clip
 
 | Install | Server | Client |
 |---|---|---|
-| Homebrew | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` | `copypaste send --host http://127.0.0.1:8000 "..."` |
-| Debian | `./scripts/build-deb.sh target/release/copypaste 0.2.0 dist` then `apt install ./dist/copypaste_*.deb` | same `send --host` |
-| Docker | `docker compose up --build` | `send --host http://127.0.0.1:8000` |
-| Agent VM | `./scripts/agent-setup.sh --serve` | `send --host http://127.0.0.1:8000` |
+| Homebrew | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` | `export COPYPASTE_HOST=http://127.0.0.1:8000` then `send` / `clip` |
+| Debian | `./scripts/build-deb.sh target/release/copypaste 0.2.0 dist` then `apt install ./dist/copypaste_*.deb` | same `COPYPASTE_HOST` |
+| Docker | `docker compose up --build` | same `COPYPASTE_HOST` |
+| Agent VM | `./scripts/agent-setup.sh --serve` | same `COPYPASTE_HOST` |
 | Public site only | you do not run a server | `copypaste send --host https://www.copypaste.fyi "..."` |
 
 Cookbook: [docs/self-host.md](docs/self-host.md). Deb and brew test: [docs/packaging.md](docs/packaging.md). Why it works this way: [docs/first-principles.md](docs/first-principles.md).

@@ -35,7 +35,10 @@ That puts `/usr/bin/copypaste` and `contrib/systemd/copypaste.service` on the ma
 
 ```bash
 sudo systemctl enable --now copypaste
-copypaste send --host http://127.0.0.1:8000 "from this Debian box"
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste send "from this Debian box"
+copypaste clip
+copypaste healthcheck
 ```
 
 `scripts/build-deb.sh` needs `dpkg-deb`. On macOS it still writes the package tree so CI can check the control file.
