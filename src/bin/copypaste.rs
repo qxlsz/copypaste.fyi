@@ -23,7 +23,7 @@ enum Command {
     /// Probe a running server (Docker HEALTHCHECK; exec form, no shell)
     Healthcheck {
         /// Base URL of the copypaste server.
-        #[arg(long, default_value = "http://127.0.0.1:8000")]
+        #[arg(long, env = "COPYPASTE_HOST", default_value = "http://127.0.0.1:8000")]
         host: String,
     },
     /// Submit text to a copypaste instance and print the resulting URL
@@ -32,7 +32,7 @@ enum Command {
     /// iTerm2, Ghostty, and cmux bind this after a selection copy.
     Clip {
         /// Base URL of the copypaste server.
-        #[arg(long, default_value = "http://127.0.0.1:8000")]
+        #[arg(long, env = "COPYPASTE_HOST", default_value = "http://127.0.0.1:8000")]
         host: String,
     },
     /// Config file management
@@ -68,7 +68,7 @@ struct SendArgs {
     clipboard: bool,
 
     /// Base URL of the copypaste server (e.g. http://127.0.0.1:8000).
-    #[arg(long, default_value = "http://127.0.0.1:8000")]
+    #[arg(long, env = "COPYPASTE_HOST", default_value = "http://127.0.0.1:8000")]
     host: String,
 
     /// Read the write bearer token from an owner-only file. If omitted,
@@ -958,6 +958,16 @@ mod tests {
             } => assert_eq!(host, "http://127.0.0.1:8000"),
             _ => panic!("expected clip"),
         }
+    }
+
+    #[test]
+    fn clip_help_mentions_copypaste_host() {
+        let help = Cli::try_parse_from(["copypaste", "clip", "--help"]);
+        let text = match help {
+            Err(err) => err.to_string(),
+            Ok(_) => panic!("expected help"),
+        };
+        assert!(text.contains("COPYPASTE_HOST"));
     }
 
     #[test]
