@@ -8,7 +8,7 @@ use url::Url;
 const DEFAULT_ALLOWED_ORIGINS: &str = "https://copypaste.fyi,https://www.copypaste.fyi";
 const ALLOWED_METHODS: &str = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 const ALLOWED_HEADERS: &str =
-    "Content-Type,Authorization,X-Requested-With,X-Paste-Key,X-CopyPaste-Write-Token";
+    "Content-Type,Authorization,X-Requested-With,X-Paste-Key,X-CopyPaste-Write-Token,X-CopyPaste-Challenge";
 const EXPOSED_HEADERS: &str = "Content-Type,Retry-After";
 const MAX_AGE_SECONDS: &str = "86400";
 

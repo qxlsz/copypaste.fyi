@@ -7,6 +7,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
 import { PasteFormPage } from "./pages/PasteForm";
 import { collectVisit } from "./lib/traffic";
+import { API_BASE, enableCreateChallenge } from "./api/client";
 
 import { ThemeProvider } from "./theme/ThemeProvider";
 import { useTheme } from "./theme/ThemeContext";
@@ -32,6 +33,16 @@ const TrafficBeacon = () => {
   useEffect(() => {
     collectVisit(location.pathname);
   }, [location.pathname]);
+  useEffect(() => {
+    void fetch(`${API_BASE}/auth/providers`, { credentials: "omit" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { challenge?: boolean } | null) => {
+        enableCreateChallenge(Boolean(body?.challenge));
+      })
+      .catch(() => {
+        enableCreateChallenge(false);
+      });
+  }, []);
   return null;
 };
 

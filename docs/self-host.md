@@ -166,4 +166,32 @@ ROCKET_ADDRESS=127.0.0.1 copypaste serve
 
 Put Caddy or nginx on 443 in front. Open the security group only to that proxy.
 
+## 7. Abuse, rate limits, internal-only
+
+Public copypaste.fyi stays anonymous. Stats "From" is the **referrer host** of a pageview, not a writer. `expaste.com` is another pastebin. People opened share pages from there. That is not a write flood.
+
+On your box, copy [.env.example](../.env.example) next to `docker-compose.yml` and set what you want:
+
+| Knob | What it does |
+|---|---|
+| `COPYPASTE_RATE_LIMIT_CREATES` | Creates per IP per minute. `0` off |
+| `COPYPASTE_RATE_LIMIT_READS` | Reads per IP per minute. `0` off |
+| `COPYPASTE_BAN_AFTER` | After this many create 429s, ban the IP |
+| `COPYPASTE_BAN_SECONDS` | Ban length. Default 600 |
+| `COPYPASTE_REQUIRE_CHALLENGE=true` | Browser must fetch `GET /api/challenge` and send `X-CopyPaste-Challenge` |
+| `COPYPASTE_REQUIRE_WRITE_AUTH=true` | Closes anonymous Get link. Token in `X-CopyPaste-Write-Token` |
+| `COPYPASTE_ALLOWED_ORIGINS` | Browser origins that may call the API |
+
+Internal LAN example:
+
+```bash
+COPYPASTE_REQUIRE_WRITE_AUTH=true
+COPYPASTE_AUTH_TOKEN=<43-128 base64url chars>
+COPYPASTE_REQUIRE_CHALLENGE=true
+COPYPASTE_RATE_LIMIT_CREATES=20
+COPYPASTE_BAN_AFTER=8
+COPYPASTE_ALLOWED_ORIGINS=http://127.0.0.1:8000
+docker compose up --build
+```
+
 Full env list: [CLAUDE.md](../CLAUDE.md).
