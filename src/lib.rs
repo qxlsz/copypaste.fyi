@@ -308,6 +308,12 @@ pub trait PasteStore: Send + Sync + 'static {
     /// Mark a live paste as finalized (no longer live).
     async fn finalize_paste(&self, id: &str) -> Result<(), PasteMutationError>;
     async fn add_alias(&self, canonical: &str) -> Result<String, PersistenceError>;
+    /// Request id, canonical id, and every short alias for the same paste.
+    ///
+    /// Public routes must 404 when *any* of these identifiers is quarantined.
+    /// Checking only the request id lets a short alias survive a canonical
+    /// blocklist entry, and the reverse.
+    async fn resolve_related_ids(&self, id: &str) -> Vec<String>;
 }
 
 #[async_trait]
@@ -346,6 +352,11 @@ struct StatsCache {
 /// writers (paste creation/deletion).  Caching with a short TTL keeps the endpoint
 /// responsive while bounding staleness to an acceptable window.
 const STATS_CACHE_TTL: Duration = Duration::from_secs(5);
+
+/// Max expired in-memory rows dropped during a single create. Caps write-lock
+/// work so a large cache cannot stall paste creation, while still draining
+/// leaked TTL rows under ordinary traffic.
+const CREATE_EXPIRED_GC_LIMIT: usize = 16;
 
 pub struct MemoryPasteStore {
     entries: RwLock<HashMap<String, StoredPaste>>,
@@ -391,6 +402,39 @@ impl MemoryPasteStore {
         let lock = Arc::new(AsyncMutex::new(()));
         locks.insert(id.to_string(), Arc::downgrade(&lock));
         lock
+    }
+
+    /// Drop a bounded batch of expired cache rows and any aliases that pointed
+    /// at them. Persistence is left alone: this is a RAM bound, not a durable
+    /// delete.
+    async fn evict_expired_batch(&self) {
+        let len = self.entries.read().await.len();
+        if len < 64 {
+            return;
+        }
+        let expired: Vec<String> = {
+            let map = self.entries.read().await;
+            map.iter()
+                .filter(|(_, paste)| is_expired(paste))
+                .take(CREATE_EXPIRED_GC_LIMIT)
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        if expired.is_empty() {
+            return;
+        }
+        {
+            let mut map = self.entries.write().await;
+            for id in &expired {
+                if map.get(id).is_some_and(is_expired) {
+                    map.remove(id);
+                }
+            }
+        }
+        self.aliases
+            .write()
+            .await
+            .retain(|_, target| !expired.iter().any(|id| id == target));
     }
 }
 
@@ -441,6 +485,7 @@ fn generate_short_paste_id(
 #[async_trait]
 impl PasteStore for MemoryPasteStore {
     async fn create_paste(&self, paste: StoredPaste) -> Result<String, PersistenceError> {
+        self.evict_expired_batch().await;
         loop {
             let id = {
                 let map = self.entries.read().await;
@@ -464,6 +509,22 @@ impl PasteStore for MemoryPasteStore {
             self.entries.write().await.insert(id.clone(), paste);
             return Ok(id);
         }
+    }
+
+    async fn resolve_related_ids(&self, id: &str) -> Vec<String> {
+        let aliases = self.aliases.read().await;
+        let canonical = aliases.get(id).cloned().unwrap_or_else(|| id.to_string());
+        let mut ids = Vec::with_capacity(2);
+        ids.push(canonical.clone());
+        if id != canonical {
+            ids.push(id.to_string());
+        }
+        for (alias, target) in aliases.iter() {
+            if target == &canonical && alias != id {
+                ids.push(alias.clone());
+            }
+        }
+        ids
     }
 
     async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError> {
@@ -1344,6 +1405,8 @@ mod tests {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')));
         let short = store.add_alias(&id).await.expect("short alias");
         assert_eq!(short.len(), 10);
+        assert!(store.resolve_related_ids(&short).await.contains(&id));
+        assert!(store.resolve_related_ids(&id).await.contains(&id));
         let via_short = store.get_paste(&short).await.expect("alias lookup");
         assert_eq!(
             via_short.created_at,

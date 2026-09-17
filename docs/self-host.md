@@ -84,10 +84,17 @@ sudo cp contrib/systemd/copypaste.service /etc/systemd/system/
 sudo systemctl enable --now copypaste
 ```
 
-Docker, from a clone (builds the API image and optional verifier):
+Docker, from a clone. Compose waits on the OCaml verifier by default.
+Set `COPYPASTE_REQUIRE_CRYPTO_VERIFICATION=false` in `.env` if you only
+need plaintext pastes and want to skip that image.
 
 ```bash
 docker compose up --build
+# Bind only loopback if you do not want the LAN to hit port 8000:
+#   ports: ["127.0.0.1:8000:8000"]
+# Add every browser origin you use to COPYPASTE_ALLOWED_ORIGINS
+# (https://paste.lan, http://192.168.x.x:8000). Default CORS is the
+# public site and will 403 your LAN UI.
 # http://127.0.0.1:8000
 ```
 

@@ -95,6 +95,10 @@ impl BlockedPasteIds {
     fn contains(&self, id: &str) -> bool {
         self.0.contains(id)
     }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 #[derive(Default)]
@@ -160,6 +164,21 @@ fn is_valid_paste_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+async fn request_or_canonical_blocked(
+    blocked: &BlockedPasteIds,
+    store: &SharedPasteStore,
+    id: &str,
+) -> bool {
+    if blocked.is_empty() {
+        return false;
+    }
+    store
+        .resolve_related_ids(id)
+        .await
+        .iter()
+        .any(|related| blocked.contains(related))
 }
 
 pub fn build_rocket(store: SharedPasteStore) -> Rocket<Build> {
@@ -592,7 +611,9 @@ async fn mcp_rpc(
                 "read_paste" => {
                     let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
                     let key = args.get("key").and_then(|k| k.as_str());
-                    if !is_valid_paste_id(paste_id) || blocked.contains(paste_id) {
+                    if !is_valid_paste_id(paste_id)
+                        || request_or_canonical_blocked(blocked, store, paste_id).await
+                    {
                         json!({
                             "isError": true,
                             "content": [{ "type": "text", "text": "Paste not found." }]
@@ -1092,7 +1113,7 @@ async fn user_paste_count_api(
     let mut count = 0;
 
     for id in all_pastes {
-        if blocked.contains(&id) {
+        if request_or_canonical_blocked(blocked, store, &id).await {
             continue;
         }
         match store.get_paste(&id).await {
@@ -1142,7 +1163,7 @@ async fn user_paste_list_api(
     let mut user_pastes = Vec::new();
 
     for id in all_pastes {
-        if blocked.contains(&id) {
+        if request_or_canonical_blocked(blocked, store, &id).await {
             continue;
         }
         match store.get_paste(&id).await {
@@ -1212,7 +1233,7 @@ async fn workspace_pastes_api(
     let mut pastes = Vec::new();
 
     for id in all_pastes {
-        if blocked.contains(&id) {
+        if request_or_canonical_blocked(blocked, store, &id).await {
             continue;
         }
         match store.get_paste(&id).await {
@@ -1268,7 +1289,7 @@ async fn anchor_api(
     _auth: RequireAdminAuth,
     _rate: CreateRateLimit,
 ) -> Result<Json<AnchorResponse>, (Status, String)> {
-    if blocked.contains(&id) {
+    if request_or_canonical_blocked(blocked, store, &id).await {
         return Err((Status::NotFound, "Paste not found".into()));
     }
     let request = body.map(|json| json.into_inner()).unwrap_or_default();
@@ -1440,7 +1461,7 @@ async fn show_api(
     onion: OnionAccess,
     _rate: ReadRateLimit,
 ) -> Result<Json<PasteViewResponse>, (Status, Json<ApiError>)> {
-    if blocked.contains(&id) {
+    if request_or_canonical_blocked(blocked, store, &id).await {
         return Err(to_api_err(Status::NotFound, "Paste not found".to_string()));
     }
 
@@ -1809,7 +1830,7 @@ async fn show_html_core(
     key_header: PasteKeyHeader,
     onion: OnionAccess,
 ) -> Result<(Status, content::RawHtml<String>), Status> {
-    if blocked.contains(&id) {
+    if request_or_canonical_blocked(blocked, store, &id).await {
         return Err(Status::NotFound);
     }
     let key = resolve_paste_key(key_header.0, query.key.clone())?;
@@ -1928,7 +1949,7 @@ async fn show_raw(
     onion: OnionAccess,
     _rate: ReadRateLimit,
 ) -> Result<content::RawText<String>, Status> {
-    if blocked.contains(&id) {
+    if request_or_canonical_blocked(blocked, store, &id).await {
         return Err(Status::NotFound);
     }
     let decryption_key = resolve_paste_key(key_header.0, query.key.clone())?;
@@ -2517,7 +2538,7 @@ async fn update_api(
     body: Json<UpdatePasteRequest>,
     token: OwnerBearerToken,
 ) -> Result<Json<UpdatePasteResponse>, (Status, Json<ApiError>)> {
-    if blocked.contains(&id) {
+    if request_or_canonical_blocked(blocked, store, &id).await {
         return Err(to_api_err(Status::NotFound, "Paste not found".to_string()));
     }
     let body = body.into_inner();
@@ -2612,7 +2633,7 @@ async fn finalize_api(
     body: Option<Json<FinalizePasteRequest>>,
     token: OwnerBearerToken,
 ) -> Result<Json<FinalizePasteResponse>, (Status, Json<ApiError>)> {
-    if blocked.contains(&id) {
+    if request_or_canonical_blocked(blocked, store, &id).await {
         return Err(to_api_err(Status::NotFound, "Paste not found".to_string()));
     }
     if let Some(ref body) = body {
@@ -3405,6 +3426,10 @@ mod tests {
 
         async fn add_alias(&self, canonical: &str) -> Result<String, crate::PersistenceError> {
             self.inner.add_alias(canonical).await
+        }
+
+        async fn resolve_related_ids(&self, id: &str) -> Vec<String> {
+            self.inner.resolve_related_ids(id).await
         }
     }
 
