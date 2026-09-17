@@ -82,7 +82,7 @@ const StatsContent = ({
             palette="formats"
           />
           <DistributionCard
-            title="From"
+            title="Referrer"
             data={traffic.referrers.map((item) => ({
               label: item.name,
               value: item.count,
@@ -99,6 +99,12 @@ const StatsContent = ({
           />
         </section>
       )}
+      {traffic && traffic.referrers.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Referrer is the previous site on that tab. expaste.com is another pastebin. Those hits are
+          people opening share links, not creating pastes here.
+        </p>
+      ) : null}
 
       {summary.totalPastes === 0 ? (
         <p className="text-sm text-muted-foreground">No pastes on this instance yet.</p>
