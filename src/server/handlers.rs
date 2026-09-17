@@ -39,6 +39,7 @@ use super::blockchain::{
     default_anchor_relayer, infer_attestation_ref, infer_retention_class, manifest_hash,
     AnchorManifest, AnchorPayload, SharedAnchorRelayer,
 };
+use super::challenge::RequireCreateChallenge;
 use super::cors::{api_preflight, Cors};
 use super::crypto::{decrypt_content, encrypt_content, DecryptError};
 use super::models::{
@@ -233,6 +234,9 @@ fn build_rocket_with_components(
         .manage(rate_limiter)
         .manage(webhook_client)
         .manage(session_store)
+        .manage(std::sync::Arc::new(
+            super::challenge::ChallengeStore::from_env(),
+        ))
         .manage(std::sync::Arc::new(super::traffic::TrafficStore::default()))
         .manage(paste_rate_limiter)
         .attach(Cors)
@@ -263,6 +267,7 @@ fn build_rocket_with_components(
                 auth_login_api,
                 auth_google_api,
                 auth_providers_api,
+                auth_challenge_ticket_api,
                 auth_logout_api,
                 user_paste_count_api,
                 user_paste_list_api,
@@ -828,7 +833,22 @@ fn google_client_id() -> Option<String> {
 
 #[get("/api/auth/providers")]
 fn auth_providers_api() -> Json<serde_json::Value> {
-    Json(json!({ "google": google_client_id() }))
+    Json(json!({
+        "google": google_client_id(),
+        "challenge": std::env::var("COPYPASTE_REQUIRE_CHALLENGE")
+            .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false),
+    }))
+}
+
+#[get("/api/challenge")]
+fn auth_challenge_ticket_api(
+    challenges: &State<super::challenge::SharedChallengeStore>,
+) -> Json<serde_json::Value> {
+    if !challenges.required() {
+        return Json(json!({ "required": false, "challenge": serde_json::Value::Null }));
+    }
+    Json(json!({ "required": true, "challenge": challenges.issue() }))
 }
 
 #[derive(Deserialize)]
@@ -1528,6 +1548,7 @@ async fn show_api(
 #[post("/", data = "<body>")]
 async fn create(
     _rate: CreateRateLimit,
+    _challenge: RequireCreateChallenge,
     auth: RequireWriteAuth,
     store: &State<SharedPasteStore>,
     features: &State<FeaturePolicy>,
@@ -1559,6 +1580,7 @@ async fn create(
 #[post("/api/pastes", data = "<body>")]
 async fn create_api(
     _rate: CreateRateLimit,
+    _challenge: RequireCreateChallenge,
     auth: RequireWriteAuth,
     store: &State<SharedPasteStore>,
     features: &State<FeaturePolicy>,
@@ -3645,6 +3667,7 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_str(&response.into_string().expect("body")).expect("json");
         assert!(body["google"].is_null());
+        assert_eq!(body["challenge"], false);
         let denied = client
             .post("/api/auth/google")
             .header(ContentType::JSON)

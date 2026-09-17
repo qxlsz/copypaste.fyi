@@ -2,6 +2,7 @@ pub mod api_keys;
 pub mod attestation;
 pub mod blockchain;
 pub mod bundles;
+pub mod challenge;
 pub mod config;
 pub mod cors;
 pub mod crypto;

@@ -27,8 +27,12 @@ const MAX_TRACKED_CLIENTS: usize = 10_000;
 pub struct PasteRateLimiter {
     creates_per_minute: Option<u32>,
     reads_per_minute: Option<u32>,
+    ban_after: Option<u32>,
+    ban_for: Duration,
     creates: Mutex<HashMap<String, (u32, Instant)>>,
     reads: Mutex<HashMap<String, (u32, Instant)>>,
+    strikes: Mutex<HashMap<String, u32>>,
+    banned_until: Mutex<HashMap<String, Instant>>,
     max_tracked_clients: usize,
 }
 
@@ -38,8 +42,14 @@ impl PasteRateLimiter {
         Self {
             creates_per_minute: creates_per_minute.filter(|n| *n > 0),
             reads_per_minute: reads_per_minute.filter(|n| *n > 0),
+            ban_after: limit_from_env("COPYPASTE_BAN_AFTER"),
+            ban_for: Duration::from_secs(
+                limit_from_env("COPYPASTE_BAN_SECONDS").unwrap_or(600) as u64
+            ),
             creates: Mutex::new(HashMap::new()),
             reads: Mutex::new(HashMap::new()),
+            strikes: Mutex::new(HashMap::new()),
+            banned_until: Mutex::new(HashMap::new()),
             max_tracked_clients: MAX_TRACKED_CLIENTS,
         }
     }
@@ -53,10 +63,21 @@ impl PasteRateLimiter {
         Self {
             creates_per_minute: creates_per_minute.filter(|n| *n > 0),
             reads_per_minute: reads_per_minute.filter(|n| *n > 0),
+            ban_after: None,
+            ban_for: Duration::from_secs(600),
             creates: Mutex::new(HashMap::new()),
             reads: Mutex::new(HashMap::new()),
+            strikes: Mutex::new(HashMap::new()),
+            banned_until: Mutex::new(HashMap::new()),
             max_tracked_clients: max_tracked_clients.max(1),
         }
+    }
+
+    #[cfg(test)]
+    fn with_ban(mut self, after: u32, secs: u64) -> Self {
+        self.ban_after = Some(after);
+        self.ban_for = Duration::from_secs(secs);
+        self
     }
 
     /// Build from `COPYPASTE_RATE_LIMIT_CREATES` / `COPYPASTE_RATE_LIMIT_READS`.
@@ -70,13 +91,50 @@ impl PasteRateLimiter {
 
     /// Returns `true` when a create request from `ip` is allowed.
     pub fn allow_create(&self, ip: &str) -> bool {
-        Self::allow_at(
+        if self.is_banned(ip) {
+            return false;
+        }
+        let allowed = Self::allow_at(
             &self.creates,
             self.creates_per_minute,
             self.max_tracked_clients,
             ip,
             Instant::now(),
-        )
+        );
+        if !allowed {
+            self.note_create_denial(ip);
+        }
+        allowed && !self.is_banned(ip)
+    }
+
+    fn is_banned(&self, ip: &str) -> bool {
+        let Ok(mut bans) = self.banned_until.lock() else {
+            return false;
+        };
+        match bans.get(ip).copied() {
+            Some(until) if Instant::now() < until => true,
+            Some(_) => {
+                bans.remove(ip);
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn note_create_denial(&self, ip: &str) {
+        let Some(threshold) = self.ban_after else {
+            return;
+        };
+        let Ok(mut strikes) = self.strikes.lock() else {
+            return;
+        };
+        let count = strikes.entry(ip.to_string()).or_insert(0);
+        *count = count.saturating_add(1);
+        if *count >= threshold {
+            if let Ok(mut bans) = self.banned_until.lock() {
+                bans.insert(ip.to_string(), Instant::now() + self.ban_for);
+            }
+        }
     }
 
     /// Returns `true` when a read request from `ip` is allowed.
@@ -214,6 +272,14 @@ mod tests {
         assert!(!limiter.allow_create("5.6.7.8"));
         // Reads are unlimited even when creates are limited.
         assert!(limiter.allow_read("5.6.7.8"));
+    }
+
+    #[test]
+    fn repeated_create_denials_ban_the_client() {
+        let limiter = PasteRateLimiter::new(Some(1), None).with_ban(1, 600);
+        assert!(limiter.allow_create("9.9.9.9"));
+        assert!(!limiter.allow_create("9.9.9.9"));
+        assert!(!limiter.allow_create("9.9.9.9"));
     }
 
     #[test]

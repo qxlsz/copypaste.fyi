@@ -299,9 +299,9 @@ describe("jsonFetch timeout", () => {
 
     vi.useFakeTimers();
     const promise = createPaste({ content: "test", format: "plain_text" });
-    vi.advanceTimersByTime(10_001);
-
-    await expect(promise).rejects.toThrow("timed out");
+    const assertion = expect(promise).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(10_001);
+    await assertion;
     vi.useRealTimers();
   });
 });

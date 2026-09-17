@@ -116,6 +116,28 @@ const jsonFetch = async <T>(input: RequestInfo, init?: RequestInit): Promise<T> 
   }
 };
 
+let createChallengeRequired: boolean | null = false;
+
+export const enableCreateChallenge = (on: boolean): void => {
+  createChallengeRequired = on;
+};
+
+const fetchCreateChallenge = async (): Promise<string | null> => {
+  if (!createChallengeRequired) {
+    return null;
+  }
+  try {
+    const ticket = await jsonFetch<{ required?: boolean; challenge?: string | null }>(
+      `${API_BASE}/challenge`,
+    );
+    createChallengeRequired = Boolean(ticket.required);
+    return ticket.required && ticket.challenge ? ticket.challenge : null;
+  } catch {
+    createChallengeRequired = false;
+    return null;
+  }
+};
+
 export const createPaste = async (
   payload: CreatePastePayload,
   credentials?: {
@@ -130,6 +152,10 @@ export const createPaste = async (
   }
   if (credentials?.writeCredential) {
     credentialHeaders["X-CopyPaste-Write-Token"] = credentials.writeCredential;
+  }
+  const challenge = await fetchCreateChallenge();
+  if (challenge) {
+    credentialHeaders["X-CopyPaste-Challenge"] = challenge;
   }
   try {
     return await jsonFetch<CreatePasteResponse>(url, {
