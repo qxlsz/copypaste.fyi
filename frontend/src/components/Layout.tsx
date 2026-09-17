@@ -13,7 +13,7 @@ const CommandPalette = lazy(() =>
 );
 
 const iconButtonClasses =
-  "inline-flex size-11 appearance-none items-center justify-center rounded-lg bg-transparent text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none sm:size-10";
+  "inline-flex size-11 appearance-none items-center justify-center rounded-lg bg-transparent text-muted-foreground transition hover:bg-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:size-10";
 
 export const Layout = () => {
   const navigate = useNavigate();

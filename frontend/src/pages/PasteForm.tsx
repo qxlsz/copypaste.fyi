@@ -518,6 +518,7 @@ export const PasteFormPage = () => {
               <input
                 id="share-url"
                 readOnly
+                aria-label="Share link"
                 value={shareLink}
                 onFocus={(event) => event.target.select()}
                 className={`${inputClasses} min-h-12 font-mono text-xs sm:min-h-11`}
@@ -535,9 +536,13 @@ export const PasteFormPage = () => {
             </div>
             {shortShareLink ? (
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Short link</p>
+                <label htmlFor="short-share-url" className="text-xs text-muted-foreground">
+                  Short link
+                </label>
                 <input
+                  id="short-share-url"
                   readOnly
+                  aria-label="Short link"
                   value={shortShareLink}
                   onFocus={(event) => event.target.select()}
                   className={`${inputClasses} min-h-12 font-mono text-xs sm:min-h-11`}
