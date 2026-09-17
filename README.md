@@ -27,7 +27,9 @@ One binary. The server stores pastes. The client creates them.
 ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
 
 # client, same machine or another
-copypaste send --host http://127.0.0.1:8000 "from the client"
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste send "from the client"
+copypaste clip
 ```
 
 | Install | Server | Client |
