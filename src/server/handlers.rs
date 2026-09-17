@@ -476,6 +476,7 @@ fn mcp_manifest_body() -> serde_json::Value {
 }
 
 #[post("/mcp", data = "<body>")]
+#[allow(clippy::too_many_arguments)]
 async fn mcp_rpc(
     _create: CreateRateLimit,
     _read: ReadRateLimit,
