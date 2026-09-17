@@ -5,12 +5,15 @@ Right-click copy in these terminals should land on *your* copypaste server, not 
 The command is:
 
 ```bash
-copypaste clip --host http://127.0.0.1:8000
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste clip
 ```
 
-It reads the current clipboard, `POST`s it to that host, and puts the `/p/{id}` URL back on the clipboard.
+It reads the current clipboard, `POST`s it to that host, and puts the `/p/{id}` URL back on the clipboard. `clip` reads `COPYPASTE_HOST` when `--host` is omitted. `--host` still wins.
 
-Public site: `--host https://www.copypaste.fyi` or `COPYPASTE_HOST`.
+Public site: `export COPYPASTE_HOST=https://www.copypaste.fyi` then `copypaste clip`, or pass `--host` once.
+
+Closed box: `clip` has no `--auth-token-file`. Set `COPYPASTE_AUTH_TOKEN` in the environment as well.
 
 Install snippets: `./contrib/terminals/install.sh`
 
@@ -29,10 +32,10 @@ Install snippets: `./contrib/terminals/install.sh`
 Or, on selection without a prior copy, bind:
 
 ```bash
-printf %s '\(selection)' | copypaste send --stdin --host "${COPYPASTE_HOST:-http://127.0.0.1:8000}" | pbcopy
+printf %s '\\(selection)' | copypaste send --stdin --host "${COPYPASTE_HOST:-http://127.0.0.1:8000}" | pbcopy
 ```
 
-`\(selection)` is iTerm2's selected text. After the command, the clipboard holds the share URL. Paste as usual.
+`\\(selection)` is iTerm2's selected text. After the command, the clipboard holds the share URL. Paste as usual.
 
 macOS Service (also shows in iTerm2's right-click menu):
 
@@ -58,7 +61,8 @@ Then copy [contrib/terminals/ghostty.config](../contrib/terminals/ghostty.config
 After a selection copy, run:
 
 ```bash
-copypaste clip --host http://127.0.0.1:8000
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste clip
 ```
 
 Or use the same macOS Service as iTerm2. Right-click selected text → Services → Send to copypaste.
@@ -74,8 +78,9 @@ Right-click selected text on macOS still offers Services → Send to copypaste.
 ## Check it
 
 ```bash
+export COPYPASTE_HOST=http://127.0.0.1:8000
 echo "from the terminal" | pbcopy   # or wl-copy
-copypaste clip --host http://127.0.0.1:8000
+copypaste clip
 pbpaste
 ```
 
