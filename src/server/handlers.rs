@@ -268,6 +268,7 @@ fn build_rocket_with_components(
                 about,
                 create,
                 create_api,
+                create_alias_api,
                 update_api,
                 finalize_api,
                 anchor_api,
@@ -2460,6 +2461,43 @@ async fn create_paste_internal(
     })
 }
 
+#[post("/api/pastes/<id>/alias")]
+async fn create_alias_api(
+    _rate: CreateRateLimit,
+    _auth: RequireWriteAuth,
+    store: &State<SharedPasteStore>,
+    blocked: &State<BlockedPasteIds>,
+    id: &str,
+) -> Result<Json<CreatePasteResponse>, (Status, Json<ApiError>)> {
+    if !is_valid_paste_id(id) || request_or_canonical_blocked(blocked, store, id).await {
+        return Err(public_paste_absence());
+    }
+    match store.get_paste(id).await {
+        Ok(_) => {}
+        Err(_) => return Err(public_paste_absence()),
+    }
+    let related = store.resolve_related_ids(id).await;
+    let root = related.first().cloned().unwrap_or_else(|| id.to_string());
+    let alias = store.add_alias(&root).await.map_err(|_| {
+        (
+            Status::ServiceUnavailable,
+            Json(ApiError::new(
+                "unavailable",
+                "Paste storage is temporarily unavailable",
+            )),
+        )
+    })?;
+    let path = format!("/p/{alias}");
+    Ok(Json(CreatePasteResponse {
+        id: alias,
+        path: path.clone(),
+        shareable_url: path.clone(),
+        short_url: Some(path),
+        token: None,
+        is_live: false,
+    }))
+}
+
 /// Verify the live-paste ownership token supplied as `Authorization: Bearer`.
 ///
 /// The stored hash is SHA-256(token) as lowercase hex. Comparison is against
@@ -3560,8 +3598,33 @@ mod tests {
         let short = parsed.short_url.expect("short url");
         assert!(short.starts_with("/p/"));
         assert_eq!(short.len(), 13);
+        assert!(short[3..].bytes().all(|byte| byte.is_ascii_alphanumeric()));
         assert_eq!(client.get(&short).dispatch().status(), Status::Ok);
         assert_eq!(client.get(&parsed.path).dispatch().status(), Status::Ok);
+    }
+
+    #[test]
+    fn alias_can_be_minted_after_create() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let client = Client::tracked(build_rocket(store)).expect("client");
+        let created = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(json!({"content":"mint later"}).to_string())
+            .dispatch();
+        assert_eq!(created.status(), Status::Ok);
+        let parsed: CreatePasteResponse =
+            serde_json::from_str(&created.into_string().expect("body")).expect("parse");
+        let alias = client
+            .post(format!("/api/pastes/{}/alias", parsed.id))
+            .dispatch();
+        assert_eq!(alias.status(), Status::Ok);
+        let minted: CreatePasteResponse =
+            serde_json::from_str(&alias.into_string().expect("body")).expect("parse");
+        let short = minted.short_url.expect("short url");
+        assert_eq!(short.len(), 13);
+        assert!(short[3..].chars().all(|ch| ch.is_ascii_alphanumeric()));
+        assert_eq!(client.get(&short).dispatch().status(), Status::Ok);
     }
 
     #[test]

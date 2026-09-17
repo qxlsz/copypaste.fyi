@@ -177,6 +177,16 @@ export const createPaste = async (
   }
 };
 
+export const createPasteAlias = async (id: string): Promise<CreatePasteResponse> => {
+  if (!/^[A-Za-z0-9_-]+$/u.test(id)) {
+    throw new Error("Invalid paste id");
+  }
+  return jsonFetch<CreatePasteResponse>(`${API_BASE}/pastes/${id}/alias`, {
+    method: "POST",
+    body: "{}",
+  });
+};
+
 const adminToken = (): string | null => {
   try {
     return sessionStorage.getItem("copypaste-admin-token");
