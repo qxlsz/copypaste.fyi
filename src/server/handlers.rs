@@ -53,6 +53,21 @@ use super::models::{
     UserPasteListResponse, WebhookRequest, WorkspacePasteItem, WorkspacePasteListResponse,
 };
 use super::rate_limit::{CreateRateLimit, PasteRateLimiter, ReadRateLimit};
+
+struct ClientKey(String);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for ClientKey {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        Outcome::Success(ClientKey(
+            req.client_ip()
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|| "unknown".into()),
+        ))
+    }
+}
 use super::render::{
     render_attestation_prompt, render_invalid_key, render_key_prompt, render_paste_view,
     render_time_locked, StoredPasteView,
@@ -501,13 +516,14 @@ fn mcp_manifest_body() -> serde_json::Value {
 #[post("/mcp", data = "<body>")]
 #[allow(clippy::too_many_arguments)]
 async fn mcp_rpc(
-    _create: CreateRateLimit,
     _read: ReadRateLimit,
     _auth: RequireWriteAuth,
+    limiter: &State<PasteRateLimiter>,
     store: &State<SharedPasteStore>,
     features: &State<FeaturePolicy>,
     blocked: &State<BlockedPasteIds>,
     onion: OnionAccess,
+    client: ClientKey,
     body: Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     let id = body.get("id").cloned().unwrap_or(json!(null));
@@ -641,57 +657,73 @@ async fn mcp_rpc(
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             match name {
                 "create_paste" => {
-                    let content = args
-                        .get("content")
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let mut request = CreatePasteRequest {
-                        content,
-                        format: None,
-                        retention_minutes: None,
-                        encryption: None,
-                        burn_after_reading: args
-                            .get("burn")
-                            .and_then(|b| b.as_bool())
-                            .unwrap_or(false),
-                        bundle: None,
-                        time_lock: None,
-                        attestation: None,
-                        persistence: None,
-                        webhook: None,
-                        stego: None,
-                        tor_access_only: false,
-                        owner_pubkey_hash: None,
-                        workspace: None,
-                        live: false,
-                        short_link: args.get("short").and_then(|b| b.as_bool()).unwrap_or(false),
-                    };
-                    if let Some(key) = args.get("key").and_then(|k| k.as_str()) {
-                        if !key.is_empty() {
-                            request.encryption = Some(EncryptionRequest {
-                                algorithm: EncryptionAlgorithm::Aes256Gcm,
-                                key: key.to_string(),
-                            });
-                        }
-                    }
-                    match create_paste_internal(store.inner(), request, &onion, features.inner())
-                        .await
-                    {
-                        Ok(created) => json!({
-                            "content": [{
-                                "type": "text",
-                                "text": serde_json::to_string(&json!({
-                                    "id": created.id,
-                                    "url": created.shareable_url,
-                                    "encrypted": args.get("key").and_then(|k| k.as_str()).map(|k| !k.is_empty()).unwrap_or(false)
-                                })).unwrap_or_else(|_| "{}".into())
-                            }]
-                        }),
-                        Err((_, msg)) => json!({
+                    let ip = &client.0;
+                    if !limiter.allow_create(ip) {
+                        json!({
                             "isError": true,
-                            "content": [{ "type": "text", "text": msg }]
-                        }),
+                            "content": [{ "type": "text", "text": "Too many creates. Wait a minute." }]
+                        })
+                    } else {
+                        let content = args
+                            .get("content")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let mut request = CreatePasteRequest {
+                            content,
+                            format: None,
+                            retention_minutes: None,
+                            encryption: None,
+                            burn_after_reading: args
+                                .get("burn")
+                                .and_then(|b| b.as_bool())
+                                .unwrap_or(false),
+                            bundle: None,
+                            time_lock: None,
+                            attestation: None,
+                            persistence: None,
+                            webhook: None,
+                            stego: None,
+                            tor_access_only: false,
+                            owner_pubkey_hash: None,
+                            workspace: None,
+                            live: false,
+                            short_link: args
+                                .get("short")
+                                .and_then(|b| b.as_bool())
+                                .unwrap_or(false),
+                        };
+                        if let Some(key) = args.get("key").and_then(|k| k.as_str()) {
+                            if !key.is_empty() {
+                                request.encryption = Some(EncryptionRequest {
+                                    algorithm: EncryptionAlgorithm::Aes256Gcm,
+                                    key: key.to_string(),
+                                });
+                            }
+                        }
+                        match create_paste_internal(
+                            store.inner(),
+                            request,
+                            &onion,
+                            features.inner(),
+                        )
+                        .await
+                        {
+                            Ok(created) => json!({
+                                "content": [{
+                                    "type": "text",
+                                    "text": serde_json::to_string(&json!({
+                                        "id": created.id,
+                                        "url": created.shareable_url,
+                                        "encrypted": args.get("key").and_then(|k| k.as_str()).map(|k| !k.is_empty()).unwrap_or(false)
+                                    })).unwrap_or_else(|_| "{}".into())
+                                }]
+                            }),
+                            Err((_, msg)) => json!({
+                                "isError": true,
+                                "content": [{ "type": "text", "text": msg }]
+                            }),
+                        }
                     }
                 }
                 "read_paste" => {
@@ -706,24 +738,57 @@ async fn mcp_rpc(
                         })
                     } else {
                         match store.get_paste(paste_id).await {
-                            Ok(paste) => match decrypt_content(&paste.content, key) {
-                                Ok(text) => {
-                                    if paste.burn_after_reading {
-                                        let _ = store.delete_paste(paste_id).await;
-                                    }
+                            Ok(paste) => {
+                                if paste.metadata.tor_access_only && !onion.is_onion() {
                                     json!({
-                                        "content": [{ "type": "text", "text": text }]
+                                        "isError": true,
+                                        "content": [{ "type": "text", "text": "Paste not found." }]
                                     })
+                                } else if paste.metadata.attestation.is_some() {
+                                    json!({
+                                        "isError": true,
+                                        "content": [{ "type": "text", "text": "This paste needs the HTTP read path." }]
+                                    })
+                                } else if super::time::evaluate_time_lock(
+                                    &paste.metadata,
+                                    current_timestamp(),
+                                )
+                                .is_some()
+                                {
+                                    json!({
+                                        "isError": true,
+                                        "content": [{ "type": "text", "text": "Paste not found." }]
+                                    })
+                                } else {
+                                    match decrypt_content(&paste.content, key) {
+                                        Ok(text) => {
+                                            if paste.burn_after_reading {
+                                                match store.delete_paste(paste_id).await {
+                                                    Ok(true) => json!({
+                                                        "content": [{ "type": "text", "text": text }]
+                                                    }),
+                                                    _ => json!({
+                                                        "isError": true,
+                                                        "content": [{ "type": "text", "text": "Unable to consume burn paste." }]
+                                                    }),
+                                                }
+                                            } else {
+                                                json!({
+                                                    "content": [{ "type": "text", "text": text }]
+                                                })
+                                            }
+                                        }
+                                        Err(DecryptError::MissingKey) => json!({
+                                            "isError": true,
+                                            "content": [{ "type": "text", "text": "Encrypted. Pass key." }]
+                                        }),
+                                        Err(_) => json!({
+                                            "isError": true,
+                                            "content": [{ "type": "text", "text": "Unable to decrypt." }]
+                                        }),
+                                    }
                                 }
-                                Err(DecryptError::MissingKey) => json!({
-                                    "isError": true,
-                                    "content": [{ "type": "text", "text": "Encrypted. Pass key." }]
-                                }),
-                                Err(_) => json!({
-                                    "isError": true,
-                                    "content": [{ "type": "text", "text": "Unable to decrypt." }]
-                                }),
-                            },
+                            }
                             Err(_) => json!({
                                 "isError": true,
                                 "content": [{ "type": "text", "text": "Paste not found." }]
@@ -732,42 +797,50 @@ async fn mcp_rpc(
                     }
                 }
                 "mint_alias" => {
-                    let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                    if !is_valid_paste_id(paste_id)
-                        || request_or_canonical_blocked(blocked, store, paste_id).await
-                    {
+                    let ip = &client.0;
+                    if !limiter.allow_create(ip) {
                         json!({
                             "isError": true,
-                            "content": [{ "type": "text", "text": "Paste not found." }]
+                            "content": [{ "type": "text", "text": "Too many creates. Wait a minute." }]
                         })
                     } else {
-                        match store.get_paste(paste_id).await {
-                            Ok(_) => {
-                                let related = store.resolve_related_ids(paste_id).await;
-                                let root = related
-                                    .first()
-                                    .cloned()
-                                    .unwrap_or_else(|| paste_id.to_string());
-                                match store.add_alias(&root).await {
-                                    Ok(alias) => json!({
-                                        "content": [{
-                                            "type": "text",
-                                            "text": serde_json::to_string(&json!({
-                                                "id": alias,
-                                                "url": format!("/p/{alias}")
-                                            })).unwrap_or_else(|_| "{}".into())
-                                        }]
-                                    }),
-                                    Err(_) => json!({
-                                        "isError": true,
-                                        "content": [{ "type": "text", "text": "Unable to mint alias." }]
-                                    }),
-                                }
-                            }
-                            Err(_) => json!({
+                        let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                        if !is_valid_paste_id(paste_id)
+                            || request_or_canonical_blocked(blocked, store, paste_id).await
+                        {
+                            json!({
                                 "isError": true,
                                 "content": [{ "type": "text", "text": "Paste not found." }]
-                            }),
+                            })
+                        } else {
+                            match store.get_paste(paste_id).await {
+                                Ok(_) => {
+                                    let related = store.resolve_related_ids(paste_id).await;
+                                    let root = related
+                                        .first()
+                                        .cloned()
+                                        .unwrap_or_else(|| paste_id.to_string());
+                                    match store.add_alias(&root).await {
+                                        Ok(alias) => json!({
+                                            "content": [{
+                                                "type": "text",
+                                                "text": serde_json::to_string(&json!({
+                                                    "id": alias,
+                                                    "url": format!("/p/{alias}")
+                                                })).unwrap_or_else(|_| "{}".into())
+                                            }]
+                                        }),
+                                        Err(_) => json!({
+                                            "isError": true,
+                                            "content": [{ "type": "text", "text": "Unable to mint alias." }]
+                                        }),
+                                    }
+                                }
+                                Err(_) => json!({
+                                    "isError": true,
+                                    "content": [{ "type": "text", "text": "Paste not found." }]
+                                }),
+                            }
                         }
                     }
                 }
@@ -920,10 +993,7 @@ async fn collect_api(
 ) {
     let path = super::traffic::classify_path(body.path.as_deref().unwrap_or("/"));
     let referrer = super::traffic::classify_referrer(
-        meta.referrer
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .or(body.referrer.as_deref()),
+        meta.referrer.as_deref().filter(|value| !value.is_empty()),
     );
     let ua = meta.user_agent.as_deref().or(body.device.as_deref());
     let device = super::traffic::classify_device(ua);
@@ -2606,14 +2676,20 @@ async fn create_alias_api(
     }
     let related = store.resolve_related_ids(id).await;
     let root = related.first().cloned().unwrap_or_else(|| id.to_string());
-    let alias = store.add_alias(&root).await.map_err(|_| {
-        (
-            Status::ServiceUnavailable,
-            Json(ApiError::new(
+    let alias = store.add_alias(&root).await.map_err(|err| {
+        let (status, code, message) = match err {
+            crate::PersistenceError::Save(_, msg) if msg == "alias cap" => (
+                Status::Conflict,
+                "alias_cap",
+                "This paste already has three short links",
+            ),
+            _ => (
+                Status::ServiceUnavailable,
                 "unavailable",
                 "Paste storage is temporarily unavailable",
-            )),
-        )
+            ),
+        };
+        (status, Json(ApiError::new(code, message)))
     })?;
     let path = format!("/p/{alias}");
     Ok(Json(CreatePasteResponse {
@@ -3753,6 +3829,22 @@ mod tests {
         assert_eq!(short.len(), 13);
         assert!(short[3..].chars().all(|ch| ch.is_ascii_alphanumeric()));
         assert_eq!(client.get(&short).dispatch().status(), Status::Ok);
+        for _ in 0..2 {
+            assert_eq!(
+                client
+                    .post(format!("/api/pastes/{}/alias", parsed.id))
+                    .dispatch()
+                    .status(),
+                Status::Ok
+            );
+        }
+        assert_eq!(
+            client
+                .post(format!("/api/pastes/{}/alias", parsed.id))
+                .dispatch()
+                .status(),
+            Status::Conflict
+        );
     }
 
     #[test]
@@ -4046,8 +4138,12 @@ mod tests {
         let posted = client
             .post("/api/collect")
             .header(ContentType::JSON)
+            .header(rocket::http::Header::new(
+                "Referer",
+                "https://news.ycombinator.com/item?id=1",
+            ))
             .body(
-                r#"{"path":"/p/secretIdHere","referrer":"https://news.ycombinator.com/item?id=1","device":"desktop"}"#,
+                r#"{"path":"/p/secretIdHere","referrer":"https://evil.example/fake","device":"desktop"}"#,
             )
             .dispatch();
         assert_eq!(posted.status(), Status::Ok);

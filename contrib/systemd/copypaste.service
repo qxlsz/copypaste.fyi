@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/copypaste serve
+ExecStart=/usr/bin/copypaste serve
 Environment=ROCKET_ADDRESS=127.0.0.1
 Environment=COPYPASTE_FORCE_MEMORY=true
 Restart=on-failure

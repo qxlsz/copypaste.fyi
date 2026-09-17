@@ -535,7 +535,7 @@ export const PasteFormPage = () => {
     >
       {shareLink ? (
         <section
-          className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-6 sm:px-5 sm:py-10"
+          className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-5 sm:py-10"
           aria-label="Paste created"
         >
           <div className="w-full max-w-md space-y-6">
@@ -736,7 +736,7 @@ export const PasteFormPage = () => {
         </>
       )}
       {!shareLink && (
-        <div className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,calc(var(--keyboard-inset,0px)+env(safe-area-inset-bottom)))]">
+        <div className="shrink-0 border-t border-border bg-surface pb-[max(0.75rem,var(--keyboard-inset,0px),env(safe-area-inset-bottom))]">
           <div className="flex items-center gap-2 px-3 pt-2 text-xs text-muted-foreground sm:px-4">
             <span>
               {stats.chars === 0
