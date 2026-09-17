@@ -53,6 +53,16 @@ chmod +x contrib/macos/*.sh
 
 Then Services → Send to copypaste. `COPYPASTE_HOST=http://127.0.0.1:8000` points it at your instance.
 
+**iTerm2, Ghostty, cmux:** select text, then send that copy to your server so the clipboard holds the share URL.
+
+```bash
+./contrib/terminals/install.sh
+copypaste clip --host http://127.0.0.1:8000
+```
+
+iTerm2: Pointer → Right button → Run Command in Background → `copypaste clip --host http://127.0.0.1:8000`.
+Ghostty and cmux share `~/.config/ghostty` (`copy_on_select`, then `copypaste clip`). Notes: [docs/terminals.md](docs/terminals.md).
+
 ## What it does
 
 - 43-character IDs, optional 10-character alphanumeric short alias, 1 MiB cap
