@@ -39,6 +39,19 @@ Closed host: add `"headers": { "X-CopyPaste-Write-Token": "<token>" }` if you lo
 
 Same URL: `http://127.0.0.1:8000/mcp` on a tunnel Claude can reach.
 
+## Deep links
+
+Share `https://www.copypaste.fyi/p/{id}?open=grok` (or `chatgpt`, `codex`, `claude`).
+The paste page strips `open` then hands the public URL to that app.
+
+On Android the Open-with buttons use `intent://` for:
+
+- Grok `ai.x.grok`
+- ChatGPT / Codex `com.openai.chatgpt`
+- Claude `com.anthropic.claude`
+
+If the app is missing, Chrome opens the HTTPS `?q=` URL. iOS tries `grok://`, `chatgpt://`, or `claude://`, then the same HTTPS URL. Encryption keys stay out of those links.
+
 ## Grok
 
 [grok.com/connectors](https://grok.com/connectors) → New Connector → Custom → `https://your-host/mcp`.
