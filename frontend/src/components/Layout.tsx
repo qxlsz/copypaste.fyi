@@ -1,6 +1,6 @@
 import { Suspense, lazy, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { BarChart2, Command, Plus } from "lucide-react";
+import { Command, Plus } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
@@ -49,7 +49,7 @@ export const Layout = () => {
       },
       {
         id: "stats",
-        label: "Service statistics",
+        label: "Admin stats",
         group: "Navigation",
         handler: () => navigate("/stats"),
       },
@@ -102,15 +102,6 @@ export const Layout = () => {
                 <Plus className="h-4 w-4" aria-hidden="true" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => navigate("/stats")}
-              className={`${iconButtonClasses} max-sm:hidden`}
-              aria-label="Service statistics"
-              title="Stats"
-            >
-              <BarChart2 className="h-4 w-4" aria-hidden="true" />
-            </button>
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}

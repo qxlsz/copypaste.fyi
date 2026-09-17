@@ -658,6 +658,34 @@ fn unauthorized_api() -> (Status, Json<ApiError>) {
     )
 }
 
+fn stats_are_public() -> bool {
+    match std::env::var("COPYPASTE_PUBLIC_STATS") {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => cfg!(test),
+    }
+}
+
+pub struct RequireStatsRead;
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for RequireStatsRead {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if stats_are_public() {
+            return Outcome::Success(RequireStatsRead);
+        }
+        match req.guard::<RequireAdminAuth>().await {
+            Outcome::Success(_) => Outcome::Success(RequireStatsRead),
+            Outcome::Forward(status) => Outcome::Forward(status),
+            Outcome::Error(error) => Outcome::Error(error),
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/stats/summary",
@@ -669,6 +697,7 @@ fn unauthorized_api() -> (Status, Json<ApiError>) {
 #[get("/api/stats/summary")]
 async fn stats_summary_api(
     _rate: ReadRateLimit,
+    _stats: RequireStatsRead,
     store: &State<SharedPasteStore>,
 ) -> Json<StatsSummaryResponse> {
     let stats = store.stats().await;
@@ -683,6 +712,7 @@ async fn stats_summary_api(
 #[get("/api/stats/traffic")]
 async fn traffic_api(
     _rate: ReadRateLimit,
+    _stats: RequireStatsRead,
     traffic: &State<super::traffic::SharedTraffic>,
 ) -> Json<super::traffic::TrafficResponse> {
     Json(traffic.snapshot())
@@ -703,7 +733,7 @@ async fn collect_api(
 #[get("/robots.txt")]
 fn robots_txt() -> content::RawText<&'static str> {
     content::RawText(
-        "User-agent: *\nAllow: /\nAllow: /about\nAllow: /stats\nDisallow: /p/\nDisallow: /raw/\nDisallow: /api/\nSitemap: https://www.copypaste.fyi/sitemap.xml\n",
+        "User-agent: *\nAllow: /\nAllow: /about\nDisallow: /stats\nDisallow: /p/\nDisallow: /raw/\nDisallow: /api/\nSitemap: https://www.copypaste.fyi/sitemap.xml\n",
     )
 }
 
@@ -714,7 +744,6 @@ fn sitemap_xml() -> content::RawXml<&'static str> {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://www.copypaste.fyi/</loc></url>
   <url><loc>https://www.copypaste.fyi/about</loc></url>
-  <url><loc>https://www.copypaste.fyi/stats</loc></url>
 </urlset>
 "#,
     )
@@ -3703,6 +3732,19 @@ mod tests {
             .into_string()
             .expect("robots")
             .contains("Disallow: /p/"));
+    }
+
+    #[test]
+    fn private_stats_reject_anonymous_reads() {
+        std::env::set_var("COPYPASTE_PUBLIC_STATS", "false");
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+        let summary = client.get("/api/stats/summary").dispatch();
+        let traffic = client.get("/api/stats/traffic").dispatch();
+        std::env::remove_var("COPYPASTE_PUBLIC_STATS");
+        assert_eq!(summary.status(), Status::Unauthorized);
+        assert_eq!(traffic.status(), Status::Unauthorized);
     }
 
     #[test]

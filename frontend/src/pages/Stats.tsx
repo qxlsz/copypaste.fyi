@@ -1,19 +1,67 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchStatsSummary, fetchTraffic, type TrafficSummary } from "../api/client";
+import {
+  ApiError,
+  fetchStatsSummary,
+  fetchTraffic,
+  setAdminToken,
+  type TrafficSummary,
+} from "../api/client";
 import type { StatsSummary } from "../api/types";
 import { format } from "date-fns";
 import { AreaGroupChart } from "../components/charts/AreaGroupChart";
 import { DistributionCard } from "../components/charts/DistributionCard";
 
 export const StatsPage = () => {
-  const { data, isLoading, isError, error } = useQuery({
+  const [tokenInput, setTokenInput] = useState("");
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["stats-summary"],
     queryFn: fetchStatsSummary,
+    retry: false,
   });
   const traffic = useQuery({
     queryKey: ["stats-traffic"],
     queryFn: fetchTraffic,
+    retry: false,
   });
+
+  const unauthorized = error instanceof ApiError && (error.status === 401 || error.status === 403);
+
+  if (unauthorized) {
+    return (
+      <section className="max-w-md space-y-4">
+        <h1 className="text-2xl font-medium tracking-tight text-text">Admin only</h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Counts live in this server process. They are not sent to a third party. Paste the operator
+          token to view them.
+        </p>
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setAdminToken(tokenInput.trim());
+            void refetch();
+            void traffic.refetch();
+          }}
+        >
+          <input
+            type="password"
+            value={tokenInput}
+            onChange={(event) => setTokenInput(event.target.value)}
+            className="h-12 w-full rounded-md border border-border bg-surface px-3 text-sm"
+            placeholder="COPYPASTE_ADMIN_TOKEN"
+            autoComplete="off"
+          />
+          <button
+            type="submit"
+            className="inline-flex h-12 items-center rounded-md bg-accent px-4 text-sm text-accent-foreground"
+          >
+            Unlock
+          </button>
+        </form>
+      </section>
+    );
+  }
 
   if (isLoading) {
     return (

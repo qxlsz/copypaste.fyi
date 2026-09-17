@@ -1,7 +1,7 @@
 User-agent: *
 Allow: /
 Allow: /about
-Allow: /stats
+Disallow: /stats
 Disallow: /p/
 Disallow: /raw/
 Disallow: /api/

@@ -177,9 +177,24 @@ export const createPaste = async (
   }
 };
 
+const adminToken = (): string | null => {
+  try {
+    return sessionStorage.getItem("copypaste-admin-token");
+  } catch {
+    return null;
+  }
+};
+
+export const setAdminToken = (token: string): void => {
+  sessionStorage.setItem("copypaste-admin-token", token);
+};
+
 export const fetchStatsSummary = async (): Promise<StatsSummary> => {
   const url = `${API_BASE}/stats/summary`;
-  return jsonFetch<StatsSummary>(url);
+  const token = adminToken();
+  return jsonFetch<StatsSummary>(url, {
+    ...(token ? guardedApiHeaderOptions(url, { Authorization: `Bearer ${token}` }) : undefined),
+  });
 };
 
 export interface TrafficSummary {
@@ -192,7 +207,10 @@ export interface TrafficSummary {
 
 export const fetchTraffic = async (): Promise<TrafficSummary> => {
   const url = `${API_BASE}/stats/traffic`;
-  return jsonFetch<TrafficSummary>(url);
+  const token = adminToken();
+  return jsonFetch<TrafficSummary>(url, {
+    ...(token ? guardedApiHeaderOptions(url, { Authorization: `Bearer ${token}` }) : undefined),
+  });
 };
 
 export const fetchPaste = async (id: string, key?: string): Promise<PasteViewResponse> => {

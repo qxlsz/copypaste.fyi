@@ -8,8 +8,4 @@
     <loc>https://www.copypaste.fyi/about</loc>
     <changefreq>weekly</changefreq>
   </url>
-  <url>
-    <loc>https://www.copypaste.fyi/stats</loc>
-    <changefreq>weekly</changefreq>
-  </url>
 </urlset>
