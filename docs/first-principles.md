@@ -34,6 +34,7 @@ ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
 export COPYPASTE_HOST=http://127.0.0.1:8000
 copypaste send "from this machine"
 copypaste clip
+copypaste healthcheck
 ```
 
 `send`, `clip`, and `healthcheck` read `COPYPASTE_HOST`. `--host` still wins when you pass it.
