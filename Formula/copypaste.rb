@@ -45,6 +45,10 @@ class Copypaste < Formula
       Public site:  copypaste send --host https://www.copypaste.fyi "notes"
       Local server: copypaste serve
                     brew services start copypaste
+      Clients:      export COPYPASTE_HOST=http://127.0.0.1:8000
+                    copypaste send "notes"
+                    copypaste clip
+                    copypaste healthcheck
 
       v0.2.0 Linux bottles need glibc 2.39 (Ubuntu 24.04).
       On Debian 12 or Ubuntu 22.04 use: brew install --HEAD qxlsz/copypaste/copypaste
@@ -67,6 +71,7 @@ class Copypaste < Formula
     help = shell_output("#{bin}/copypaste --help")
     assert_match "serve", help
     assert_match "send", help
+    assert_match "clip", help
     assert_match "healthcheck", help
   end
 end
