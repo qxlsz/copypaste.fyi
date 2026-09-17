@@ -28,6 +28,13 @@ enum Command {
     },
     /// Submit text to a copypaste instance and print the resulting URL
     Send(SendArgs),
+    /// Read the clipboard, store it on the server, put the share URL back.
+    /// iTerm2, Ghostty, and cmux bind this after a selection copy.
+    Clip {
+        /// Base URL of the copypaste server.
+        #[arg(long, default_value = "http://127.0.0.1:8000")]
+        host: String,
+    },
     /// Config file management
     Config {
         #[command(subcommand)]
@@ -177,6 +184,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Healthcheck { host } => {
             execute_healthcheck(&host)?;
+            Ok(())
+        }
+        Command::Clip { host } => {
+            let url = execute_clip(&host)?;
+            if io::stdout().is_terminal() {
+                println!("Clipboard now holds {url}");
+            } else {
+                println!("{url}");
+            }
             Ok(())
         }
         Command::Send(args) => {
@@ -370,6 +386,67 @@ fn execute_healthcheck(host: &str) -> io::Result<()> {
             response.status()
         )))
     }
+}
+
+fn write_os_clipboard(text: &str) -> io::Result<()> {
+    let candidates: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+        &[("pbcopy", &[])]
+    } else if cfg!(target_os = "windows") {
+        &[("clip", &[])]
+    } else {
+        &[("wl-copy", &[]), ("xclip", &["-selection", "clipboard"])]
+    };
+
+    let mut last_error = String::from("clipboard tool not found");
+    for (command, args) in candidates {
+        let mut child = match std::process::Command::new(command)
+            .args(*args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                last_error = format!("{command}: {error}");
+                continue;
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(text.as_bytes())?;
+        }
+        let output = child.wait_with_output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        last_error = format!(
+            "{command} failed ({})",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Err(io::Error::other(last_error))
+}
+
+fn execute_clip(host: &str) -> io::Result<String> {
+    let args = SendArgs {
+        text: None,
+        stdin: false,
+        clipboard: true,
+        host: host.to_string(),
+        auth_token_file: None,
+        format: CliFormat::PlainText,
+        ttl: None,
+        retention: 0,
+        encryption_mode: CliEncryption::None,
+        encryption_key_file: None,
+        burn_after_reading: false,
+        json: false,
+        agent: false,
+    };
+    let url = execute_send_receipt(args)?.url;
+    write_os_clipboard(&url)?;
+    Ok(url)
 }
 
 fn read_os_clipboard() -> io::Result<String> {
@@ -869,6 +946,18 @@ mod tests {
     fn send_clipboard_conflicts_with_text() {
         let err = SendArgs::try_parse_from(["copypaste-send", "--clipboard", "hello"]);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn clip_is_a_top_level_command() {
+        let cli = Cli::try_parse_from(["copypaste", "clip", "--host", "http://127.0.0.1:8000"]);
+        assert!(cli.is_ok());
+        match cli.expect("clip") {
+            Cli {
+                command: Command::Clip { host },
+            } => assert_eq!(host, "http://127.0.0.1:8000"),
+            _ => panic!("expected clip"),
+        }
     }
 
     #[test]

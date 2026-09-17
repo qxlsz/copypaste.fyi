@@ -10,7 +10,9 @@ All notable changes to copypaste.fyi are documented here. The project follows
 - First principles and packaging notes: [docs/first-principles.md](docs/first-principles.md),
   [docs/packaging.md](docs/packaging.md). `scripts/build-deb.sh` turns a release binary into a
   `.deb` with the systemd unit.
-- Homebrew `brew test` now checks `serve`, `send`, and `healthcheck` on `--help`.
+- `copypaste clip` reads the OS clipboard, stores it on your server, and puts
+  the share URL back. iTerm2, Ghostty, and cmux snippets live in
+  [docs/terminals.md](docs/terminals.md).
 - After Get link, Make short link mints a 10-character A-Z a-z 0-9 alias via
   `POST /api/pastes/{id}/alias`.
 - Open-with uses Android `intent://` and iOS app schemes for Grok, ChatGPT, Codex, Claude,
