@@ -21,6 +21,7 @@ primary_region = 'iad'
   # Public pastebin: Get link must work without an operator token.
   # Self-hosters close writes with COPYPASTE_REQUIRE_WRITE_AUTH=true.
   COPYPASTE_REQUIRE_WRITE_AUTH = 'false'
+  COPYPASTE_PUBLIC_STATS = 'false'
   COPYPASTE_ALLOW_SESSION_WRITES = 'false'
   COPYPASTE_ALLOW_WEBHOOKS = 'false'
   COPYPASTE_ALLOW_ATTESTATIONS = 'false'

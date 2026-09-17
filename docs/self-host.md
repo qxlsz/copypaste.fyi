@@ -181,6 +181,7 @@ On your box, copy [.env.example](../.env.example) next to `docker-compose.yml` a
 | `COPYPASTE_REQUIRE_CHALLENGE=true` | Browser must fetch `GET /api/challenge` and send `X-CopyPaste-Challenge` |
 | `COPYPASTE_REQUIRE_WRITE_AUTH=true` | Closes anonymous Get link. Token in `X-CopyPaste-Write-Token` |
 | `COPYPASTE_ALLOWED_ORIGINS` | Browser origins that may call the API |
+| `COPYPASTE_PUBLIC_STATS` | `false` hides `/api/stats/*` unless `Authorization: Bearer` is the admin token |
 
 Internal LAN example:
 
