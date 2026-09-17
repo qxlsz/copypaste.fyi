@@ -241,7 +241,6 @@ export const PasteFormPage = () => {
     onSuccess: (result) => {
       const usedEncryption = encryption;
       const usedEncryptionKey = encryptionKey;
-      toast.success("Paste created");
       try {
         navigator.vibrate?.(16);
       } catch {
@@ -254,6 +253,19 @@ export const PasteFormPage = () => {
       setShareUrl(result.shareableUrl);
       setCreatedPasteId(result.id);
       setShortShareUrl(result.shortUrl ?? null);
+      try {
+        const copied = buildPasteShareUrl(
+          result.shareableUrl,
+          usedEncryption !== "none" ? usedEncryptionKey : "",
+          window.location.origin,
+        );
+        void navigator.clipboard.writeText(copied).then(
+          () => toast.success("Link copied"),
+          () => toast.success("Paste is ready"),
+        );
+      } catch {
+        toast.success("Paste is ready");
+      }
       setEncryptionKey("");
       if (usedEncryption !== "none") {
         setEncryption("none");
@@ -274,6 +286,7 @@ export const PasteFormPage = () => {
     event.preventDefault();
     const live = contentRef.current;
     if (!live.trim()) {
+      toast.error("Type something first");
       document.getElementById("content")?.focus();
       return;
     }

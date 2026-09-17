@@ -6,7 +6,12 @@
   "installCommand": "npm ci",
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/((?!assets/|llms\\.txt|grok-bot\\.md|install\\.sh|install\\.ps1|theme-boot\\.js|robots\\.txt|sitemap\\.xml|site\\.webmanifest|\\.well-known/).*)", "destination": "/index.html" }
+    { "source": "/api/:path*", "destination": "https://copypaste-fyi-withered-darkness-575.fly.dev/api/:path*" },
+    { "source": "/mcp", "destination": "https://copypaste-fyi-withered-darkness-575.fly.dev/mcp" },
+    { "source": "/mcp.json", "destination": "https://copypaste-fyi-withered-darkness-575.fly.dev/mcp.json" },
+    { "source": "/health", "destination": "https://copypaste-fyi-withered-darkness-575.fly.dev/health" },
+    { "source": "/.well-known/mcp.json", "destination": "https://copypaste-fyi-withered-darkness-575.fly.dev/.well-known/mcp.json" },
+    { "source": "/((?!assets/|api/|mcp|health|llms\\.txt|grok-bot\\.md|install\\.sh|install\\.ps1|theme-boot\\.js|robots\\.txt|sitemap\\.xml|site\\.webmanifest|\\.well-known/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
