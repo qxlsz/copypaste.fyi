@@ -86,6 +86,15 @@ impl TrafficStore {
 
 fn bump(map: &Mutex<BTreeMap<String, u64>>, key: &str) {
     if let Ok(mut guard) = map.lock() {
+        if !guard.contains_key(key) && guard.len() >= 256 {
+            if let Some(smallest) = guard
+                .iter()
+                .min_by_key(|(_, count)| *count)
+                .map(|(name, _)| name.clone())
+            {
+                guard.remove(&smallest);
+            }
+        }
         *guard.entry(key.to_string()).or_insert(0) += 1;
     }
 }

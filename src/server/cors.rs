@@ -118,6 +118,10 @@ fn is_private_route(path: &str) -> bool {
             "/api/user",
             "/api/workspace",
             "/api/workspaces",
+            "/api/stats",
+            "/stats",
+            "/api/collect",
+            "/mcp",
         ]
         .iter()
         .any(|prefix| is_path_or_child(path, prefix))

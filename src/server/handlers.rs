@@ -477,8 +477,12 @@ fn mcp_manifest_body() -> serde_json::Value {
 
 #[post("/mcp", data = "<body>")]
 async fn mcp_rpc(
+    _create: CreateRateLimit,
+    _read: ReadRateLimit,
+    _auth: RequireWriteAuth,
     store: &State<SharedPasteStore>,
     features: &State<FeaturePolicy>,
+    blocked: &State<BlockedPasteIds>,
     onion: OnionAccess,
     body: Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
@@ -587,24 +591,36 @@ async fn mcp_rpc(
                 "read_paste" => {
                     let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
                     let key = args.get("key").and_then(|k| k.as_str());
-                    match store.get_paste(paste_id).await {
-                        Ok(paste) => match decrypt_content(&paste.content, key) {
-                            Ok(text) => json!({
-                                "content": [{ "type": "text", "text": text }]
-                            }),
-                            Err(DecryptError::MissingKey) => json!({
-                                "isError": true,
-                                "content": [{ "type": "text", "text": "Encrypted. Pass key." }]
-                            }),
-                            Err(_) => json!({
-                                "isError": true,
-                                "content": [{ "type": "text", "text": "Unable to decrypt." }]
-                            }),
-                        },
-                        Err(_) => json!({
+                    if !is_valid_paste_id(paste_id) || blocked.contains(paste_id) {
+                        json!({
                             "isError": true,
                             "content": [{ "type": "text", "text": "Paste not found." }]
-                        }),
+                        })
+                    } else {
+                        match store.get_paste(paste_id).await {
+                            Ok(paste) => match decrypt_content(&paste.content, key) {
+                                Ok(text) => {
+                                    if paste.burn_after_reading {
+                                        let _ = store.delete_paste(paste_id).await;
+                                    }
+                                    json!({
+                                        "content": [{ "type": "text", "text": text }]
+                                    })
+                                }
+                                Err(DecryptError::MissingKey) => json!({
+                                    "isError": true,
+                                    "content": [{ "type": "text", "text": "Encrypted. Pass key." }]
+                                }),
+                                Err(_) => json!({
+                                    "isError": true,
+                                    "content": [{ "type": "text", "text": "Unable to decrypt." }]
+                                }),
+                            },
+                            Err(_) => json!({
+                                "isError": true,
+                                "content": [{ "type": "text", "text": "Paste not found." }]
+                            }),
+                        }
                     }
                 }
                 _ => json!({
