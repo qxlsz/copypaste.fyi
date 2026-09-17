@@ -19,7 +19,7 @@ If a person cannot find Get link, the change is wrong.
 
 ## Rules that do not move
 
-- Public [copypaste.fyi](https://www.copypaste.fyi) accepts anonymous writes. Self-hosters lock writes with `COPYPASTE_REQUIRE_WRITE_AUTH`.
+- Public [copypaste.fyi](https://www.copypaste.fyi) accepts anonymous writes. Self-hosters lock writes with `COPYPASTE_REQUIRE_WRITE_AUTH`. Hiding `/api/stats` is not a write lock.
 - The canonical id is long and random. A short alias is optional and only exists after the paste is created.
 - Quarantine of the canonical id or any short alias 404s both.
 - Missing, burned, and expired reads are the same 404.
