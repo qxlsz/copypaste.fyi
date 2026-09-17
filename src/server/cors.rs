@@ -23,7 +23,8 @@ const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'none'; obje
     worker-src 'self' blob:; manifest-src 'self'; media-src 'self'";
 
 /// Paste HTML is static markup plus CSS. No scripts, including inline.
-const PASTE_CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'none'; object-src 'none'; \
+const PASTE_CONTENT_SECURITY_POLICY: &str =
+    "default-src 'self'; base-uri 'none'; object-src 'none'; \
     frame-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; \
     img-src 'self' data:; font-src 'self'; \
     style-src 'self' 'unsafe-inline'; script-src 'none'; \
