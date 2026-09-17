@@ -10,12 +10,15 @@ brew test qxlsz/copypaste/copypaste
 brew services start copypaste
 ```
 
-`brew test` checks that `serve`, `send`, and `healthcheck` exist on `--help`.
+`brew test` checks that `serve`, `send`, `clip`, and `healthcheck` exist on `--help`.
 
 Then the client:
 
 ```bash
-copypaste send --host http://127.0.0.1:8000 "from this Mac"
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste send "from this Mac"
+copypaste clip
+copypaste healthcheck
 ```
 
 ## Debian / Ubuntu

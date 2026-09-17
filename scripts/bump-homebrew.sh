@@ -17,7 +17,7 @@ sha_of() {
     exit 1
   fi
   sha256sum "$file" | awk '{print $1}'
-}
+done
 
 ARM_MAC="$(sha_of copypaste-darwin-arm64.tar.gz)"
 INTEL_MAC="$(sha_of copypaste-darwin-x64.tar.gz)"
@@ -72,6 +72,10 @@ class Copypaste < Formula
       Public site:  copypaste send --host https://www.copypaste.fyi "notes"
       Local server: copypaste serve
                     brew services start copypaste
+      Clients:      export COPYPASTE_HOST=http://127.0.0.1:8000
+                    copypaste send "notes"
+                    copypaste clip
+                    copypaste healthcheck
 
       Closed instance: set COPYPASTE_REQUIRE_WRITE_AUTH=true and
       COPYPASTE_AUTH_TOKEN in the environment. Tokens never go on argv.
@@ -91,6 +95,7 @@ class Copypaste < Formula
     help = shell_output("#{bin}/copypaste --help")
     assert_match "serve", help
     assert_match "send", help
+    assert_match "clip", help
     assert_match "healthcheck", help
   end
 end
