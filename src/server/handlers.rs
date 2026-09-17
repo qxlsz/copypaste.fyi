@@ -555,6 +555,7 @@ async fn mcp_rpc(
                         owner_pubkey_hash: None,
                         workspace: None,
                         live: false,
+                        short_link: false,
                     };
                     if let Some(key) = args.get("key").and_then(|k| k.as_str()) {
                         if !key.is_empty() {
@@ -2367,11 +2368,20 @@ async fn create_paste_internal(
         )
     })?;
     let path = format!("/p/{id}");
+    let short_url = if body.short_link {
+        match store.add_alias(&id).await {
+            Ok(alias) => Some(format!("/p/{alias}")),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
 
     Ok(CreatePasteResponse {
         id: id.clone(),
         path: path.clone(),
         shareable_url: path,
+        short_url,
         token: plaintext_token,
         is_live,
     })
@@ -3340,6 +3350,10 @@ mod tests {
         async fn finalize_paste(&self, id: &str) -> Result<(), PasteMutationError> {
             self.inner.finalize_paste(id).await
         }
+
+        async fn add_alias(&self, canonical: &str) -> Result<String, crate::PersistenceError> {
+            self.inner.add_alias(canonical).await
+        }
     }
 
     #[test]
@@ -3444,10 +3458,33 @@ mod tests {
         let parsed: CreatePasteResponse = serde_json::from_str(&body).expect("parse");
         assert_eq!(parsed.path, format!("/p/{}", parsed.id));
         assert_eq!(parsed.path, parsed.shareable_url);
+        assert_eq!(parsed.id.len(), 43);
+        assert!(parsed.short_url.is_none());
 
         // Fetch the paste to ensure it was stored.
         let get_response = client.get(&parsed.path).dispatch();
         assert_eq!(get_response.status(), Status::Ok);
+    }
+
+    #[test]
+    fn short_link_is_an_alias_not_the_canonical_id() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+        let response = client
+            .post("/api/pastes")
+            .header(ContentType::JSON)
+            .body(json!({"content":"short please","short_link":true}).to_string())
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let parsed: CreatePasteResponse =
+            serde_json::from_str(&response.into_string().expect("body")).expect("parse");
+        assert_eq!(parsed.id.len(), 43);
+        let short = parsed.short_url.expect("short url");
+        assert!(short.starts_with("/p/"));
+        assert_eq!(short.len(), 13);
+        assert_eq!(client.get(&short).dispatch().status(), Status::Ok);
+        assert_eq!(client.get(&parsed.path).dispatch().status(), Status::Ok);
     }
 
     #[test]

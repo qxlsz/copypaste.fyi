@@ -10,6 +10,7 @@ import {
   Copy,
   Flame,
   ImageDown,
+  Link2,
   Lock,
   QrCode,
   ScrollText,
@@ -128,7 +129,9 @@ export const PasteFormPage = () => {
     return sessionStorage.getItem("copypaste.write-token") ?? "";
   });
   const [burnAfterReading, setBurnAfterReading] = useState(false);
+  const [shortLink, setShortLink] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shortShareUrl, setShortShareUrl] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -216,6 +219,7 @@ export const PasteFormPage = () => {
         format,
         retention_minutes: retentionMinutes ? Number(retentionMinutes) : undefined,
         burn_after_reading: burnAfterReading || undefined,
+        short_link: shortLink || undefined,
       };
 
       if (encryption !== "none") {
@@ -244,6 +248,7 @@ export const PasteFormPage = () => {
       setContent("");
       contentRef.current = "";
       setShareUrl(result.shareableUrl);
+      setShortShareUrl(result.shortUrl ?? null);
       setEncryptionKey("");
       if (usedEncryption !== "none") {
         setEncryption("none");
@@ -344,6 +349,17 @@ export const PasteFormPage = () => {
       return null;
     }
   }, [shareUrl, pasteEncryption, pasteEncryptionKey]);
+
+  const shortShareLink = useMemo(() => {
+    if (!shortShareUrl) {
+      return null;
+    }
+    try {
+      return buildPasteShareUrl(shortShareUrl, "", window.location.origin);
+    } catch {
+      return null;
+    }
+  }, [shortShareUrl]);
 
   const handleCopyShareUrl = async () => {
     const urlToCopy = shareLink;
@@ -517,6 +533,17 @@ export const PasteFormPage = () => {
                 {isCopying ? "Copying" : "Copy"}
               </button>
             </div>
+            {shortShareLink ? (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Short link</p>
+                <input
+                  readOnly
+                  value={shortShareLink}
+                  onFocus={(event) => event.target.select()}
+                  className={`${inputClasses} min-h-12 font-mono text-xs sm:min-h-11`}
+                />
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               <button
                 type="button"
@@ -846,6 +873,24 @@ export const PasteFormPage = () => {
               >
                 <Flame className="h-3.5 w-3.5" aria-hidden="true" />
                 Burn
+              </button>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={shortLink}
+                onClick={() => setShortLink(!shortLink)}
+                title={
+                  shortLink ? "Also mint a 10-character alias" : "Default link is 43 characters"
+                }
+                className={`inline-flex h-11 w-full items-center justify-center gap-2 self-end rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
+                  shortLink
+                    ? "bg-muted text-text"
+                    : "bg-muted text-muted-foreground hover:text-text"
+                }`}
+              >
+                <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                Short
               </button>
 
               <button

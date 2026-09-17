@@ -23,6 +23,8 @@ pub struct CreatePasteResponse {
     pub id: String,
     pub path: String,
     pub shareable_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_url: Option<String>,
     /// Ownership token — only present when `live: true` was requested.
     /// Store this securely; it authorises PUT and PATCH updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -205,6 +207,9 @@ pub struct CreatePasteRequest {
     /// When `true`, paste starts in live mode — content can be updated via `PUT /api/pastes/{id}`.
     #[serde(default)]
     pub live: bool,
+    /// Optional 10-character alias. Canonical id stays long.
+    #[serde(default)]
+    pub short_link: bool,
 }
 
 /// Hardened public create schema. Disabled legacy feature fields remain in the

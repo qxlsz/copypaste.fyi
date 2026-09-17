@@ -77,7 +77,7 @@ fn is_generated_paste_id(segment: &str) -> bool {
         && slug_parts[2].len() == 2
         && slug_parts[2].bytes().all(|byte| byte.is_ascii_digit());
 
-    let is_nanoid = matches!(segment.len(), 10 | 24)
+    let is_nanoid = (10..=64).contains(&segment.len())
         && segment
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'));
@@ -422,7 +422,10 @@ mod tests {
     fn current_and_legacy_random_ids_are_treated_as_sensitive() {
         assert!(is_generated_paste_id("abcdefghij"));
         assert!(is_generated_paste_id("abcdefghijklmnopqrstuvwx"));
-        assert!(!is_generated_paste_id("abcdefghijklmnopqrstuvw"));
+        assert!(is_generated_paste_id(
+            "abcdefghijklmnopqrstuvwxyZ0123456789ABCDE-_"
+        ));
+        assert!(!is_generated_paste_id("short"));
     }
 
     #[get("/limited")]
