@@ -408,6 +408,10 @@ impl MemoryPasteStore {
     /// at them. Persistence is left alone: this is a RAM bound, not a durable
     /// delete.
     async fn evict_expired_batch(&self) {
+        let len = self.entries.read().await.len();
+        if len < 64 {
+            return;
+        }
         let expired: Vec<String> = {
             let map = self.entries.read().await;
             map.iter()
