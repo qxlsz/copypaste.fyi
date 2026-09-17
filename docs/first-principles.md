@@ -21,6 +21,7 @@ If a person cannot find Get link, the change is wrong.
 
 - Public [copypaste.fyi](https://www.copypaste.fyi) accepts anonymous writes. Self-hosters lock writes with `COPYPASTE_REQUIRE_WRITE_AUTH`.
 - The canonical id is long and random. A short alias is optional and only exists after the paste is created.
+- Quarantine of the canonical id or any short alias 404s both.
 - Missing, burned, and expired reads are the same 404.
 - Tokens and encryption keys stay out of query strings and argv.
 - One binary does both jobs: `copypaste serve` is the server, `copypaste send --host ...` is the client.

@@ -136,8 +136,11 @@ in every request log before using these endpoints.
 ## Quarantine before triage or deletion
 
 Quarantine is the first application action. `COPYPASTE_BLOCKED_PASTE_IDS` is a comma-separated exact
-set. Public JSON, share, legacy HTML, raw, update, finalize, and anchor routes return `404` for a
-blocked ID before public storage access. The metadata-only admin route remains available.
+set. Public JSON, share, legacy HTML, raw, update, finalize, alias mint, and anchor routes return
+`404` when the request id, the canonical id, or any short alias for that paste is in the set. Put
+the reported 43-character id, the 10-character alias, or both in the authoritative file. Checking
+only the URL path would leave the other identifier live. The metadata-only admin route remains
+available.
 
 The environment value is deployment-time state, not a live distributed database. Every app
 instance must restart with the authoritative full set. Updating a Fly secret replaces its prior
