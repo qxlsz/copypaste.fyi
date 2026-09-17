@@ -112,11 +112,22 @@ curl -fsSL https://www.copypaste.fyi/install.sh | sh -s -- --serve
 
 ## 3. Use your instance
 
+Point every client at the same host. Default is `http://127.0.0.1:8000`.
+
 ```bash
-copypaste send --host http://127.0.0.1:8000 "notes from this box"
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste send --host "$COPYPASTE_HOST" "notes from this box"
 ```
 
-Browser: open http://127.0.0.1:8000, type, Get link.
+Clipboard after a terminal copy (iTerm2 / Ghostty / cmux):
+
+```bash
+copypaste clip --host "${COPYPASTE_HOST:-http://127.0.0.1:8000}"
+```
+
+That posts the current clipboard and puts the `/p/{id}` URL back. Bindings: [terminals.md](terminals.md).
+
+Browser: open that host, type, Get link.
 
 Mac Services menu: `./contrib/macos/install-quick-action.sh` then set `COPYPASTE_HOST=http://127.0.0.1:8000`.
 
