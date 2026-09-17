@@ -41,7 +41,8 @@ copypaste send --host http://127.0.0.1:8000 "from this Debian box"
 
 | Client | Host |
 |---|---|
-| CLI | `copypaste send --host http://127.0.0.1:8000 "..."` |
+| CLI | `copypaste send --host "${COPYPASTE_HOST:-http://127.0.0.1:8000}" "..."` |
+| clip | `copypaste clip --host "${COPYPASTE_HOST:-http://127.0.0.1:8000}"` |
 | Mac Quick Action | `COPYPASTE_HOST=http://127.0.0.1:8000` |
 | Browser | open that host. Get link still creates the paste there. |
 | MCP | Cursor / VS Code / Claude / Grok connector URL `http://127.0.0.1:8000/mcp` |
