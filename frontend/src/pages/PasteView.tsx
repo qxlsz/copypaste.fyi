@@ -10,7 +10,13 @@ import { MonacoEditor } from "../components/editor/MonacoEditor";
 import { LostPaste } from "../components/LostPaste";
 import { OpenWithAgents } from "../components/OpenWithAgents";
 import { formatCountdown } from "../lib/countdown";
-import { publicPasteUrl } from "../lib/openAgents";
+import {
+  OPEN_AGENTS,
+  launchAgent,
+  openPrompt,
+  parseOpenAgentId,
+  publicPasteUrl,
+} from "../lib/openAgents";
 import { sharePayload } from "../lib/whisper";
 
 const formatLabel = (format: string) => {
@@ -204,6 +210,26 @@ export const PasteViewPage = () => {
       { replace: true },
     );
   }, [legacyQueryKey, location.hash, location.pathname, location.search, navigate]);
+
+  const openAgent = parseOpenAgentId(searchParams.get("open"));
+  useEffect(() => {
+    if (!openAgent || !id) return;
+    const agent = OPEN_AGENTS.find((item) => item.id === openAgent);
+    if (!agent) return;
+    const params = new URLSearchParams(location.search);
+    params.delete("open");
+    params.delete("key");
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+    launchAgent(agent, openPrompt(`${window.location.origin}/p/${id}`));
+  }, [openAgent, id, location.hash, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     setEnteredKey(key ?? "");

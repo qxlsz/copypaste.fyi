@@ -14,37 +14,107 @@ export const publicPasteUrl = (url: string): string => {
 export const openPrompt = (url: string): string =>
   `Read this copypaste.fyi paste and continue the work. If you need the protocol, fetch /.well-known/copypaste.json from the same origin.\n\n${publicPasteUrl(url)}`;
 
+export type OpenAgentId = "grok" | "codex" | "chatgpt" | "claude";
+
 export interface OpenAgent {
-  id: "grok" | "codex" | "chatgpt" | "claude";
+  id: OpenAgentId;
   label: string;
-  href: (prompt: string) => string;
+  web: (prompt: string) => string;
+  androidPackage?: string;
+  iosScheme?: string;
 }
 
 export const OPEN_AGENTS: OpenAgent[] = [
   {
     id: "grok",
     label: "Grok",
-    href: (prompt) => `https://grok.com/?q=${encodeURIComponent(prompt)}`,
+    web: (prompt) => `https://grok.com/?q=${encodeURIComponent(prompt)}`,
+    androidPackage: "ai.x.grok",
+    iosScheme: "grok",
   },
   {
     id: "codex",
     label: "Codex",
-    href: (prompt) => `https://chatgpt.com/?q=${encodeURIComponent(`Use Codex. ${prompt}`)}`,
+    web: (prompt) => `https://chatgpt.com/?q=${encodeURIComponent(`Use Codex. ${prompt}`)}`,
+    androidPackage: "com.openai.chatgpt",
+    iosScheme: "chatgpt",
   },
   {
     id: "chatgpt",
     label: "ChatGPT",
-    href: (prompt) => `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`,
+    web: (prompt) => `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`,
+    androidPackage: "com.openai.chatgpt",
+    iosScheme: "chatgpt",
   },
   {
     id: "claude",
     label: "Claude",
-    href: (prompt) => `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
+    web: (prompt) => `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
+    androidPackage: "com.anthropic.claude",
+    iosScheme: "claude",
   },
 ];
 
-export const grokBotHref = (prompt: string): string =>
-  `https://grok.com/?q=${encodeURIComponent(prompt)}`;
+export const isAndroidUa = (ua: string): boolean => /Android/i.test(ua);
+
+export const isIosUa = (ua: string): boolean => /iPhone|iPad|iPod/i.test(ua);
+
+const androidIntent = (httpsUrl: string, pkg: string): string => {
+  const rest = httpsUrl.replace(/^https:\/\//, "");
+  return `intent://${rest}#Intent;scheme=https;package=${pkg};S.browser_fallback_url=${encodeURIComponent(httpsUrl)};end`;
+};
+
+/** HTTPS on desktop. Android tries the store app, then the same HTTPS URL. */
+export const agentHref = (agent: OpenAgent, prompt: string, ua = ""): string => {
+  const web = agent.web(prompt);
+  if (isAndroidUa(ua) && agent.androidPackage) {
+    return androidIntent(web, agent.androidPackage);
+  }
+  return web;
+};
+
+export const agentSchemeHref = (agent: OpenAgent, prompt: string): string | null => {
+  if (!agent.iosScheme) return null;
+  return `${agent.iosScheme}://?q=${encodeURIComponent(prompt)}`;
+};
+
+export const parseOpenAgentId = (value: string | null): OpenAgentId | null => {
+  if (value === "grok" || value === "codex" || value === "chatgpt" || value === "claude") {
+    return value;
+  }
+  return null;
+};
+
+/** Share URL that opens this paste in an agent. Never includes #key=. */
+export const pasteOpenUrl = (url: string, agent: OpenAgentId): string => {
+  const clean = publicPasteUrl(url);
+  const parsed = new URL(clean, "https://www.copypaste.fyi");
+  parsed.searchParams.set("open", agent);
+  return parsed.toString();
+};
+
+export const launchAgent = (agent: OpenAgent, prompt: string, ua = navigator.userAgent): void => {
+  const web = agent.web(prompt);
+  if (isIosUa(ua)) {
+    const scheme = agentSchemeHref(agent, prompt);
+    if (scheme) {
+      window.location.href = scheme;
+      window.setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          window.location.href = web;
+        }
+      }, 700);
+      return;
+    }
+  }
+  window.location.href = agentHref(agent, prompt, ua);
+};
+
+export const grokBotHref = (prompt: string, ua = ""): string => {
+  const grok = OPEN_AGENTS.find((agent) => agent.id === "grok");
+  if (!grok) return `https://grok.com/?q=${encodeURIComponent(prompt)}`;
+  return agentHref(grok, prompt, ua);
+};
 
 export const GROK_BOT_ADD_PROMPT =
   "Install this copypaste.fyi Grok Bot from my clipboard. Confirm you can POST /api/pastes and GET /api/pastes/{id} with X-Paste-Key when encrypted. Do not put keys in URLs.";

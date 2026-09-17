@@ -15,7 +15,10 @@ import {
   GROK_BOT_ADD_PROMPT,
   GROK_BOT_SKILL,
   OPEN_AGENTS,
+  agentHref,
+  agentSchemeHref,
   grokBotHref,
+  isIosUa,
   openPrompt,
 } from "../lib/openAgents";
 
@@ -68,7 +71,11 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
       toast.error("Unable to copy Grok Bot skill", { description: message });
       return;
     }
-    window.open(grokBotHref(GROK_BOT_ADD_PROMPT), "_blank", "noopener,noreferrer");
+    window.open(
+      grokBotHref(GROK_BOT_ADD_PROMPT, navigator.userAgent),
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   const handleGoogleSignIn = async () => {
@@ -132,15 +139,28 @@ export const OpenWithAgents = ({ url }: { url: string }) => {
               : agent.id === "chatgpt"
                 ? ChatGptMark
                 : ClaudeMark;
+        const href = agentHref(agent, prompt, navigator.userAgent);
         return (
           <a
             key={agent.id}
-            href={agent.href(prompt)}
+            href={href}
             target="_blank"
             rel="noopener noreferrer"
             className={logoButton}
             aria-label={agent.label}
             title={`Open in ${agent.label}`}
+            onClick={(event) => {
+              if (!isIosUa(navigator.userAgent)) return;
+              const scheme = agentSchemeHref(agent, prompt);
+              if (!scheme) return;
+              event.preventDefault();
+              window.location.href = scheme;
+              window.setTimeout(() => {
+                if (document.visibilityState === "visible") {
+                  window.location.href = agent.web(prompt);
+                }
+              }, 700);
+            }}
           >
             <Mark />
             <span className="text-[10px] leading-none text-muted-foreground">{agent.label}</span>
