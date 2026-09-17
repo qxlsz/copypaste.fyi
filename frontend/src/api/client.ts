@@ -203,6 +203,8 @@ export interface TrafficSummary {
   pages: Array<{ name: string; count: number }>;
   referrers: Array<{ name: string; count: number }>;
   devices: Array<{ name: string; count: number }>;
+  oses?: Array<{ name: string; count: number }>;
+  countries?: Array<{ name: string; count: number }>;
 }
 
 export const fetchTraffic = async (): Promise<TrafficSummary> => {

@@ -13,7 +13,8 @@ export const collectVisit = (pathname: string): void => {
   const body = JSON.stringify({
     path: pageBucket(pathname),
     referrer: document.referrer || "",
-    device: /Mobi|Android/i.test(navigator.userAgent) ? "mobile" : "desktop",
+    device: navigator.userAgent,
+    language: navigator.language || "",
   });
   const url = `${API_BASE}/collect`;
   void fetch(url, {

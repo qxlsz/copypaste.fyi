@@ -119,38 +119,59 @@ const StatsContent = ({
         </p>
       ) : null}
 
-      {traffic && (traffic.referrers.length > 0 || traffic.pages.length > 0) && (
-        <section className="grid gap-10 lg:grid-cols-3">
-          <DistributionCard
-            title="Pages"
-            data={traffic.pages.map((item) => ({
-              label: item.name,
-              value: item.count,
-            }))}
-            palette="formats"
-          />
-          <DistributionCard
-            title="Referrer"
-            data={traffic.referrers.map((item) => ({
-              label: item.name,
-              value: item.count,
-            }))}
-            palette="encryption"
-          />
-          <DistributionCard
-            title="Device"
-            data={traffic.devices.map((item) => ({
-              label: item.name,
-              value: item.count,
-            }))}
-            palette="formats"
-          />
-        </section>
-      )}
+      {traffic &&
+        (traffic.referrers.length > 0 ||
+          traffic.pages.length > 0 ||
+          (traffic.oses?.length ?? 0) > 0) && (
+          <section className="grid gap-10 lg:grid-cols-3">
+            <DistributionCard
+              title="Pages"
+              data={traffic.pages.map((item) => ({
+                label: item.name,
+                value: item.count,
+              }))}
+              palette="formats"
+            />
+            <DistributionCard
+              title="Referrer"
+              data={traffic.referrers.map((item) => ({
+                label: item.name,
+                value: item.count,
+              }))}
+              palette="encryption"
+            />
+            <DistributionCard
+              title="Device"
+              data={traffic.devices.map((item) => ({
+                label: item.name,
+                value: item.count,
+              }))}
+              palette="formats"
+            />
+            <DistributionCard
+              title="OS"
+              data={(traffic.oses ?? []).map((item) => ({
+                label: item.name,
+                value: item.count,
+              }))}
+              palette="encryption"
+            />
+            <DistributionCard
+              title="Country"
+              data={(traffic.countries ?? []).map((item) => ({
+                label: item.name,
+                value: item.count,
+              }))}
+              palette="formats"
+            />
+          </section>
+        )}
       {traffic && traffic.referrers.length > 0 ? (
         <p className="text-xs text-muted-foreground">
           Referrer is the previous site on that tab. expaste.com is another pastebin. Those hits are
-          people opening share links, not creating pastes here.
+          people opening share links, not creating pastes here. Device and OS come from the
+          User-Agent. Country is CF/Vercel/Fly country headers when present, otherwise the browser
+          language region. No IPs stored.
         </p>
       ) : null}
 

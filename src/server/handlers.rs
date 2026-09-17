@@ -718,16 +718,44 @@ async fn traffic_api(
     Json(traffic.snapshot())
 }
 
+struct CollectMeta {
+    user_agent: Option<String>,
+    country: Option<String>,
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for CollectMeta {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let country = req
+            .headers()
+            .get_one("CF-IPCountry")
+            .or_else(|| req.headers().get_one("X-Vercel-IP-Country"))
+            .or_else(|| req.headers().get_one("Fly-IP-Country"))
+            .map(str::to_string);
+        Outcome::Success(CollectMeta {
+            user_agent: req.headers().get_one("User-Agent").map(str::to_string),
+            country,
+        })
+    }
+}
+
 #[post("/api/collect", data = "<body>")]
 async fn collect_api(
     _rate: ReadRateLimit,
     traffic: &State<super::traffic::SharedTraffic>,
     body: Json<super::traffic::CollectBody>,
+    meta: CollectMeta,
 ) {
     let path = super::traffic::classify_path(body.path.as_deref().unwrap_or("/"));
     let referrer = super::traffic::classify_referrer(body.referrer.as_deref());
-    let device = super::traffic::classify_device(body.device.as_deref());
-    traffic.record(path, &referrer, device);
+    let ua = meta.user_agent.as_deref().or(body.device.as_deref());
+    let device = super::traffic::classify_device(ua);
+    let os = super::traffic::classify_os(ua);
+    let country =
+        super::traffic::classify_country(meta.country.as_deref(), body.language.as_deref());
+    traffic.record(path, &referrer, device, os, &country);
 }
 
 #[get("/robots.txt")]
@@ -3725,6 +3753,8 @@ mod tests {
         assert!(body["startedAt"].as_i64().unwrap_or(0) > 0);
         let pages = body["pages"].as_array().expect("pages");
         assert!(pages.iter().any(|row| row["name"] == "share"));
+        assert!(body["oses"].is_array());
+        assert!(body["countries"].is_array());
         assert!(!body.to_string().contains("secretIdHere"));
         let robots = client.get("/robots.txt").dispatch();
         assert_eq!(robots.status(), Status::Ok);
