@@ -17,7 +17,7 @@ import {
   Share2,
 } from "lucide-react";
 
-import { ApiError, createPaste } from "../api/client";
+import { ApiError, createPaste, createPasteAlias } from "../api/client";
 import type { CreatePastePayload, EncryptionAlgorithm, PasteFormat } from "../api/types";
 import { MonacoEditor } from "../components/editor/MonacoEditor";
 import { OpenWithAgents } from "../components/OpenWithAgents";
@@ -129,9 +129,10 @@ export const PasteFormPage = () => {
     return sessionStorage.getItem("copypaste.write-token") ?? "";
   });
   const [burnAfterReading, setBurnAfterReading] = useState(false);
-  const [shortLink, setShortLink] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shortShareUrl, setShortShareUrl] = useState<string | null>(null);
+  const [createdPasteId, setCreatedPasteId] = useState<string | null>(null);
+  const [isMintingShort, setIsMintingShort] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -219,7 +220,6 @@ export const PasteFormPage = () => {
         format,
         retention_minutes: retentionMinutes ? Number(retentionMinutes) : undefined,
         burn_after_reading: burnAfterReading || undefined,
-        short_link: shortLink || undefined,
       };
 
       if (encryption !== "none") {
@@ -248,6 +248,7 @@ export const PasteFormPage = () => {
       setContent("");
       contentRef.current = "";
       setShareUrl(result.shareableUrl);
+      setCreatedPasteId(result.id);
       setShortShareUrl(result.shortUrl ?? null);
       setEncryptionKey("");
       if (usedEncryption !== "none") {
@@ -355,11 +356,30 @@ export const PasteFormPage = () => {
       return null;
     }
     try {
-      return buildPasteShareUrl(shortShareUrl, "", window.location.origin);
+      return buildPasteShareUrl(
+        shortShareUrl,
+        pasteEncryption !== "none" ? pasteEncryptionKey : "",
+        window.location.origin,
+      );
     } catch {
       return null;
     }
-  }, [shortShareUrl]);
+  }, [shortShareUrl, pasteEncryption, pasteEncryptionKey]);
+
+  const handleMintShortLink = async () => {
+    if (!createdPasteId || shortShareLink) return;
+    try {
+      setIsMintingShort(true);
+      const minted = await createPasteAlias(createdPasteId);
+      setShortShareUrl(minted.shortUrl ?? minted.shareableUrl);
+      toast.success("Short link ready");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error("Unable to mint a short link", { description: message });
+    } finally {
+      setIsMintingShort(false);
+    }
+  };
 
   const handleCopyShareUrl = async () => {
     const urlToCopy = shareLink;
@@ -548,7 +568,17 @@ export const PasteFormPage = () => {
                   className={`${inputClasses} min-h-12 font-mono text-xs sm:min-h-11`}
                 />
               </div>
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleMintShortLink()}
+                disabled={isMintingShort || !createdPasteId}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-muted px-3 text-sm text-text disabled:opacity-60 sm:h-11"
+              >
+                <Link2 className="h-4 w-4" aria-hidden="true" />
+                {isMintingShort ? "Making short link…" : "Make short link"}
+              </button>
+            )}
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               <button
                 type="button"
@@ -878,24 +908,6 @@ export const PasteFormPage = () => {
               >
                 <Flame className="h-3.5 w-3.5" aria-hidden="true" />
                 Burn
-              </button>
-
-              <button
-                type="button"
-                role="switch"
-                aria-checked={shortLink}
-                onClick={() => setShortLink(!shortLink)}
-                title={
-                  shortLink ? "Also mint a 10-character alias" : "Default link is 43 characters"
-                }
-                className={`inline-flex h-11 w-full items-center justify-center gap-2 self-end rounded-md px-3 text-sm sm:h-10 sm:w-auto ${
-                  shortLink
-                    ? "bg-muted text-text"
-                    : "bg-muted text-muted-foreground hover:text-text"
-                }`}
-              >
-                <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-                Short
               </button>
 
               <button

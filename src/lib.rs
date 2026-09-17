@@ -474,8 +474,16 @@ fn generate_short_paste_id(
     map: &HashMap<String, StoredPaste>,
     aliases: &HashMap<String, String>,
 ) -> String {
+    // Letters and digits only. No `_` or `-` so the short path is easy to
+    // read aloud and to type on a phone.
+    const ALPHANUMERIC: [char; 62] = [
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+        'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
+        's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    ];
     loop {
-        let candidate = nanoid!(10);
+        let candidate = nanoid!(10, &ALPHANUMERIC);
         if !map.contains_key(&candidate) && !aliases.contains_key(&candidate) {
             return candidate;
         }
@@ -1405,6 +1413,7 @@ mod tests {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')));
         let short = store.add_alias(&id).await.expect("short alias");
         assert_eq!(short.len(), 10);
+        assert!(short.bytes().all(|byte| byte.is_ascii_alphanumeric()));
         assert!(store.resolve_related_ids(&short).await.contains(&id));
         assert!(store.resolve_related_ids(&id).await.contains(&id));
         let via_short = store.get_paste(&short).await.expect("alias lookup");
