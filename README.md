@@ -113,12 +113,17 @@ curl -sS -X POST https://www.copypaste.fyi/api/pastes \
 copypaste send "notes"
 echo "log" | copypaste send --stdin --host https://www.copypaste.fyi
 copypaste send --clipboard --host https://www.copypaste.fyi
+copypaste clip --host http://127.0.0.1:8000
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste clip
 copypaste send --json "plain receipt for an agent"
 copypaste send --agent "only the other agent can read this"
 copypaste send --auth-token-file ./write-token "closed instance"
 copypaste send --encryption-mode aes256_gcm --encryption-key-file ./paste-key "secret"
 copypaste healthcheck --host http://127.0.0.1:8000
 ```
+
+`send`, `clip`, and `healthcheck` read `COPYPASTE_HOST` when `--host` is omitted. `--host` still wins.
 
 The CLI never takes a token or encryption key as a flag value. Remote hosts must be HTTPS. Human mode prints the key-free share URL. `--json` / `--agent` print a receipt with the tokens the other side needs.
 
@@ -194,7 +199,7 @@ Shortcut: `./scripts/precommit.sh`. Agents: [AGENTS.md](AGENTS.md). Humans: [CON
 ## Layout
 
 ```text
-src/bin/copypaste.rs     serve / send / healthcheck / config
+src/bin/copypaste.rs     serve / send / clip / healthcheck / config
 src/server/              Rocket, crypto, Redis, guards
 frontend/                React 19 + Vite composer
 ocaml-crypto-verifier/   Independent AES/ChaCha checks
