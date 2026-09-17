@@ -31,7 +31,11 @@ Run a server on a box you control. Point the client at that box. The public site
 
 ```bash
 ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
-copypaste send --host http://127.0.0.1:8000 "from this machine"
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste send "from this machine"
+copypaste clip
 ```
+
+`send`, `clip`, and `healthcheck` read `COPYPASTE_HOST`. `--host` still wins when you pass it.
 
 Install notes: [self-host.md](self-host.md). Debian package: [packaging.md](packaging.md).
