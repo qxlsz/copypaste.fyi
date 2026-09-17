@@ -10,10 +10,15 @@ export const pageBucket = (pathname: string): string => {
 };
 
 export const collectVisit = (pathname: string): void => {
+  let referrerHost = "";
+  try {
+    referrerHost = document.referrer ? new URL(document.referrer).host : "";
+  } catch {
+    referrerHost = "";
+  }
   const body = JSON.stringify({
     path: pageBucket(pathname),
-    referrer: document.referrer || "",
-    device: navigator.userAgent,
+    referrer: referrerHost,
     language: navigator.language || "",
   });
   const url = `${API_BASE}/collect`;
@@ -23,6 +28,7 @@ export const collectVisit = (pathname: string): void => {
     body,
     keepalive: true,
     credentials: "omit",
+    redirect: "error",
   }).catch(() => {
     /* visit counts are best-effort */
   });

@@ -476,9 +476,14 @@ fn mcp_manifest_body() -> serde_json::Value {
 }
 
 #[post("/mcp", data = "<body>")]
+#[allow(clippy::too_many_arguments)]
 async fn mcp_rpc(
+    _create: CreateRateLimit,
+    _read: ReadRateLimit,
+    _auth: RequireWriteAuth,
     store: &State<SharedPasteStore>,
     features: &State<FeaturePolicy>,
+    blocked: &State<BlockedPasteIds>,
     onion: OnionAccess,
     body: Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
@@ -587,24 +592,36 @@ async fn mcp_rpc(
                 "read_paste" => {
                     let paste_id = args.get("id").and_then(|i| i.as_str()).unwrap_or("");
                     let key = args.get("key").and_then(|k| k.as_str());
-                    match store.get_paste(paste_id).await {
-                        Ok(paste) => match decrypt_content(&paste.content, key) {
-                            Ok(text) => json!({
-                                "content": [{ "type": "text", "text": text }]
-                            }),
-                            Err(DecryptError::MissingKey) => json!({
-                                "isError": true,
-                                "content": [{ "type": "text", "text": "Encrypted. Pass key." }]
-                            }),
-                            Err(_) => json!({
-                                "isError": true,
-                                "content": [{ "type": "text", "text": "Unable to decrypt." }]
-                            }),
-                        },
-                        Err(_) => json!({
+                    if !is_valid_paste_id(paste_id) || blocked.contains(paste_id) {
+                        json!({
                             "isError": true,
                             "content": [{ "type": "text", "text": "Paste not found." }]
-                        }),
+                        })
+                    } else {
+                        match store.get_paste(paste_id).await {
+                            Ok(paste) => match decrypt_content(&paste.content, key) {
+                                Ok(text) => {
+                                    if paste.burn_after_reading {
+                                        let _ = store.delete_paste(paste_id).await;
+                                    }
+                                    json!({
+                                        "content": [{ "type": "text", "text": text }]
+                                    })
+                                }
+                                Err(DecryptError::MissingKey) => json!({
+                                    "isError": true,
+                                    "content": [{ "type": "text", "text": "Encrypted. Pass key." }]
+                                }),
+                                Err(_) => json!({
+                                    "isError": true,
+                                    "content": [{ "type": "text", "text": "Unable to decrypt." }]
+                                }),
+                            },
+                            Err(_) => json!({
+                                "isError": true,
+                                "content": [{ "type": "text", "text": "Paste not found." }]
+                            }),
+                        }
                     }
                 }
                 _ => json!({
@@ -722,6 +739,7 @@ async fn traffic_api(
 struct CollectMeta {
     user_agent: Option<String>,
     country: Option<String>,
+    referrer: Option<String>,
 }
 
 #[rocket::async_trait]
@@ -738,6 +756,7 @@ impl<'r> FromRequest<'r> for CollectMeta {
         Outcome::Success(CollectMeta {
             user_agent: req.headers().get_one("User-Agent").map(str::to_string),
             country,
+            referrer: req.headers().get_one("Referer").map(str::to_string),
         })
     }
 }
@@ -750,7 +769,12 @@ async fn collect_api(
     meta: CollectMeta,
 ) {
     let path = super::traffic::classify_path(body.path.as_deref().unwrap_or("/"));
-    let referrer = super::traffic::classify_referrer(body.referrer.as_deref());
+    let referrer = super::traffic::classify_referrer(
+        meta.referrer
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .or(body.referrer.as_deref()),
+    );
     let ua = meta.user_agent.as_deref().or(body.device.as_deref());
     let device = super::traffic::classify_device(ua);
     let os = super::traffic::classify_os(ua);
@@ -3799,6 +3823,31 @@ mod tests {
             .into_string()
             .expect("robots")
             .contains("Disallow: /p/"));
+    }
+
+    #[test]
+    fn collect_prefers_http_referer_over_body() {
+        let store: SharedPasteStore = Arc::new(MemoryPasteStore::new());
+        let rocket = build_rocket(store);
+        let client = Client::tracked(rocket).expect("client");
+        let posted = client
+            .post("/api/collect")
+            .header(ContentType::JSON)
+            .header(rocket::http::Header::new(
+                "Referer",
+                "https://news.ycombinator.com/item?id=9",
+            ))
+            .body(r#"{"path":"/","referrer":"https://evil.example/fake"}"#)
+            .dispatch();
+        assert_eq!(posted.status(), Status::Ok);
+        let traffic = client.get("/api/stats/traffic").dispatch();
+        let body: serde_json::Value =
+            serde_json::from_str(&traffic.into_string().expect("body")).expect("json");
+        let hosts = body["referrers"].as_array().expect("referrers");
+        assert!(hosts
+            .iter()
+            .any(|row| row["name"] == "news.ycombinator.com"));
+        assert!(!body.to_string().contains("evil.example"));
     }
 
     #[test]
