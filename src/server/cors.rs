@@ -22,6 +22,13 @@ const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'none'; obje
     style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; \
     worker-src 'self' blob:; manifest-src 'self'; media-src 'self'";
 
+/// Paste HTML is static markup plus CSS. No scripts, including inline.
+const PASTE_CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'none'; object-src 'none'; \
+    frame-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; \
+    img-src 'self' data:; font-src 'self'; \
+    style-src 'self' 'unsafe-inline'; script-src 'none'; \
+    worker-src 'none'; manifest-src 'self'; media-src 'self'";
+
 const PERMISSIONS_POLICY: &str = "accelerometer=(), ambient-light-sensor=(), autoplay=(), \
     battery=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), \
     magnetometer=(), microphone=(), midi=(), payment=(), publickey-credentials-get=(), \
@@ -159,6 +166,10 @@ impl Fairing for Cors {
         let is_paste_response = is_paste_route(path)
             || (path == "/" && matches!(request.method(), Method::Post | Method::Put));
         if is_paste_response {
+            response.set_header(Header::new(
+                "Content-Security-Policy",
+                PASTE_CONTENT_SECURITY_POLICY,
+            ));
             response.set_header(Header::new(
                 "X-Robots-Tag",
                 "noindex, nofollow, noarchive, nosnippet, noimageindex",
@@ -390,9 +401,11 @@ mod tests {
                 "frame-ancestors 'none'",
                 "form-action 'self'",
                 "connect-src 'self'",
+                "script-src 'none'",
             ] {
                 assert!(csp.contains(directive));
             }
+            assert!(!csp.contains("script-src 'self'"));
             assert!(!csp.contains("api.qrserver.com"));
             assert!(paste.headers().get_one("Permissions-Policy").is_some());
             assert_eq!(
@@ -427,8 +440,8 @@ mod tests {
         assert!(is_generated_paste_id("abcdefghij"));
         assert!(is_generated_paste_id("abcdefghijklmnopqrstuvwx"));
         assert!(is_generated_paste_id(
-            "abcdefghijklmnopqrstuvwxyZ0123456789ABCDE-_"
-        ));
+            "abcdefghijklmnopqrstuvwxyZ0123456789ABCDE-_")
+        );
         assert!(!is_generated_paste_id("short"));
     }
 
