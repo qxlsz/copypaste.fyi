@@ -37,6 +37,7 @@ export interface CreatePastePayload {
     key: string;
   };
   burn_after_reading?: boolean;
+  short_link?: boolean;
   time_lock?: {
     not_before?: string;
     not_after?: string;
@@ -47,6 +48,7 @@ export interface CreatePasteResponse {
   id: string;
   path: string;
   shareableUrl: string;
+  shortUrl?: string;
   /** Only present when `live: true` was set in the request. */
   token?: string;
   isLive: boolean;

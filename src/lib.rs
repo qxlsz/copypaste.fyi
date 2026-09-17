@@ -307,6 +307,7 @@ pub trait PasteStore: Send + Sync + 'static {
     ) -> Result<(), PasteMutationError>;
     /// Mark a live paste as finalized (no longer live).
     async fn finalize_paste(&self, id: &str) -> Result<(), PasteMutationError>;
+    async fn add_alias(&self, canonical: &str) -> Result<String, PersistenceError>;
 }
 
 #[async_trait]
@@ -348,6 +349,7 @@ const STATS_CACHE_TTL: Duration = Duration::from_secs(5);
 
 pub struct MemoryPasteStore {
     entries: RwLock<HashMap<String, StoredPaste>>,
+    aliases: RwLock<HashMap<String, String>>,
     persistence: Option<Arc<dyn PersistenceAdapter>>,
     stats_cache: Mutex<Option<StatsCache>>,
     // Mutations and persistence cache fills are serialized per paste ID within
@@ -362,6 +364,7 @@ impl MemoryPasteStore {
     pub fn new() -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
+            aliases: RwLock::new(HashMap::new()),
             persistence: None,
             stats_cache: Mutex::new(None),
             operation_locks: Mutex::new(HashMap::new()),
@@ -371,6 +374,7 @@ impl MemoryPasteStore {
     pub fn with_persistence(adapter: Arc<dyn PersistenceAdapter>) -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
+            aliases: RwLock::new(HashMap::new()),
             persistence: Some(adapter),
             stats_cache: Mutex::new(None),
             operation_locks: Mutex::new(HashMap::new()),
@@ -414,11 +418,21 @@ pub(crate) fn bool_is_false(value: &bool) -> bool {
 
 fn generate_paste_id(map: &HashMap<String, StoredPaste>) -> String {
     loop {
-        // nanoid's default URL-safe alphabet contains 64 symbols. At 24
-        // characters this carries 144 bits of CSPRNG-backed entropy, making
-        // paste identifiers infeasible to enumerate.
-        let candidate = nanoid!(24);
+        // 64-symbol URL alphabet. 43 chars is 258 bits of CSPRNG entropy.
+        let candidate = nanoid!(43);
         if !map.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+}
+
+fn generate_short_paste_id(
+    map: &HashMap<String, StoredPaste>,
+    aliases: &HashMap<String, String>,
+) -> String {
+    loop {
+        let candidate = nanoid!(10);
+        if !map.contains_key(&candidate) && !aliases.contains_key(&candidate) {
             return candidate;
         }
     }
@@ -453,6 +467,11 @@ impl PasteStore for MemoryPasteStore {
     }
 
     async fn get_paste(&self, id: &str) -> Result<StoredPaste, PasteError> {
+        let resolved = {
+            let aliases = self.aliases.read().await;
+            aliases.get(id).cloned()
+        };
+        let id = resolved.as_deref().unwrap_or(id);
         {
             let map = self.entries.read().await;
             if let Some(paste) = map.get(id).filter(|paste| !is_expired(paste)) {
@@ -494,7 +513,12 @@ impl PasteStore for MemoryPasteStore {
     }
 
     async fn delete_paste(&self, id: &str) -> Result<bool, PersistenceError> {
-        let operation_lock = self.operation_lock(id);
+        let resolved = {
+            let aliases = self.aliases.read().await;
+            aliases.get(id).cloned()
+        };
+        let canonical = resolved.as_deref().unwrap_or(id);
+        let operation_lock = self.operation_lock(canonical);
         let _operation = operation_lock.lock().await;
         // Delete durable state first. If that fails, retain the in-memory copy
         // and propagate the error so callers never claim a takedown succeeded
@@ -502,10 +526,27 @@ impl PasteStore for MemoryPasteStore {
         // within this process prevents an earlier local update save from
         // completing after this delete.
         if let Some(adapter) = &self.persistence {
-            adapter.delete(id).await?;
+            adapter.delete(canonical).await?;
         }
-        let existed = self.entries.write().await.remove(id).is_some();
+        let existed = self.entries.write().await.remove(canonical).is_some();
+        self.aliases
+            .write()
+            .await
+            .retain(|_, target| target != canonical);
         Ok(existed)
+    }
+
+    async fn add_alias(&self, canonical: &str) -> Result<String, PersistenceError> {
+        let alias = {
+            let map = self.entries.read().await;
+            let aliases = self.aliases.read().await;
+            generate_short_paste_id(&map, &aliases)
+        };
+        self.aliases
+            .write()
+            .await
+            .insert(alias.clone(), canonical.to_string());
+        Ok(alias)
     }
 
     async fn stats(&self) -> StoreStats {
@@ -1297,10 +1338,17 @@ mod tests {
             .await
             .expect("create paste");
 
-        assert_eq!(id.len(), 24);
+        assert_eq!(id.len(), 43);
         assert!(id
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')));
+        let short = store.add_alias(&id).await.expect("short alias");
+        assert_eq!(short.len(), 10);
+        let via_short = store.get_paste(&short).await.expect("alias lookup");
+        assert_eq!(
+            via_short.created_at,
+            store.get_paste(&id).await.unwrap().created_at
+        );
     }
 
     #[tokio::test]
