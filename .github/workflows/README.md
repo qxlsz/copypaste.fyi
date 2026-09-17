@@ -9,7 +9,7 @@ Lint locally: `python3 scripts/lint-workflows.py` (duplicate top-level keys are 
 | [ci.yml](ci.yml) | PR · push `main` (skips markdown-only) | **Yes** | fmt, clippy, tests, coverage ≥75%, frontend, workflow lint, SEO files |
 | [live-smoke.yml](live-smoke.yml) | push `main` · manual | No (live) | curl public robots, sitemap, home, Fly /health |
 | [ocaml-ci.yml](ocaml-ci.yml) | `ocaml-crypto-verifier/**` | Yes, if that tree changed | OCaml 5.2 verifier tests |
-| [deploy-fly.yml](deploy-fly.yml) | backend paths on `main` · manual | No (deploy) | `fly deploy` for Rocket + verifier |
+| [deploy-fly.yml](deploy-fly.yml) | backend paths on `main` · manual | No (deploy) | `fly deploy`. Copies `COPYPASTE_ADMIN_TOKEN` / `COPYPASTE_AUTH_TOKEN` from GitHub Actions secrets onto Fly when those secrets exist. |
 | [docker-publish.yml](docker-publish.yml) | push `main` (skips markdown) | No | GHCR `edge` / `latest`. Concurrency cancels in-flight publishes — that is expected. |
 | [release.yml](release.yml) | tag `v*` | n/a | CLI binaries for darwin/linux amd64+arm64 |
 | [auto-research.yml](auto-research.yml) | **`workflow_dispatch` only** | Must not fail on push | Writes a competitor briefing issue. Do **not** add `schedule:` — daily runs flooded the tracker. |
