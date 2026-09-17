@@ -116,13 +116,15 @@ Point every client at the same host. Default is `http://127.0.0.1:8000`.
 
 ```bash
 export COPYPASTE_HOST=http://127.0.0.1:8000
-copypaste send --host "$COPYPASTE_HOST" "notes from this box"
+copypaste send "notes from this box"
 ```
+
+`send`, `clip`, and `healthcheck` use `COPYPASTE_HOST` when `--host` is omitted.
 
 Clipboard after a terminal copy (iTerm2 / Ghostty / cmux):
 
 ```bash
-copypaste clip --host "${COPYPASTE_HOST:-http://127.0.0.1:8000}"
+copypaste clip
 ```
 
 That posts the current clipboard and puts the `/p/{id}` URL back. Bindings: [terminals.md](terminals.md).
@@ -191,7 +193,7 @@ Public copypaste.fyi stays anonymous. Stats "From" is the **referrer host** of a
 On your box, copy [.env.example](../.env.example) next to `docker-compose.yml` and set what you want:
 
 | Knob | What it does |
-|---|---|
+|---|---|---|
 | `COPYPASTE_RATE_LIMIT_CREATES` | Creates per IP per minute. `0` off |
 | `COPYPASTE_RATE_LIMIT_READS` | Reads per IP per minute. `0` off |
 | `COPYPASTE_BAN_AFTER` | After this many create 429s, ban the IP |
