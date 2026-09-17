@@ -441,8 +441,8 @@ mod tests {
         assert!(is_generated_paste_id("abcdefghij"));
         assert!(is_generated_paste_id("abcdefghijklmnopqrstuvwx"));
         assert!(is_generated_paste_id(
-            "abcdefghijklmnopqrstuvwxyZ0123456789ABCDE-_")
-        );
+            "abcdefghijklmnopqrstuvwxyZ0123456789ABCDE-_"
+        ));
         assert!(!is_generated_paste_id("short"));
     }
 
