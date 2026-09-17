@@ -2,80 +2,45 @@
 
 # copypaste.fyi
 
-**Type. Get link. Share.**
+Type. Get link. Share.
 
-A pastebin that stays out of the way — on a phone, in a terminal, or on your own box.
-
-[copypaste.fyi](https://www.copypaste.fyi) · [API](#api) · [Self-host](#self-host) · [Security](#security)
+[copypaste.fyi](https://www.copypaste.fyi) · [First principles](docs/first-principles.md) · [Self-host](docs/self-host.md) · [Packaging](docs/packaging.md)
 
 [![CI](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml/badge.svg)](https://github.com/qxlsz/copypaste.fyi/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A575%25-brightgreen)](#test)
-[![crates.io](https://img.shields.io/crates/v/copypaste.svg)](https://crates.io/crates/copypaste)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
 
 ```text
 $ copypaste send "notes from the incident"
-https://www.copypaste.fyi/p/AbCdEf12GhJkLmNpQrStUvWx
+https://www.copypaste.fyi/p/AbCdEf12GhJkLmNpQrStUvWxYz0123456789abcdef
 ```
 
-On the site: type into the editor, tap **Get link**. The URL is on the clipboard. There is no account, no public listing, no “submit” hunt.
+On the site: type, tap **Get link**. The URL is on the clipboard. No account. No listing.
 
-```mermaid
-flowchart LR
-  A[Type] --> B[Get link]
-  B --> C[Share URL]
-  C --> D["/p/{id}"]
-```
+## Server and client
 
-## Use it
-
-| | |
-|---|---|
-| **Web** | [copypaste.fyi](https://www.copypaste.fyi). Phones keep **Get link** in the thumb zone, above the keyboard |
-| **CLI** | `curl -fsSL https://www.copypaste.fyi/install.sh | sh` then `copypaste send "text"` |
-| **Mac** | Select text → Services → Send to copypaste, or `copypaste send --clipboard` |
-| **curl** | `POST /api/pastes` with `{"content":"hello","format":"plain_text"}` |
-
-Public writes are open. Pastes on the public instance live in that machine’s memory (one Fly VM, always on). Self-host if you need a lock, Redis, or your own retention.
-
-## Self-host
-
-Pick one row. Ignore the rest. Cookbook: [docs/self-host.md](docs/self-host.md). About on the site is the same helper.
-
-| I am... | Follow |
-|---|---|
-| Grok / Grokbot VM or Cursor cloud agent | `./scripts/agent-setup.sh --serve` |
-| Ubuntu / Debian | same `agent-setup.sh` (apt + rust + serve) |
-| Apple | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` |
-| Fedora | `curl -fsSL https://www.copypaste.fyi/install.sh \| sh` then `copypaste serve` |
-| Windows | `irm https://www.copypaste.fyi/install.ps1 \| iex` then `copypaste serve` |
-| Docker | `docker compose up --build` |
-| I only want the public site | `copypaste send --host https://www.copypaste.fyi "notes"` |
-
-**Run on this machine**
+One binary. The server stores pastes. The client creates them.
 
 ```bash
+# server, this machine
 ROCKET_ADDRESS=127.0.0.1 COPYPASTE_FORCE_MEMORY=true copypaste serve
+
+# client, same machine or another
+copypaste send --host http://127.0.0.1:8000 "from the client"
 ```
 
-Open http://127.0.0.1:8000
+| Install | Server | Client |
+|---|---|---|
+| Homebrew | `brew install qxlsz/copypaste/copypaste` then `brew services start copypaste` | `copypaste send --host http://127.0.0.1:8000 "..."` |
+| Debian | `./scripts/build-deb.sh target/release/copypaste 0.2.0 dist` then `apt install ./dist/copypaste_*.deb` | same `send --host` |
+| Docker | `docker compose up --build` | `send --host http://127.0.0.1:8000` |
+| Agent VM | `./scripts/agent-setup.sh --serve` | `send --host http://127.0.0.1:8000` |
+| Public site only | you do not run a server | `copypaste send --host https://www.copypaste.fyi "..."` |
 
-**Talk to your instance**
+Cookbook: [docs/self-host.md](docs/self-host.md). Deb and brew test: [docs/packaging.md](docs/packaging.md). Why it works this way: [docs/first-principles.md](docs/first-principles.md).
 
-```bash
-copypaste send --host http://127.0.0.1:8000 "notes from this box"
-```
-
-**Lock it**
-
-```bash
-COPYPASTE_REQUIRE_WRITE_AUTH=true
-COPYPASTE_AUTH_TOKEN=<43-128 base64url chars>
-```
-
-Clients send `X-CopyPaste-Write-Token`. Never put the token on argv.
+Lock a private server with `COPYPASTE_REQUIRE_WRITE_AUTH=true` and `COPYPASTE_AUTH_TOKEN`. Clients send `X-CopyPaste-Write-Token`. Never put the token on argv.
 
 Dev UI + API from a clone: `./scripts/install_deps.sh` then `ROCKET_ADDRESS=127.0.0.1 ./scripts/run_both.sh`.
 
@@ -90,7 +55,7 @@ Then Services → Send to copypaste. `COPYPASTE_HOST=http://127.0.0.1:8000` poin
 
 ## What it does
 
-- 24-character IDs, 1 MiB cap, format + expiry + burn-after-reading
+- 43-character IDs, optional 10-character alphanumeric short alias, 1 MiB cap
 - Optional **server-side** AES-256-GCM / ChaCha20-Poly1305 (OCaml verifier on a private VM)
 - JSON API, `/p/{id}` share pages, `/raw/{id}`, secret-file-aware CLI
 - Optional Upstash Redis REST, Tor ingress, admin quarantine, content-safe anchoring
@@ -99,26 +64,11 @@ It does **not** do browser-only E2E encryption, public paste search, or exactly-
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  browser[Browser / CLI]
-  edge[TLS edge]
-  app[Rocket]
-  mem[Process memory]
-  redis[Optional Upstash]
-  ocaml[OCaml verifier]
-
-  browser --> edge --> app
-  app --> mem
-  mem <-.-> redis
-  app --> ocaml
-```
-
-Run **one** `app` instance. Sessions, stats, and burn consume are process-local. `COPYPASTE_FORCE_MEMORY=true` beats a leftover Redis secret (the public site uses this until Upstash is healthy).
+Browser and CLI talk HTTPS to one Rocket process. Pastes live in that process unless you point it at Redis. Optional AES/ChaCha checks can call the OCaml verifier. Run one `app` instance. Sessions, stats, and burn consume are process-local. `COPYPASTE_FORCE_MEMORY=true` beats a leftover Redis secret.
 
 ## Security
 
-There is **no paste listing**. IDs are 24 random characters. Missing, burned, and expired reads all return the same `404 paste_not_found` so probing IDs does not leak whether a secret once existed. Create/read are process-local rate limited; put an edge quota in front of a public box.
+There is **no paste listing**. Canonical IDs are 43 random characters. Missing, burned, and expired reads all return the same `404 paste_not_found`. Create/read are process-local rate limited; put an edge quota in front of a public box.
 
 Encryption happens in the Rust service (AES-256-GCM / ChaCha20-Poly1305). TLS to the edge is required; plaintext and the key can still exist in the app (and, for AES/ChaCha, in the OCaml verifier) while a paste is written. Keys are not stored on purpose. This is **not** zero-knowledge.
 

@@ -13,7 +13,7 @@ describe("AboutPage", () => {
         <AboutPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("heading", { name: /run the same binary/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /same binary as this site/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /rsa-260/i })).toBeInTheDocument();
     expect(screen.getByText(/does not encrypt pastes with rsa/i)).toBeInTheDocument();
     expect(screen.getByText(/follow this:/i)).toBeInTheDocument();

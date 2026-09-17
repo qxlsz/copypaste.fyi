@@ -49,13 +49,11 @@ export const AboutPage = () => {
   return (
     <article className="mx-auto max-w-2xl space-y-10 pb-16">
       <header className="space-y-3">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          MIT · self-host
-        </p>
-        <h1 className="text-3xl font-medium tracking-tight text-text">Run the same binary</h1>
+        <p className="text-sm text-muted-foreground">MIT. Self-host if you want the keys on your box.</p>
+        <h1 className="text-3xl font-medium tracking-tight text-text">Same binary as this site</h1>
         <p className="text-base leading-relaxed text-muted-foreground">
-          copypaste.fyi is the public demo. The product is the MIT repo: a CLI and a local server
-          you can brew, cargo, or Docker. Type, get link, share. No public listing.
+          Type, get link, share. No listing. Run <code>copypaste serve</code> on a machine you
+          own, then <code>copypaste send --host</code> at that machine.
         </p>
       </header>
 
