@@ -146,7 +146,16 @@ ROCKET_ADDRESS=127.0.0.1 copypaste serve
 Clients send `X-CopyPaste-Write-Token: <credential>`. Never put the token on argv.
 
 ```bash
-copypaste send --host http://127.0.0.1:8000 --auth-token-file ./write.token "secret"
+export COPYPASTE_HOST=http://127.0.0.1:8000
+copypaste send --auth-token-file ./write.token "secret"
+```
+
+`clip` has no `--auth-token-file`. It still posts a create, so point it at the same host and put the token in the environment:
+
+```bash
+export COPYPASTE_HOST=http://127.0.0.1:8000
+export COPYPASTE_AUTH_TOKEN="$(cat ./write.token)"
+copypaste clip
 ```
 
 ## 5. What the public site does vs you
