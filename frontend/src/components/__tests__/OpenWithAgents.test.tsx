@@ -25,5 +25,8 @@ describe("OpenWithAgents", () => {
     expect(decodeURIComponent(whatsapp.getAttribute("href") ?? "")).not.toContain("dont-leak");
     expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeInTheDocument();
     expect(screen.queryByText("Open in Grok, Codex, ChatGPT…")).not.toBeInTheDocument();
+    const chatgptSvg = screen.getByRole("link", { name: "ChatGPT" }).querySelector("svg");
+    const codexSvg = screen.getByRole("link", { name: "Codex" }).querySelector("svg");
+    expect(chatgptSvg?.innerHTML).not.toEqual(codexSvg?.innerHTML);
   });
 });
