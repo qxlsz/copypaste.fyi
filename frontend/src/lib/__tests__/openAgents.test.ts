@@ -32,7 +32,7 @@ describe("openAgents", () => {
 
   it("opens Grok, Codex, ChatGPT, and Claude", () => {
     const ids = OPEN_AGENTS.map((agent) => agent.id);
-    expect(ids).toEqual(["grok", "codex", "chatgpt", "claude"]);
+    expect(ids).toEqual(["grok", "codex", "chatgpt", "claude", "gemini", "copilot", "perplexity"]);
     const prompt = openPrompt(URL);
     expect(agentHref(OPEN_AGENTS[0], prompt)).toContain("grok.com");
     expect(agentHref(OPEN_AGENTS[1], prompt)).toContain("chatgpt.com");

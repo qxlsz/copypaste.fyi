@@ -36,6 +36,7 @@ import {
 import { whisperNote, sharePayload } from "../lib/whisper";
 import { agentReceipt } from "../lib/agent";
 import { sniffFormatFromText } from "../lib/sniffFormat";
+import { incomingShareText } from "../lib/shareIncoming";
 import { MAX_PASTE_BYTES, composerStats, isTextFile, sniffFormat } from "../lib/composer";
 import { useAuth } from "../stores/auth";
 
@@ -113,7 +114,10 @@ export const PasteFormPage = () => {
   // initializers never re-run, so later navigation state changes can't loop.
   const [content, setContent] = useState(() => {
     const state = location.state as ForkState | null;
-    return typeof state?.content === "string" ? state.content : "";
+    if (typeof state?.content === "string" && state.content) {
+      return state.content;
+    }
+    return incomingShareText(location.search);
   });
   const [format, setFormat] = useState<PasteFormat>(() => {
     const state = location.state as ForkState | null;
