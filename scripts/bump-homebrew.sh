@@ -17,7 +17,7 @@ sha_of() {
     exit 1
   fi
   sha256sum "$file" | awk '{print $1}'
-done
+}
 
 ARM_MAC="$(sha_of copypaste-darwin-arm64.tar.gz)"
 INTEL_MAC="$(sha_of copypaste-darwin-x64.tar.gz)"
