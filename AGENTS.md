@@ -2,7 +2,7 @@
 
 Instructions for Grok, Claude, Codex, and any other agent working in **qxlsz/copypaste.fyi**.
 
-This file is the product + CI contract. [CLAUDE.md](CLAUDE.md) has extra route/auth detail. [CONTRIBUTING.md](CONTRIBUTING.md) is for humans.
+This file is the product + CI contract. [docs/first-principles.md](docs/first-principles.md) is the short version. [CLAUDE.md](CLAUDE.md) has extra route/auth detail. [CONTRIBUTING.md](CONTRIBUTING.md) is for humans.
 
 ## Product
 

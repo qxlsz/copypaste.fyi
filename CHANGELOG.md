@@ -7,6 +7,28 @@ All notable changes to copypaste.fyi are documented here. The project follows
 
 ### Added
 
+- First principles and packaging notes: [docs/first-principles.md](docs/first-principles.md),
+  [docs/packaging.md](docs/packaging.md). `scripts/build-deb.sh` turns a release binary into a
+  `.deb` with the systemd unit.
+- Homebrew `brew test` now checks `serve`, `send`, and `healthcheck` on `--help`.
+- After Get link, Make short link mints a 10-character A-Z a-z 0-9 alias via
+  `POST /api/pastes/{id}/alias`.
+- Open-with uses Android `intent://` and iOS app schemes for Grok, ChatGPT, Codex, Claude,
+  Gemini, Copilot, and Perplexity. `/p/{id}?open=grok` hands off the public URL only.
+- MCP tools `mint_alias` and `health`, plus `copypaste://discovery` and share/read prompts.
+  Chrome and Edge can install the site and share text into the composer.
+
+### Changed
+
+- Short is gone from the composer. The long id is the default.
+- Stats stay admin-gated. Referrer, device, OS, and country stay on that page.
+
+## [0.2.0]
+
+See git history for the 0.2.0 cut. Highlights below stay as the running log.
+
+### Added
+
 - Self-host helper on About now has a one-tap Copy for the recipe commands.
 - Added `copypaste healthcheck` so distroless images can probe `GET /api/health` in Docker exec
   form without a shell or curl.

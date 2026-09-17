@@ -45,8 +45,16 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Inter Variable"', '"Inter"', "system-ui", "sans-serif"],
-        mono: ['"JetBrains Mono Variable"', '"JetBrains Mono"', "monospace"],
+        sans: [
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Helvetica",
+          "Arial",
+          "sans-serif",
+        ],
+        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
       },
       boxShadow: {
         soft: "var(--shadow-soft)",
