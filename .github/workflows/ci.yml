@@ -60,7 +60,7 @@ jobs:
           toolchain: 1.88.0
           components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
-      - uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6  # v2
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29  # v2
         with:
           tool: cargo-nextest,cargo-audit
       - run: cargo audit
@@ -77,7 +77,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
-      - uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6  # v2
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29  # v2
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo llvm-cov nextest --workspace --all-features --fail-under-lines 75 --lcov --output-path lcov.info
